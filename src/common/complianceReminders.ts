@@ -121,6 +121,7 @@ async function computeClientDeadlines(c: any, asOf: Date): Promise<ComplianceDea
   const completedKeys = new Set(completionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
 
   return computeUpcomingDeadlines({
+    state: c.state || null,
     mdCurrentPeriodDueDate: null,
     payrollNextDate: nextPayrollRow?.next_pay_date ? new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) : null,
     payrollEnabled: false, // "Payroll" (next pay date) isn't a client-facing compliance reminder — see REMINDABLE_SOURCES
@@ -156,7 +157,7 @@ export async function runComplianceDeadlineReminders(actorEmail: string): Promis
   const asOfStr = asOf.toISOString().slice(0, 10);
 
   const clients = await query<any>(
-    `SELECT client_id, client_name, email, phone, email_allowed, sms_allowed,
+    `SELECT client_id, client_name, state, email, phone, email_allowed, sms_allowed,
             payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation, eftps_enabled,
             md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled
        FROM altax.v3_clients

@@ -2283,7 +2283,7 @@ export async function computeClientDashboard(clientId: string) {
 
   const { from, to } = defaultFirmSummaryRange();
 
-  const [financials, cashBalance, apEstimate, arAging, cogs, openTasksRow, payroll, mdFiling] = await Promise.all([
+  const [financials, cashBalance, apEstimate, arAging, cogs, openTasksRow, payroll, mdFiling, dcFiling] = await Promise.all([
     computeFirmSummary(from, to, clientId),
     computeClientCashBalance(clientId),
     computeClientApEstimate(clientId),
@@ -2300,6 +2300,8 @@ export async function computeClientDashboard(clientId: string) {
     // filing on time. computeClientComplianceTimeline already opts into this
     // same flag for exactly this reason; this call just never matched it.
     computeMdFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true }),
+    // DC counterpart — returns null for any non-DC client, so this costs nothing for them.
+    computeDcFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true }),
   ]);
 
   const openTasks = openTasksRow?.count || 0;
@@ -2311,7 +2313,10 @@ export async function computeClientDashboard(clientId: string) {
     periodDays,
   });
   const { trendPct } = computeRevenueTrend(financials.months);
-  const mdFilingOnTime = clientRow.state === "MD" && mdFiling ? summarizeMdFilingOnTime(mdFiling.periods, to) : null;
+  const { summarizeDcFilingOnTime } = await import("../../common/dcFiling");
+  const mdFilingOnTime = clientRow.state === "MD" && mdFiling
+    ? summarizeMdFilingOnTime(mdFiling.periods, to)
+    : clientRow.state === "DC" && dcFiling ? summarizeDcFilingOnTime(dcFiling.periods, to) : null;
   const health = computeClientHealthScore({
     netMarginPct: ratios.netMarginPct, trendPct,
     arD61_90: arAging.d61_90, arD90Plus: arAging.d90Plus, arTotal: arAging.total,
@@ -2361,8 +2366,11 @@ export async function computeClientDashboard(clientId: string) {
   // was filed late — showing its due date as an "upcoming deadline" would be
   // stale. Pick the last period that's still actually unresolved.
   const unresolvedMdPeriods = mdFiling ? mdFiling.periods.filter((p: any) => !p.markedPaidDate) : [];
+  const unresolvedDcPeriods = dcFiling ? dcFiling.periods.filter((p: any) => !p.markedPaidDate) : [];
   const deadlines = computeUpcomingDeadlines({
+    state: clientRow.state,
     mdCurrentPeriodDueDate: unresolvedMdPeriods.length > 0 ? unresolvedMdPeriods[unresolvedMdPeriods.length - 1].dueDate : null,
+    dcCurrentPeriodDueDate: unresolvedDcPeriods.length > 0 ? unresolvedDcPeriods[unresolvedDcPeriods.length - 1].dueDate : null,
     payrollNextDate: nextPayrollRow?.next_pay_date ? new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) : null,
     payrollEnabled: Boolean(clientRow.payroll_enabled),
     mdAnnualReportEnabled: Boolean(clientRow.md_annual_report_enabled),

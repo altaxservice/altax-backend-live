@@ -363,7 +363,8 @@ export interface MdAnnualReportOverdue { clientId: string; clientName: string; d
 export async function computeFirmWideMdAnnualReportOverdue(asOf: Date = new Date()): Promise<MdAnnualReportOverdue[]> {
   const clients = await query<any>(
     `SELECT client_id, client_name, date_of_formation FROM altax.v3_clients
-      WHERE md_annual_report_enabled = true AND ${ACTIVE_CLIENT_STATUS_FILTER}`
+      WHERE md_annual_report_enabled = true AND ${ACTIVE_CLIENT_STATUS_FILTER}
+        AND (state IS NULL OR btrim(state) = '' OR upper(btrim(state)) = 'MD')`
   );
   if (clients.length === 0) return [];
   const asOfStr = asOf.toISOString().slice(0, 10);

@@ -19,7 +19,7 @@ import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, deriveServiceType, INDUSTRY_CAT
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
-import { clientStateLabel, isMarylandClient, sosAgencyLabel } from "../utils/clientStateLabels";
+import { clientStateLabel, hasAnnualReportRules, isMarylandClient, sosAgencyLabel } from "../utils/clientStateLabels";
 import { useFormDraft } from "../hooks/useFormDraft";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
@@ -1087,12 +1087,12 @@ export function ClientsListPage() {
                   </div>
                 </div>
 
-                {form.clientType === "Business" && (isMarylandClient(form.state) || form.mdAnnualReportEnabled) && (
+                {form.clientType === "Business" && (hasAnnualReportRules(form.state) || form.mdAnnualReportEnabled) && (
                   <div className="ac-subcard">
                     <div className="ac-subcard-title">Business Compliance</div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 6 }}>
                       <input type="checkbox" checked={form.mdAnnualReportEnabled} onChange={(e) => setForm((f) => ({ ...f, mdAnnualReportEnabled: e.target.checked }))} />
-                      MD Annual Report enabled
+                      {clientStateLabel("MD Annual Report enabled", form.state)}
                     </label>
                   </div>
                 )}

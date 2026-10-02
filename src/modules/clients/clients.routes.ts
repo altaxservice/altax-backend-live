@@ -1908,6 +1908,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
   const obligationCompletionRows = await query<any>(`SELECT source, due_date FROM altax.v3_obligation_completions WHERE client_id = $1`, [clientId]);
   const obligationCompletedKeys = new Set(obligationCompletionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
   const upcomingObligationDeadlines = computeUpcomingDeadlines({
+    state: clientRow.state || null,
     mdCurrentPeriodDueDate: null, payrollNextDate: null, payrollEnabled: false,
     eftpsEnabled: Boolean(clientRow.eftps_enabled),
     mdWithholdingFrequency: clientRow.md_withholding_frequency || null,

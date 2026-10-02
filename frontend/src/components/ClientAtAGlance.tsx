@@ -763,7 +763,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                     })}
                   </div>
                   <p className="muted" style={{ fontSize: 11, margin: "10px 0 0", lineHeight: 1.4 }}>
-                    EFTPS, MD Withholding, MD UI and business-return deadlines drop off this list once they're past due — anything already overdue shows in Account Flags and the filing history above.
+                    EFTPS, state withholding, state unemployment and business-return deadlines drop off this list once they're past due — anything already overdue shows in Account Flags and the filing history above.
                   </p>
                 </div>
               )}

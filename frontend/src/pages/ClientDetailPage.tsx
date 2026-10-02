@@ -41,7 +41,7 @@ import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
 import { SubscriptionServicesChecklist } from "../components/SubscriptionServicesChecklist";
 import { DetailField } from "../components/DetailCard";
-import { clientStateLabel, isMarylandClient } from "../utils/clientStateLabels";
+import { clientStateLabel, hasAnnualReportRules, isMarylandClient } from "../utils/clientStateLabels";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
 // Display-only fallback if the tiers admin page hasn't loaded here — the
@@ -93,8 +93,8 @@ const showMdui = (f: Record<string, any>) => hasService(f, "payroll") || Boolean
 const showW21099 = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.w21099Enabled);
 const showSalesTaxDetails = (f: Record<string, any>) => hasService(f, "sales_tax") || filled(f.salesTaxFrequency);
 const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "business_tax_prep") || filled(f.businessReturnType);
-// The Annual Report flag drives Maryland's April 15 deadline specifically, so it's only offered for MD clients (or ones that already have it on).
-const showMdAnnualReport = (f: Record<string, any>) => Boolean(f.mdAnnualReportEnabled) || (isBusiness(f) && isMarylandClient(f.state));
+// The flag drives a state-specific deadline (Maryland's April 15 Annual Report, DC's biennial report), so it's only offered where the calendar has rules for it, or when already on.
+const showMdAnnualReport = (f: Record<string, any>) => Boolean(f.mdAnnualReportEnabled) || (isBusiness(f) && hasAnnualReportRules(f.state));
 const showEntityType = (f: Record<string, any>) => isBusiness(f) || filled(f.entityType);
 
 // Same 7-card shape and order as the Add Client wizard (ClientsListPage.tsx)
@@ -1224,7 +1224,7 @@ export function ClientDetailPage() {
                 <DetailField label="EFTPS Enabled" value={client.eftps_enabled ? "Yes" : "No"} />
                 <DetailField label={clientStateLabel("MD Withholding Frequency", client.state)} value={client.md_withholding_frequency as string | null} />
                 <DetailField label={clientStateLabel("MD UI Enabled", client.state)} value={client.mdui_enabled ? "Yes" : "No"} />
-                {(isMarylandClient(client.state) || Boolean(client.md_annual_report_enabled)) && <DetailField label="MD Annual Report Enabled" value={client.md_annual_report_enabled ? "Yes" : "No"} />}
+                {(hasAnnualReportRules(client.state) || Boolean(client.md_annual_report_enabled)) && <DetailField label={clientStateLabel("MD Annual Report Enabled", client.state)} value={client.md_annual_report_enabled ? "Yes" : "No"} />}
                 <DetailField label="Business Return Type" value={client.business_return_type as string | null} />
                 <DetailField label="W-2 / 1099 Enabled" value={client.w21099_enabled ? "Yes" : "No"} />
               </div>

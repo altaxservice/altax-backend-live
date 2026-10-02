@@ -31,11 +31,18 @@ export function sosAgencyLabel(state: string | null | undefined): string {
   return SOS_AGENCY[st] ?? `${st} Secretary of State`;
 }
 
+/** The states whose annual-report obligation the calendar has real rules for (Maryland's April 15 report, DC's biennial report). */
+export function hasAnnualReportRules(state: string | null | undefined): boolean {
+  const st = normalize(state);
+  return isMarylandClient(st) || st === "DC";
+}
+
 /** Rewrites the Maryland wording of a profile field label for the client's own state. */
 export function clientStateLabel(label: string, state: string | null | undefined): string {
   const st = normalize(state);
   if (isMarylandClient(st)) return label;
   return label
+    .replace(/\bMD Annual Report\b/g, st === "DC" ? "DC Biennial Report" : `${st} Annual Report`)
     .replace(/\bMD (UI|Withholding)\b/g, `${st} $1`)
     .replace("(SDAT)", `(${sosAgencyLabel(st)})`);
 }
