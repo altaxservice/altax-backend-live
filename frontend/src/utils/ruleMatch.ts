@@ -29,14 +29,31 @@ function normalizeText(v: unknown): string {
   return String(v ?? "").trim().toLowerCase();
 }
 
-export function clientMatchesRule(client: Client, rule: TaskRule | null): boolean {
-  if (!rule) return false;
-  const triggerColumnRaw = String(rule.trigger_column || "").trim();
-  const triggerValue = normalizeText(rule.trigger_value);
-  if (!triggerColumnRaw || !triggerValue || triggerValue === "=") return true;
-  const triggerColumn = CLIENT_TRIGGER_COLUMNS[triggerColumnRaw];
+function matchesSingleCondition(client: Client, columnRaw: string, valueRaw: unknown): boolean {
+  const triggerColumn = CLIENT_TRIGGER_COLUMNS[columnRaw];
   if (!triggerColumn) return false;
-  const actual = normalizeText((client as Record<string, unknown>)[triggerColumn]);
+  const triggerValue = normalizeText(valueRaw);
+  let actual = normalizeText((client as Record<string, unknown>)[triggerColumn]);
+  // No state on file has always meant Maryland — keep a "State = MD" rule matching those clients.
+  if (triggerColumn === "state" && !actual) actual = "md";
   if (actual === triggerValue) return true;
   return triggerValue === "yes" && ["yes", "true", "active"].includes(actual);
+}
+
+export function clientMatchesRule(client: Client, rule: TaskRule | null): boolean {
+  if (!rule) return false;
+  // state_scope (sql/173): a rule limited to certain states. No state on file counts as Maryland.
+  const scope = String((rule as unknown as { state_scope?: string | null }).state_scope || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+  if (scope.length > 0 && !scope.includes(normalizeText((client as Record<string, unknown>).state) || "md")) return false;
+  const triggerColumnRaw = String(rule.trigger_column || "").trim();
+  const triggerValue = normalizeText(rule.trigger_value);
+  const isEmptyTrigger = !triggerColumnRaw || !triggerValue || triggerValue === "=";
+  if (!isEmptyTrigger && !matchesSingleCondition(client, triggerColumnRaw, rule.trigger_value)) return false;
+
+  // Optional second, AND-combined condition (sql/136) — what scopes a rule to one state.
+  const extra = rule as unknown as { trigger_column_2?: string | null; trigger_value_2?: string | null };
+  const column2 = String(extra.trigger_column_2 || "").trim();
+  const value2 = normalizeText(extra.trigger_value_2);
+  if (column2 && value2 && value2 !== "=") return matchesSingleCondition(client, column2, extra.trigger_value_2);
+  return true;
 }

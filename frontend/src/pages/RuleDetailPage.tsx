@@ -102,7 +102,7 @@ export function RuleDetailPage() {
         <h2>{rule.task_type}</h2>
         <p>
           {rule.trigger_column ? `${rule.trigger_column} = ${rule.trigger_value}` : "Manual selection (no auto-trigger)"}
-          {rule.trigger_column && rule.trigger_column_2 ? ` AND ${rule.trigger_column_2} = ${rule.trigger_value_2}` : ""} · {rule.frequency}
+          {rule.trigger_column && rule.trigger_column_2 ? ` AND ${rule.trigger_column_2} = ${rule.trigger_value_2}` : ""}{rule.state_scope ? ` · ${rule.state_scope} only` : ""} · {rule.frequency}
           {" · "}<span className={`status-pill ${rule.active ? "status-green" : "status-gray"}`}>{rule.active ? "Active" : "Inactive"}</span>
           {" · "}<span className={`status-pill ${rule.agent_enabled ? "status-green" : "status-gray"}`}>{rule.agent_enabled ? "Agent: Included" : "Agent: Excluded"}</span>
         </p>

@@ -6,6 +6,7 @@
  * an annual report filing fee) — staff enters the amount, suggested as
  * $75 in the frontend to match the existing billing catalog SKU.
  */
+import { annualReportLabel } from "../../common/stateNames";
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
@@ -30,14 +31,14 @@ function annualReportDueDate(periodEnd: string): string {
   return `${reportYear + 1}-04-15`;
 }
 
-type LoadClientResult = { error: string; status: number } | { client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone: string | null; smsAllowed: boolean } };
+type LoadClientResult = { error: string; status: number } | { client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone: string | null; smsAllowed: boolean; state: string | null } };
 
 async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadClientResult> {
   if (!clientId) return { error: "Client is required.", status: 400 };
   if (!(await canAccessClient(req.user!, clientId))) return { error: "You do not have access to this client.", status: 403 };
-  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed, phone, sms_allowed, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return { error: "Client not found.", status: 404 };
-  return { client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed), phone: client.phone, smsAllowed: Boolean(client.sms_allowed) } };
+  return { client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed), phone: client.phone, smsAllowed: Boolean(client.sms_allowed), state: client.state || null } };
 }
 
 annualReportFilingsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -134,7 +135,7 @@ annualReportFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", 
       const sourceRecordId = `${client.clientId}:${periodEnd}`;
       const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/annual-report/${row?.share_token}`;
       const { sent } = await sendFilingConfirmation({
-        client, sourceRecordId, filingType: "Maryland Annual Report", periodLabel: periodStart.slice(0, 4),
+        client, sourceRecordId, filingType: annualReportLabel(client.state), periodLabel: periodStart.slice(0, 4),
         filedDate, amount, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
       });
       notified = sent;
@@ -143,7 +144,7 @@ annualReportFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", 
         if (!paidDate) {
           const { schedulePaymentReminder } = await import("../../common/paymentReminders");
           await schedulePaymentReminder({
-            sourceSystem: "AnnualReportFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Annual Report",
+            sourceSystem: "AnnualReportFiling", sourceRecordId, clientId: client.clientId, filingType: annualReportLabel(client.state),
             periodLabel: periodStart.slice(0, 4), amount, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
           });
         }
@@ -221,7 +222,7 @@ annualReportFilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requir
   const sourceRecordId = `${client.clientId}:${periodEnd}`;
   const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/annual-report/${existing.share_token}`;
   const { sent } = await sendFilingConfirmation({
-    client, sourceRecordId, filingType: "Maryland Annual Report", periodLabel: periodStartStr.slice(0, 4),
+    client, sourceRecordId, filingType: annualReportLabel(client.state), periodLabel: periodStartStr.slice(0, 4),
     filedDate: filedDateStr, amount: Number(existing.amount), paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
   });
   if (!sent) {

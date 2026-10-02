@@ -129,22 +129,53 @@ export function computeIndividualDeadlines(clientType: string | null | undefined
 }
 
 /**
- * DC deadlines — every date below is from DC's own published instructions
- * (researched 2026-10-02), not inferred from Maryland's:
- *  - Withholding (OTR, FR-900M/Q/A): deposits are due the 20th of the month
- *    after the month (monthly) or quarter (quarterly) being reported; the
- *    FR-900Q return is due the last day of the month after the quarter; an
- *    annual filer (FR-900A) deposits by Jan 20 and files by Jan 31. DC has no
- *    semiannual frequency.
- *  - Unemployment insurance (DOES, Form UC-30): the quarterly contribution and
- *    wage report is due Apr 30 / Jul 31 / Oct 31 / Jan 31.
- *  - Biennial report (DLCP, BRA-25): first due April 1 of the year after the
- *    year of registration, then every two years after that.
+ * State obligation rules for every state other than Maryland (Maryland's
+ * original rules stay inline in computeUpcomingDeadlines). Every date below is
+ * from that state's own published instructions, researched 2026-10-02 — none is
+ * inferred from Maryland's. Anything an official source didn't state clearly is
+ * deliberately left out rather than guessed:
+ *
+ *  DC  withholding: monthly deposit+return the 20th (FR-900M); quarterly deposit
+ *      the 20th, FR-900Q return month-end after the quarter; annual filer Jan 20
+ *      (deposit) / Jan 31 (FR-900A). UI (DOES, UC-30): month-end after quarter.
+ *      Biennial report (DLCP, BRA-25): April 1 of the year after registration,
+ *      then every two years.
+ *  VA  withholding (Tax): monthly VA-5 the 25th; quarterly VA-5 month-end after
+ *      the quarter; every filer's VA-6 annual reconciliation Jan 31. Semi-weekly
+ *      (VA-15) depends on bank cutoffs, so it isn't a single date and isn't
+ *      shown. UI (VEC, FC-20/FC-21): month-end after quarter. SCC annual
+ *      registration fee: last day of the entity's formation month.
+ *  PA  withholding (Revenue): quarterly return+payment month-end after the
+ *      quarter; monthly payment the 15th (December: Jan 31) plus the quarterly
+ *      reconciliation return; REV-1667 annual reconciliation Jan 31. UC (L&I,
+ *      UC-2/UC-2A): month-end after quarter. Dept. of State annual report (from
+ *      2025): LLCs Sept 30, corporations June 30.
+ *  DE  withholding (Revenue): monthly W-1 the 15th; quarterly W-1Q month-end
+ *      after the quarter; WTH-REC annual reconciliation Jan 31. UI (DOL,
+ *      UC-8/UC-8A): month-end after quarter. Division of Corporations: LLC/
+ *      partnership annual tax June 1; corporation annual report + franchise tax
+ *      March 1.
+ *
+ * Payroll deadlines move to the next business day when they land on a weekend
+ * (every state's own rule, except where noted); holidays aren't modeled.
+ * Withholding frequencies the app offers that a state doesn't have (DC and VA
+ * have no semiannual; PA/DE/VA have no annual payment frequency) simply yield
+ * no payment deadline. Sales tax isn't covered here — only Maryland and DC have
+ * a filing engine to resolve a period against.
  */
-const DC_WITHHOLDING_FREQUENCIES = new Set(["Monthly", "Quarterly", "Annually"]);
+export const STATES_WITH_OBLIGATION_RULES = ["DC", "VA", "PA", "DE"] as const;
 
 function localYmd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** A due date that lands on Saturday/Sunday moves to Monday. */
+function nextBusinessDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const dow = d.getUTCDay();
+  if (dow === 6) d.setUTCDate(d.getUTCDate() + 2);
+  else if (dow === 0) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 /** The most recent already-due and the next upcoming DC biennial report dates, or null when the formation year (which fixes the two-year cycle) isn't known. */
@@ -158,22 +189,111 @@ export function dcBiennialReportDueDates(dateOfFormation: string | null | undefi
   return { previous: year - 2 >= firstDueYear ? `${year - 2}-04-01` : null, next: `${year}-04-01` };
 }
 
-function computeDcWithholdingDeadlines(frequency: string, asOf: Date): ComplianceDeadline[] {
-  if (!DC_WITHHOLDING_FREQUENCIES.has(frequency)) return [];
+/** The last already-due and next upcoming occurrence of a once-a-year `month`/`day` (day 0 = last day of the month), never before `minYear`. */
+function yearlyDueDates(month: number, day: number, minYear: number, asOf: Date): { previous: string | null; next: string } {
+  const today = localYmd(asOf);
+  const dateIn = (y: number) => {
+    const d = day === 0 ? new Date(Date.UTC(y, month, 0)).getUTCDate() : day;
+    return `${y}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  };
+  let nextYear = Math.max(asOf.getFullYear(), minYear);
+  while (dateIn(nextYear) < today) nextYear += 1;
+  return { previous: nextYear - 1 >= minYear ? dateIn(nextYear - 1) : null, next: dateIn(nextYear) };
+}
+
+type PayrollFrequency = "Monthly" | "Quarterly" | "Annual";
+
+function recurringDue(frequency: PayrollFrequency, dueDay: number, asOf: Date, dueMonth = "1"): string | null {
+  const p = computeDuePeriod({ frequency, due_day: String(dueDay), due_month: frequency === "Annual" ? dueMonth : null }, asOf);
+  return p ? p.dueDate : null;
+}
+
+function computeStateWithholdingDeadlines(st: string, frequency: string, asOf: Date): ComplianceDeadline[] {
   const out: ComplianceDeadline[] = [];
-  if (frequency === "Monthly") {
-    const p = computeDuePeriod({ frequency: "Monthly", due_day: "20", due_month: "1" }, asOf);
-    if (p) out.push({ label: "DC Withholding Deposit & Return (FR-900M)", date: p.dueDate, source: "MD Withholding" });
-  } else if (frequency === "Quarterly") {
-    const deposit = computeDuePeriod({ frequency: "Quarterly", due_day: "20", due_month: null }, asOf);
-    if (deposit) out.push({ label: "DC Withholding Deposit", date: deposit.dueDate, source: "MD Withholding" });
-    const ret = computeDuePeriod({ frequency: "Quarterly", due_day: "31", due_month: null }, asOf);
-    if (ret) out.push({ label: "DC Withholding Return (FR-900Q)", date: ret.dueDate, source: "MD Withholding" });
-  } else {
-    const deposit = computeDuePeriod({ frequency: "Annual", due_day: "20", due_month: "1" }, asOf);
-    if (deposit) out.push({ label: "DC Withholding Deposit (annual filer)", date: deposit.dueDate, source: "MD Withholding" });
-    const ret = computeDuePeriod({ frequency: "Annual", due_day: "31", due_month: "1" }, asOf);
-    if (ret) out.push({ label: "DC Withholding Return (FR-900A)", date: ret.dueDate, source: "MD Withholding" });
+  const add = (label: string, date: string | null) => {
+    if (date) out.push({ label, date: nextBusinessDay(date), source: "MD Withholding" });
+  };
+  const monthly = frequency === "Monthly";
+  const quarterly = frequency === "Quarterly";
+
+  if (st === "DC") {
+    if (monthly) add("DC Withholding Deposit & Return (FR-900M)", recurringDue("Monthly", 20, asOf));
+    else if (quarterly) {
+      add("DC Withholding Deposit", recurringDue("Quarterly", 20, asOf));
+      add("DC Withholding Return (FR-900Q)", recurringDue("Quarterly", 31, asOf));
+    } else if (frequency === "Annually") {
+      add("DC Withholding Deposit (annual filer)", recurringDue("Annual", 20, asOf));
+      add("DC Withholding Return (FR-900A)", recurringDue("Annual", 31, asOf));
+    }
+  } else if (st === "VA") {
+    if (monthly) add("VA Withholding Return & Payment (VA-5)", recurringDue("Monthly", 25, asOf));
+    else if (quarterly) add("VA Withholding Return & Payment (VA-5, quarterly)", recurringDue("Quarterly", 31, asOf));
+    add("VA Annual Withholding Reconciliation (VA-6)", recurringDue("Annual", 31, asOf));
+  } else if (st === "PA") {
+    if (quarterly) add("PA Withholding Return & Payment (quarterly)", recurringDue("Quarterly", 31, asOf));
+    else if (monthly) {
+      let payment = recurringDue("Monthly", 15, asOf);
+      // PA's December payment is due Jan 31, not Jan 15 (REV-415).
+      if (payment && payment.slice(5, 7) === "01") payment = `${payment.slice(0, 4)}-01-31`;
+      add("PA Withholding Payment", payment);
+      add("PA Withholding Quarterly Reconciliation Return", recurringDue("Quarterly", 31, asOf));
+    }
+    add("PA Annual Withholding Reconciliation (REV-1667)", recurringDue("Annual", 31, asOf));
+  } else if (st === "DE") {
+    if (monthly) add("DE Withholding Return & Payment (W-1)", recurringDue("Monthly", 15, asOf));
+    else if (quarterly) add("DE Withholding Return & Payment (W-1Q)", recurringDue("Quarterly", 31, asOf));
+    add("DE Annual Withholding Reconciliation (WTH-REC)", recurringDue("Annual", 31, asOf));
+  }
+  return out;
+}
+
+const STATE_UI_LABELS: Record<string, string> = {
+  DC: "DC UI Contributions & Wage Report (UC-30)",
+  VA: "VA UI Tax & Wage Reports (FC-20/FC-21)",
+  PA: "PA UC Reports & Contributions (UC-2/UC-2A)",
+  DE: "DE UI Tax & Wage Reports (UC-8/UC-8A)",
+};
+
+function computeStateUiDeadline(st: string, asOf: Date): ComplianceDeadline[] {
+  const label = STATE_UI_LABELS[st];
+  const date = recurringDue("Quarterly", 31, asOf);
+  if (!label || !date) return [];
+  // Delaware's DOL doesn't state a weekend rule, so its date is left as published.
+  return [{ label, date: st === "DE" ? date : nextBusinessDay(date), source: "MD UI" }];
+}
+
+function computeStateAnnualReportDeadlines(st: string, params: { entityType?: string | null; dateOfFormation?: string | null }, asOf: Date): ComplianceDeadline[] {
+  const out: ComplianceDeadline[] = [];
+  const push = (label: string, dates: { previous: string | null; next: string } | null) => {
+    if (!dates) return;
+    if (dates.previous) out.push({ label, date: dates.previous, source: "MD Annual Report" });
+    out.push({ label, date: dates.next, source: "MD Annual Report" });
+  };
+  const entity = String(params.entityType || "").trim();
+  const isLlc = entity === "LLC";
+  const isCorp = entity === "S-Corp" || entity === "C-Corp";
+  const formed = String(params.dateOfFormation || "");
+  const formationYear = Number(formed.slice(0, 4));
+  const hasFormation = Number.isFinite(formationYear) && formationYear >= 1900;
+  // An entity formed during a year first owes the filing the year after; an
+  // unknown formation date is treated as "established", the same default the
+  // Maryland Annual Report uses.
+  const earliestYear = hasFormation ? formationYear + 1 : 1900;
+
+  if (st === "DC") {
+    push("DC Biennial Report (BRA-25)", dcBiennialReportDueDates(params.dateOfFormation, asOf));
+  } else if (st === "VA" && (isLlc || isCorp) && hasFormation) {
+    // The SCC's annual fee is due the last day of the month the entity was formed.
+    const formationMonth = Number(formed.slice(5, 7));
+    if (formationMonth >= 1 && formationMonth <= 12) {
+      push(isCorp ? "VA SCC Annual Report & Registration Fee" : "VA SCC Annual Registration Fee", yearlyDueDates(formationMonth, 0, earliestYear, asOf));
+    }
+  } else if (st === "PA" && (isLlc || isCorp)) {
+    // PA's Dept. of State annual report requirement began January 1, 2025.
+    push(isCorp ? "PA Annual Report (corporation)" : "PA Annual Report (LLC)", yearlyDueDates(isCorp ? 6 : 9, isCorp ? 30 : 30, Math.max(2025, earliestYear), asOf));
+  } else if (st === "DE") {
+    if (isCorp) push("DE Corporation Annual Report & Franchise Tax", yearlyDueDates(3, 1, earliestYear, asOf));
+    else if (isLlc || entity === "Partnership") push("DE LLC/Partnership Annual Tax", yearlyDueDates(6, 1, earliestYear, asOf));
   }
   return out;
 }
@@ -206,9 +326,9 @@ export function computeUpcomingDeadlines(params: {
   /**
    * v3_clients.state. Decides which state's obligation rules apply to the
    * state-specific deadlines below (withholding, unemployment insurance, annual
-   * report). Unset means Maryland, the app's original and only behavior. A
-   * state with no rules built yet (anything but MD and DC) gets none of those
-   * deadlines rather than Maryland's dates under another state's name.
+   * report). Unset means Maryland, the app's original behavior. MD, DC, VA, PA
+   * and DE have rules (see STATES_WITH_OBLIGATION_RULES); any other state gets
+   * none of those deadlines rather than Maryland's dates under another state's name.
    */
   state?: string | null;
   mdCurrentPeriodDueDate: string | null;
@@ -239,6 +359,7 @@ export function computeUpcomingDeadlines(params: {
   const stateCode = String(params.state || "").trim().toUpperCase();
   const isMd = !stateCode || stateCode === "MD";
   const isDc = stateCode === "DC";
+  const hasStateRules = (STATES_WITH_OBLIGATION_RULES as readonly string[]).includes(stateCode);
 
   if (params.mdCurrentPeriodDueDate) {
     deadlines.push({ label: "MD Sales Tax Filing", date: params.mdCurrentPeriodDueDate, source: "MD Sales Tax" });
@@ -251,15 +372,8 @@ export function computeUpcomingDeadlines(params: {
   }
   deadlines.push(...computeFederalPayrollDeadlines(params.payrollEnabled, withinDays, asOf));
 
-  if (params.mdAnnualReportEnabled && isDc) {
-    // Not Maryland's April 15 Annual Report — DC entities file a biennial
-    // report. Without a formation year the two-year cycle can't be known, so
-    // nothing is shown rather than a guessed date.
-    const biennial = dcBiennialReportDueDates(params.dateOfFormation, asOf);
-    if (biennial) {
-      if (biennial.previous) deadlines.push({ label: "DC Biennial Report (BRA-25)", date: biennial.previous, source: "MD Annual Report" });
-      deadlines.push({ label: "DC Biennial Report (BRA-25)", date: biennial.next, source: "MD Annual Report" });
-    }
+  if (params.mdAnnualReportEnabled && hasStateRules) {
+    deadlines.push(...computeStateAnnualReportDeadlines(stateCode, params, asOf));
   } else if (params.mdAnnualReportEnabled && isMd) {
     // Was nextFixedAnnualDate — which only ever returns a FUTURE April 15, so a
     // client that missed its Annual Report (the filing that keeps it in good
@@ -305,8 +419,8 @@ export function computeUpcomingDeadlines(params: {
     if (period) deadlines.push({ label: "EFTPS Deposit", date: period.dueDate, source: "EFTPS" });
   }
 
-  if (isDc && params.mdWithholdingFrequency) {
-    deadlines.push(...computeDcWithholdingDeadlines(params.mdWithholdingFrequency, asOf));
+  if (hasStateRules && params.mdWithholdingFrequency) {
+    deadlines.push(...computeStateWithholdingDeadlines(stateCode, params.mdWithholdingFrequency, asOf));
   }
   const mdWhFrequency = isMd && params.mdWithholdingFrequency ? MD_WITHHOLDING_FREQ_TO_RULE_FREQUENCY[params.mdWithholdingFrequency] : undefined;
   if (mdWhFrequency) {
@@ -316,9 +430,8 @@ export function computeUpcomingDeadlines(params: {
     if (reconciliation) deadlines.push({ label: "MD Withholding Annual Reconciliation (MW508)", date: reconciliation.dueDate, source: "MD Withholding" });
   }
 
-  if (params.mduiEnabled && isDc) {
-    const period = computeDuePeriod({ frequency: "Quarterly", due_day: "31", due_month: null }, asOf);
-    if (period) deadlines.push({ label: "DC UI Contributions & Wage Report (UC-30)", date: period.dueDate, source: "MD UI" });
+  if (params.mduiEnabled && hasStateRules) {
+    deadlines.push(...computeStateUiDeadline(stateCode, asOf));
   }
   if (params.mduiEnabled && isMd) {
     // due_day=24 matches the firm's own existing MD UI task rules (TR-009/TR-010) —

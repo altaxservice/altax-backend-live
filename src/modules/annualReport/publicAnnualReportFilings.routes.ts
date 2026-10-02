@@ -5,6 +5,7 @@
  * entirely by knowing the opaque share_token, not by a portal account.
  * No PDF route — no PDF generator exists for this filing type.
  */
+import { annualReportLabel } from "../../common/stateNames";
 import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -58,10 +59,10 @@ publicAnnualReportFilingsRouter.post("/:token/acknowledge", limiter, asyncHandle
   await logAudit("Accounting", "ANNUAL_REPORT_ACKNOWLEDGED", filing.client_id, "acknowledged_at", "", acknowledgedAt,
     `MD Annual Report filing (${filing.period_start} - ${filing.period_end}) acknowledged by the client from IP ${ip || "unknown"}.`, "Client");
 
-  const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [filing.client_id]);
+  const client = await queryOne<any>(`SELECT client_name, state FROM altax.v3_clients WHERE client_id = $1`, [filing.client_id]);
   await notifyStaffOfObligationConfirmed({
     clientId: filing.client_id, clientName: client?.client_name || filing.client_id,
-    filingType: "Maryland Annual Report", periodLabel: yearOf(filing.period_start),
+    filingType: annualReportLabel(client?.state), periodLabel: yearOf(filing.period_start),
     amount: Number(filing.amount), acknowledgedAt, acknowledgedIp: ip, req,
   });
 

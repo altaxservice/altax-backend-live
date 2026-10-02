@@ -297,7 +297,7 @@ interface ClientFlag {
 interface ComplianceScoreComponent { label: string; points: number; maxPoints: number; detail: string }
 interface ClientComplianceScore { score: number; band: "Green" | "Yellow" | "Red"; components: ComplianceScoreComponent[]; currentlyOverdueCount: number }
 interface TimelinePeriod { periodLabel: string; dueDate: string; status: "onTime" | "late" | "missing" | "notYetDue"; filedDate: string | null }
-interface ComplianceTimelineLane { obligationType: string; periods: TimelinePeriod[] }
+interface ComplianceTimelineLane { obligationType: string; title?: string; periods: TimelinePeriod[] }
 interface ClientFlagsResponse { flags: ClientFlag[]; complianceScore: ClientComplianceScore | null; complianceTimeline: ComplianceTimelineLane[] }
 
 /** Turns bare URLs in freeform notes into clickable links, matching legacy's linkified notes field. */

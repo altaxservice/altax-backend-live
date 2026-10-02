@@ -36,7 +36,7 @@ interface ClientFlag {
 interface ComplianceScoreComponent { label: string; points: number; maxPoints: number; detail: string }
 interface ClientComplianceScore { score: number; band: "Green" | "Yellow" | "Red"; components: ComplianceScoreComponent[]; currentlyOverdueCount: number }
 interface TimelinePeriod { periodLabel: string; dueDate: string; status: "onTime" | "late" | "missing" | "notYetDue"; filedDate: string | null }
-interface ComplianceTimelineLane { obligationType: string; periods: TimelinePeriod[] }
+interface ComplianceTimelineLane { obligationType: string; title?: string; periods: TimelinePeriod[] }
 
 const TIMELINE_STATUS_COLOR: Record<TimelinePeriod["status"], string> = {
   onTime: "var(--green)", late: "var(--amber)", missing: "var(--red)", notYetDue: "var(--line)",
@@ -75,7 +75,7 @@ function ComplianceTimelineRow({ lane }: { lane: ComplianceTimelineLane }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130 }}>{lane.obligationType}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130 }}>{lane.title ?? lane.obligationType}</span>
         <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {lane.periods.map((p) => (
             <div

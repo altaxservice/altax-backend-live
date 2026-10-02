@@ -1,8 +1,9 @@
 import { query, queryOne } from "../../config/db";
 import { CLIENT_TRIGGER_COLUMNS, clientMatchesRule, computeDuePeriodsBack } from "../rules/rules.routes";
 import { relevantMissingTaskRules, taskLabelsLikelyMatch, MISSING_TASK_MATCH_WINDOW_DAYS, daysBetween, isoDate, laterOf } from "./complianceGapFlags";
-import { computeMdFilingForReport } from "../reports/reports.routes";
+import { computeMdFilingForReport, computeDcFilingForReport } from "../reports/reports.routes";
 import { classifyMdFilingPeriod, type MdFilingPeriodStatus } from "../../common/mdFiling";
+import { classifyDcFilingPeriod } from "../../common/dcFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import type { PayrollCadenceGap, BookkeepingStaleness, MissingComplianceTaskGap } from "./complianceGapFlags";
 
@@ -49,7 +50,14 @@ import type { PayrollCadenceGap, BookkeepingStaleness, MissingComplianceTaskGap 
 export type TimelineStatus = MdFilingPeriodStatus;
 export interface TimelinePeriod { periodLabel: string; dueDate: string; status: TimelineStatus; filedDate: string | null }
 export type ComplianceObligationType = "MD Sales Tax" | "EFTPS" | "MD Withholding" | "MD UI";
-export interface ComplianceTimelineLane { obligationType: ComplianceObligationType; periods: TimelinePeriod[] }
+/** `obligationType` is the stable internal key; `title` is what a person sees, worded for the client's own state ("DC Withholding"). */
+export interface ComplianceTimelineLane { obligationType: ComplianceObligationType; title?: string; periods: TimelinePeriod[] }
+
+/** "MD Withholding" -> "DC Withholding" for a DC client; unchanged for MD or a client with no state. */
+function laneTitle(obligationType: ComplianceObligationType, state: unknown): string {
+  const st = String(state || "").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(st) && st !== "MD" ? obligationType.replace(/^MD /, `${st} `) : obligationType;
+}
 
 const TASK_RULE_LANES: { obligationType: ComplianceObligationType; triggerColumn: string; registeredSinceColumn: string }[] = [
   { obligationType: "EFTPS", triggerColumn: "eftps_enabled", registeredSinceColumn: "eftps_registered_since" },
@@ -82,9 +90,10 @@ async function earliestTaskEvidenceDate(clientId: string): Promise<string | null
   return isoDate(row?.d);
 }
 
-/** MD Sales Tax lane — reuses the exact, already-proven computeMdFilingForReport chain rather than reassembling its period-splitting/query pipeline. */
+/** Sales Tax lane (MD, and DC since 2026-10-02) — reuses the exact, already-proven computeMdFilingForReport chain rather than reassembling its period-splitting/query pipeline. */
 async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBack: number, asOf: Date): Promise<ComplianceTimelineLane | null> {
-  if (String(clientRow.state || "").trim().toUpperCase() !== "MD") return null;
+  const stateCode = String(clientRow.state || "").trim().toUpperCase();
+  if (stateCode !== "MD" && stateCode !== "DC") return null;
   // Only clamp the lookback when there's real sales evidence to clamp
   // against (guards the original 4 GUYS-style false positive: real sales
   // evidence starting partway through the window means the obligation
@@ -118,14 +127,17 @@ async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBac
   // sales in the whole window loses the MD lane altogether. Reports/PDFs/CSVs
   // keep the default (skip) behavior; this Timeline needs every period
   // represented. See mdFiling.ts's computeMdFilingBreakdown doc comment.
-  const result = await computeMdFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true });
+  const result = stateCode === "DC"
+    ? await computeDcFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true })
+    : await computeMdFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true });
   if (!result) return null;
   const todayStr = to;
-  const periods: TimelinePeriod[] = result.periods.map((p) => ({
+  // MD and DC period results share the fields read here; each state has its own classifier.
+  const periods: TimelinePeriod[] = (result.periods as any[]).map((p) => ({
     periodLabel: `${p.start} – ${p.end}`, dueDate: p.dueDate,
-    status: classifyMdFilingPeriod(p, todayStr), filedDate: p.markedFiledDate,
+    status: stateCode === "DC" ? classifyDcFilingPeriod(p, todayStr) : classifyMdFilingPeriod(p, todayStr), filedDate: p.markedFiledDate,
   }));
-  return { obligationType: "MD Sales Tax", periods };
+  return { obligationType: "MD Sales Tax", title: laneTitle("MD Sales Tax", stateCode), periods };
 }
 
 interface ClientTaskRow { taskName: string; dueDate: string; status: string; filedDate: string | null }
@@ -260,7 +272,7 @@ async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack
       }
       return { periodLabel: p.periodLabel, dueDate: p.dueDate, status, filedDate };
     });
-    lanes.push({ obligationType: lane.obligationType, periods });
+    lanes.push({ obligationType: lane.obligationType, title: laneTitle(lane.obligationType, clientRow.state), periods });
   }
   return lanes;
 }

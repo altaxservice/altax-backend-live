@@ -183,6 +183,11 @@ const EVIDENCE_TABLES: Record<string, { table: string; filedCol: string; paidCol
   "sales tax": { table: "v3_md_filing_payments", filedCol: "filed_date", paidCol: "paid_date" },
   "form 941": { table: "v3_form941_filings", filedCol: "filed_date", paidCol: "paid_date" },
   "md ui": { table: "v3_md_ui_filings", filedCol: "filed_date", paidCol: "paid_date" },
+  // Other states' UI wage tasks ("DC UI Wages Filing & Payment") are recorded in the same table.
+  "dc ui": { table: "v3_md_ui_filings", filedCol: "filed_date", paidCol: "paid_date" },
+  "va ui": { table: "v3_md_ui_filings", filedCol: "filed_date", paidCol: "paid_date" },
+  "pa ui": { table: "v3_md_ui_filings", filedCol: "filed_date", paidCol: "paid_date" },
+  "de ui": { table: "v3_md_ui_filings", filedCol: "filed_date", paidCol: "paid_date" },
   "annual report": { table: "v3_annual_report_filings", filedCol: "filed_date", paidCol: "paid_date" },
 };
 

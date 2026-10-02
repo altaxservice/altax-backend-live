@@ -230,7 +230,12 @@ function matchesSingleCondition(client: any, triggerColumnRaw: string, triggerVa
   if (!triggerColumn) return false;
 
   const triggerValue = normalizeText(triggerValueRaw);
-  const actual = normalizeText(client[triggerColumn]);
+  let actual = normalizeText(client[triggerColumn]);
+  // A client with no state on file has always been treated as Maryland (the
+  // app's original and only behavior), so a "State = MD" scope on a rule must
+  // still match them — otherwise scoping the Maryland rules would silently
+  // stop drafting tasks for every client whose state was never filled in.
+  if (triggerColumn === "state" && !actual) actual = "md";
   if (actual === triggerValue) return true;
   return triggerValue === "yes" && ["yes", "true", "active"].includes(actual);
 }
@@ -245,7 +250,20 @@ function matchesSingleCondition(client: any, triggerColumnRaw: string, triggerVa
  * every client whose provider happens to match but who doesn't actually have
  * that obligation enabled.
  */
+/**
+ * state_scope (sql/173) limits a rule to a comma-separated list of state codes;
+ * empty means every state. A client with no state on file counts as Maryland —
+ * the app's original behavior — so scoping the Maryland rules doesn't silently
+ * stop drafting tasks for clients whose state was never filled in.
+ */
+export function ruleAppliesToState(rule: any, clientState: unknown): boolean {
+  const scope = String(rule?.state_scope || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+  if (scope.length === 0) return true;
+  return scope.includes(normalizeText(clientState) || "md");
+}
+
 export function clientMatchesRule(client: any, rule: any): boolean {
+  if (!ruleAppliesToState(rule, client?.state)) return false;
   const triggerColumnRaw = String(rule.trigger_column || "").trim();
   const triggerValueRaw = String(rule.trigger_value || "").trim();
   const isEmptyTrigger = !triggerColumnRaw || !normalizeText(triggerValueRaw) || normalizeText(triggerValueRaw) === "=";
@@ -290,6 +308,9 @@ rulesRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
     notes: String(body.notes || "").trim() || null,
     depends_on: String(body.dependsOn || "").trim() || null,
     portal_url: String(body.portalUrl || "").trim() || null,
+    // Only written when the caller sends it, so editing a rule from a form that
+    // doesn't know about state scoping never wipes an existing scope.
+    ...(body.stateScope !== undefined ? { state_scope: String(body.stateScope || "").trim().toUpperCase() || null } : {}),
   };
 
   if (existing) {

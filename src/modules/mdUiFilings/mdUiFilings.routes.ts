@@ -9,7 +9,7 @@
  * suggestion, not force-trusted the way EFTPS/MD Sales Tax's live
  * recompute is: staff can adjust it before filing.
  */
-import { unemploymentInsuranceLabel } from "../../common/stateNames";
+import { unemploymentInsuranceLabel, uiTaskKeyword } from "../../common/stateNames";
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
@@ -185,7 +185,7 @@ async function markMdUiFiledForClient(
   await logAudit("Accounting", "MD_UI_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `MD UI wage filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
 
-  await closeObligationTask({ clientId: client.clientId, keyword: "md ui", dueDate, periodLabel, filedDate, paidDate });
+  await closeObligationTask({ clientId: client.clientId, keyword: uiTaskKeyword(client.state), dueDate, periodLabel, filedDate, paidDate });
 
   // Filing above always succeeds regardless of notification outcome — only
   // whether the confirmation actually reached the client is gated here (see
@@ -308,7 +308,7 @@ mdUiFilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAuth, requ
   // fixed on EFTPS/MD Sales Tax/Form 941's record-payment routes).
   const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
   await markObligationTaskPaid({
-    clientId: client.clientId, keyword: "md ui", dueDate: uiDueDate(periodEnd, client.state),
+    clientId: client.clientId, keyword: uiTaskKeyword(client.state), dueDate: uiDueDate(periodEnd, client.state),
     periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, "Quarterly"), paidDate,
   });
 
@@ -413,7 +413,7 @@ mdUiFilingsRouter.post("/:clientId/:periodEnd/edit", requireAuth, requireRole("a
   if (paidDate && !existing.paid_date) {
     const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
     await markObligationTaskPaid({
-      clientId: client.clientId, keyword: "md ui", dueDate: uiDueDate(periodEnd, client.state),
+      clientId: client.clientId, keyword: uiTaskKeyword(client.state), dueDate: uiDueDate(periodEnd, client.state),
       periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, "Quarterly"), paidDate,
     });
   }

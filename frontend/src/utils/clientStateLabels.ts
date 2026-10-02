@@ -31,18 +31,25 @@ export function sosAgencyLabel(state: string | null | undefined): string {
   return SOS_AGENCY[st] ?? `${st} Secretary of State`;
 }
 
-/** The states whose annual-report obligation the calendar has real rules for (Maryland's April 15 report, DC's biennial report). */
+/** The states whose yearly business filing the calendar has real rules for — Maryland's April 15 Annual Report, DC's biennial report, Virginia's annual registration, Pennsylvania's annual report, Delaware's annual tax/franchise report. */
 export function hasAnnualReportRules(state: string | null | undefined): boolean {
   const st = normalize(state);
-  return isMarylandClient(st) || st === "DC";
+  return isMarylandClient(st) || ["DC", "VA", "PA", "DE"].includes(st);
 }
+
+const ANNUAL_REPORT_NAME: Record<string, string> = {
+  DC: "DC Biennial Report",
+  VA: "VA Annual Registration",
+  PA: "PA Annual Report",
+  DE: "DE Annual Report / Franchise Tax",
+};
 
 /** Rewrites the Maryland wording of a profile field label for the client's own state. */
 export function clientStateLabel(label: string, state: string | null | undefined): string {
   const st = normalize(state);
   if (isMarylandClient(st)) return label;
   return label
-    .replace(/\bMD Annual Report\b/g, st === "DC" ? "DC Biennial Report" : `${st} Annual Report`)
+    .replace(/\bMD Annual Report\b/g, ANNUAL_REPORT_NAME[st] ?? `${st} Annual Report`)
     .replace(/\bMD (UI|Withholding)\b/g, `${st} $1`)
     .replace("(SDAT)", `(${sosAgencyLabel(st)})`);
 }

@@ -10,7 +10,7 @@ import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL, deriveServiceType } from "../contracts/contractContent";
 import { computeSubscriptionTier, computeSubscriptionFee, type ServiceCatalogEntry, type ClientWorkerCounts } from "../../common/subscriptionPricing";
-import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
+import { computeFirmSummary, computeMdFilingForReport, computeDcFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
 import { splitIntoMdFilingPeriodsForClient, classifyMdFilingPeriod } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
@@ -672,7 +672,7 @@ export async function runClientRiskFlagSweep(actorEmail: string): Promise<{ newl
     AgencyPastDue: (name) => `${name} has an overdue agency obligation (tax/EFTPS/etc).`,
     PayrollCadenceGap: (name) => `${name}'s payroll appears to have stopped running — no paycheck in longer than their pay frequency allows.`,
     BookkeepingStale: (name) => `${name}'s bookkeeping has gone stale — no GL activity in longer than the staleness threshold.`,
-    MissingComplianceTask: (name) => `${name} has a recurring compliance task (EFTPS/MD Withholding/MD UI/Business Tax Return) that should exist for the current period and doesn't.`,
+    MissingComplianceTask: (name) => `${name} has a recurring compliance task (EFTPS / state withholding / state UI / Business Tax Return) that should exist for the current period and doesn't.`,
   };
 
   let newlyFlagged = 0;
@@ -2283,12 +2283,12 @@ export async function runSwotFindingsSweep(actorEmail: string): Promise<{ client
 }
 
 /**
- * Client-facing MD Sales Tax deadline notice — the client-appropriate
+ * Client-facing MD/DC Sales Tax deadline notice — the client-appropriate
  * counterpart to the staff-only filing_deadline_soon finding above.
- * Deliberately scoped to MD Sales Tax only (per owner decision, 2026-08-15):
+ * Deliberately scoped to sales tax only (per owner decision, 2026-08-15; DC added 2026-10-02 so DC clients are reminded too):
  * EFTPS/MD Withholding/MD UI/Business Tax Return stay staff-only for now.
  *
- * For every MD client with a current-period filing due within the same
+ * For every MD or DC client with a current-period filing due within the same
  * filing_deadline_days_threshold this whole system already uses (no
  * separate hardcoded window), not yet genuinely marked filed (reuses the
  * same markedFiledDate signal the bug-2 fix above threads through), with
@@ -2312,7 +2312,7 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
   const clients = await query<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, email, phone, email_allowed, sms_allowed
        FROM altax.v3_clients
-      WHERE state = 'MD' AND sales_tax_frequency IS NOT NULL AND sales_tax_frequency <> ''
+      WHERE upper(btrim(state)) IN ('MD', 'DC') AND sales_tax_frequency IS NOT NULL AND sales_tax_frequency <> ''
             AND (status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived'))`
   );
 
@@ -2326,9 +2326,15 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
         clientId: c.client_id, clientName: c.client_name, ein: c.ein, address: c.address,
         state: c.state, salesTaxFrequency: c.sales_tax_frequency,
       };
-      const mdFiling = await computeMdFilingForReport(reportClient, fromStr, toStr);
-      if (!mdFiling || mdFiling.periods.length === 0) continue;
-      const current = mdFiling.periods[mdFiling.periods.length - 1];
+      // Each state has its own filing engine (period rules, due dates) — the
+      // notice below only needs the latest period's shape, which both return.
+      const stateCode = String(c.state || "").trim().toUpperCase();
+      const filing = stateCode === "DC"
+        ? await computeDcFilingForReport(reportClient, fromStr, toStr)
+        : await computeMdFilingForReport(reportClient, fromStr, toStr);
+      if (!filing || filing.periods.length === 0) continue;
+      const stateLabel = stateCode === "DC" ? "DC" : "Maryland";
+      const current = filing.periods[filing.periods.length - 1];
       if (current.markedFiledDate) continue; // already genuinely marked filed — nothing to notify about
       if (!(current.taxDue > 0)) continue;
       const daysUntilDue = Math.round((new Date(`${current.dueDate}T00:00:00Z`).getTime() - new Date(`${toStr}T00:00:00Z`).getTime()) / 86400000);
@@ -2350,12 +2356,12 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
       // sales/tax data in time for us to file it. The old "if we're already
       // handling this, no action needed" copy implied the client might file
       // it themselves, which is never true here.
-      const subject = `Reminder: Maryland Sales Tax Filing Due ${current.dueDate}`;
+      const subject = `Reminder: ${stateLabel} Sales Tax Filing Due ${current.dueDate}`;
       // Email body goes through sendChannel's HTML rendering, so the client name
       // (freely staff-editable) needs escaping; the SMS body is plain text and
       // must NOT be escaped, or the recipient would see literal "&amp;" etc.
-      const body = `Dear ${escapeHtml(c.client_name)},\n\nYour Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nTo file this on time, please send us your sales and tax report for this period as soon as possible. If you've already sent it to us, no action is needed. If you have questions, please contact us.`;
-      const smsBody = `${c.client_name}: your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. Please send us your sales & tax report so we can file on time. Already sent it? No action needed.`;
+      const body = `Dear ${escapeHtml(c.client_name)},\n\nYour ${stateLabel} sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nTo file this on time, please send us your sales and tax report for this period as soon as possible. If you've already sent it to us, no action is needed. If you have questions, please contact us.`;
+      const smsBody = `${c.client_name}: your ${stateLabel} sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. Please send us your sales & tax report so we can file on time. Already sent it? No action needed.`;
 
       let anySent = false;
       let providerMessageId: string | null = null;

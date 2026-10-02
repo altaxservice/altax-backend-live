@@ -1,3 +1,4 @@
+import { annualReportLabel, annualReportLabelAr, unemploymentInsuranceLabel, unemploymentInsuranceLabelAr } from "../../common/stateNames";
 import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
@@ -260,7 +261,7 @@ async function computeImportantDates(client: any, periodEnd: Date): Promise<{ la
     // live: was showing "MD Annual Report Filing & Payment due date (for
     // 2026): 4/15/2027" — the report SDAT actually expects by that date is
     // the 2027 one.
-    const periodLabel = /^MD Annual Report/.test(label)
+    const periodLabel = /^[A-Z]{2} (Annual|Biennial) Report/.test(label)
       ? String(due.getUTCFullYear())
       : deriveTaskRulesPeriodLabel(periodEnd.toISOString().slice(0, 10), rule.frequency);
     dates.push({ label, date: due, periodLabel });
@@ -278,6 +279,19 @@ function daysBetweenInclusive(startIso: string, endIso: string): number {
   const start = new Date(`${startIso}T00:00:00Z`).getTime();
   const end = new Date(`${endIso}T00:00:00Z`).getTime();
   return Math.round((end - start) / 86400000) + 1;
+}
+
+interface SalesTaxFilingFigure {
+  taxState: "MD" | "DC";
+  taxDue: number; onTime: boolean; discount: number; penalty: number; interest: number; monthsLate: number; balanceDue: number;
+  dueDate: string; filedDate: string; paidDate: string; sourced: "filed" | "estimated";
+}
+
+/** Late-charge wording for the state's own rules — MD: flat 10% penalty + 1.5%/month interest; DC: 5%/month penalty capped at 25% + 10%/year interest compounded daily. */
+function lateChargeLabels(taxState: "MD" | "DC", monthsLate: number) {
+  return taxState === "DC"
+    ? { penalty: "Late penalty (5% per month, max 25%)", penaltyAr: "غرامة التأخير (5% شهريًا بحد أقصى 25%)", interest: "Interest (10% per year, compounded daily)", interestAr: "الفائدة (10% سنويًا، تُحتسب يوميًا)" }
+    : { penalty: "Late penalty (10%)", penaltyAr: "غرامة التأخير (10%)", interest: `Interest (${monthsLate} mo)`, interestAr: `الفائدة (${monthsLate} شهر)` };
 }
 
 interface PeriodFigures {
@@ -301,7 +315,10 @@ interface PeriodFigures {
   stateTax: number;
   suta: number;
   importantDates: { label: string; date: Date; periodLabel: string | null }[];
-  mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; filedDate: string; paidDate: string; sourced: "filed" | "estimated" }) | null;
+  /** The client's own state — drives which state's filing wording (annual report, unemployment insurance) the message uses. */
+  state: string | null;
+  /** Sales tax filing figures for an MD or DC client (null for any other state, which has no filing engine yet). Named mdFiling for history. */
+  mdFiling: SalesTaxFilingFigure | null;
   /** Real EFTPS federal deposits recorded for periods inside the requested range. Omitted (null) rather than estimated when nothing's been deposited yet — there's no honest "live estimate" of a federal deposit that hasn't happened. */
   eftps: { federalIncomeTax: number; socialSecurity: number; medicare: number; total: number; periodsFiled: number } | null;
   /** Real Form 941 filings (already netted against that quarter's EFTPS deposits) for quarters fully inside the requested range. */
@@ -377,38 +394,49 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
   // "not filed" for this purpose and estimated in full.
   let salesTaxDue = sum(sales, "total_tax_due");
   let mdFiling: PeriodFigures["mdFiling"] = null;
-  if (client?.state === "MD" && !Number.isNaN(periodEndDate.getTime())) {
-    const filedMdRows = await query<any>(
+  const taxState: "MD" | "DC" | null = client?.state === "MD" ? "MD" : client?.state === "DC" ? "DC" : null;
+  if (taxState && !Number.isNaN(periodEndDate.getTime())) {
+    // Each state's filed record lives in its own table with identical columns.
+    const filingTable = taxState === "MD" ? "v3_md_filing_payments" : "v3_dc_filing_payments";
+    const filedRows = await query<any>(
       `SELECT period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time
-         FROM altax.v3_md_filing_payments
+         FROM altax.${filingTable}
         WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date
         ORDER BY period_end ASC`,
       [clientId, periodStart, periodEnd]
     );
     const rangeDays = daysBetweenInclusive(periodStart, periodEnd);
-    const filedDays = filedMdRows.reduce((s, r) => s + daysBetweenInclusive(toIsoDateStr(r.period_start), toIsoDateStr(r.period_end)), 0);
-    const fullyFiled = filedMdRows.length > 0 && filedDays >= rangeDays;
+    const filedDays = filedRows.reduce((s, r) => s + daysBetweenInclusive(toIsoDateStr(r.period_start), toIsoDateStr(r.period_end)), 0);
+    const fullyFiled = filedRows.length > 0 && filedDays >= rangeDays;
 
-    const { computeMdFiling, mdDueDateForPeriod } = await import("../../common/mdFiling");
+    const mdEngine = taxState === "MD" ? await import("../../common/mdFiling") : null;
+    const dcEngine = taxState === "DC" ? await import("../../common/dcFiling") : null;
+    const dueDateFor = (end: string) => (mdEngine ? mdEngine.mdDueDateForPeriod(end) : dcEngine!.dcDueDateForPeriod(end));
     if (fullyFiled) {
-      const taxDue = filedMdRows.reduce((s, r) => s + (Number(r.tax_due) || 0), 0);
-      const balanceDue = filedMdRows.reduce((s, r) => s + (Number(r.balance_due) || 0), 0);
-      const onTime = filedMdRows.every((r) => r.on_time !== false);
-      const lastRow = filedMdRows[filedMdRows.length - 1];
-      const filedDate = filedMdRows.map((r) => r.filed_date).filter(Boolean).map(toIsoDateStr).sort().slice(-1)[0] || "";
-      const paidDate = filedMdRows.every((r) => r.paid_date) ? filedMdRows.map((r) => r.paid_date).map(toIsoDateStr).sort().slice(-1)[0] : "";
+      const taxDue = filedRows.reduce((s, r) => s + (Number(r.tax_due) || 0), 0);
+      const balanceDue = filedRows.reduce((s, r) => s + (Number(r.balance_due) || 0), 0);
+      const onTime = filedRows.every((r) => r.on_time !== false);
+      const lastRow = filedRows[filedRows.length - 1];
+      const filedDate = filedRows.map((r) => r.filed_date).filter(Boolean).map(toIsoDateStr).sort().slice(-1)[0] || "";
+      const paidDate = filedRows.every((r) => r.paid_date) ? filedRows.map((r) => r.paid_date).map(toIsoDateStr).sort().slice(-1)[0] : "";
       salesTaxDue = taxDue;
       mdFiling = {
-        taxDue, onTime, discount: 0, penalty: 0, penaltyRate: 0, interest: 0, interestRateMonthly: 0, monthsLate: 0, balanceDue,
-        dueDate: mdDueDateForPeriod(toIsoDateStr(lastRow.period_end)), filedDate, paidDate, sourced: "filed",
+        taxState, taxDue, onTime, discount: 0, penalty: 0, interest: 0, monthsLate: 0, balanceDue,
+        dueDate: dueDateFor(toIsoDateStr(lastRow.period_end)), filedDate, paidDate, sourced: "filed",
       };
     } else if (salesTaxDue > 0) {
-      const dueDate = mdDueDateForPeriod(periodEnd);
+      const dueDate = dueDateFor(periodEnd);
       const today = new Date().toISOString().slice(0, 10);
       const filedDate = mdFiledDate && /^\d{4}-\d{2}-\d{2}$/.test(mdFiledDate) ? mdFiledDate : today;
       const paidDate = mdPaidDate && /^\d{4}-\d{2}-\d{2}$/.test(mdPaidDate) ? mdPaidDate : today;
-      const result = await computeMdFiling(salesTaxDue, dueDate, filedDate, paidDate);
-      mdFiling = { ...result, dueDate, filedDate, paidDate, sourced: "estimated" };
+      const result = mdEngine
+        ? await mdEngine.computeMdFiling(salesTaxDue, dueDate, filedDate, paidDate)
+        : await dcEngine!.computeDcFiling(salesTaxDue, dueDate, filedDate, paidDate);
+      mdFiling = {
+        taxState, taxDue: result.taxDue, onTime: result.onTime, discount: result.discount, penalty: result.penalty,
+        interest: result.interest, monthsLate: result.monthsLate, balanceDue: result.balanceDue,
+        dueDate, filedDate, paidDate, sourced: "estimated",
+      };
     }
   }
 
@@ -479,6 +507,7 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
     stateTax: sum(paychecks, "state_tax"),
     suta: sum(paychecks, "suta"),
     importantDates,
+    state: client?.state || null,
     mdFiling,
     eftps, form941, annualReport, mdUi,
   };
@@ -527,11 +556,13 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
         if (f.mdFiling.paidDate) lines.push(`Payment date: ${fmtDate(f.mdFiling.paidDate)}`);
         lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)} (filed amount)`);
       } else if (f.mdFiling.onTime) {
-        lines.push(`Timely discount: -${fmtMoney(f.mdFiling.discount)}`);
+        // Only Maryland has a timely-filing discount; DC's was repealed.
+        if (f.mdFiling.taxState === "MD") lines.push(`Timely discount: -${fmtMoney(f.mdFiling.discount)}`);
         lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)} (estimated — not yet filed)`);
       } else {
-        lines.push(`Late penalty (10%): ${fmtMoney(f.mdFiling.penalty)}`);
-        lines.push(`Interest (${f.mdFiling.monthsLate} mo): ${fmtMoney(f.mdFiling.interest)}`);
+        const late = lateChargeLabels(f.mdFiling.taxState, f.mdFiling.monthsLate);
+        lines.push(`${late.penalty}: ${fmtMoney(f.mdFiling.penalty)}`);
+        lines.push(`${late.interest}: ${fmtMoney(f.mdFiling.interest)}`);
         lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)} (estimated — not yet filed)`);
       }
     }
@@ -570,8 +601,8 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
     lines.push(`Balance due: ${fmtMoney(f.form941.balanceDue)} (filed amount)`);
   }
 
-  if (f.annualReport) lines.push("", `MD ANNUAL REPORT: ${fmtMoney(f.annualReport.amount)} (filed ${fmtDate(f.annualReport.filedDate)})`);
-  if (f.mdUi) lines.push("", `MD UNEMPLOYMENT INSURANCE: ${fmtMoney(f.mdUi.amount)} (filed ${fmtDate(f.mdUi.filedDate)})`);
+  if (f.annualReport) lines.push("", `${annualReportLabel(f.state).toUpperCase()}: ${fmtMoney(f.annualReport.amount)} (filed ${fmtDate(f.annualReport.filedDate)})`);
+  if (f.mdUi) lines.push("", `${unemploymentInsuranceLabel(f.state).toUpperCase()}: ${fmtMoney(f.mdUi.amount)} (filed ${fmtDate(f.mdUi.filedDate)})`);
 
   if (f.importantDates.length) {
     lines.push("", "IMPORTANT DATES");
@@ -632,11 +663,12 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
         if (f.mdFiling.paidDate) rows.push(row("Payment date", "تاريخ الدفع", fmtDate(f.mdFiling.paidDate)));
         rows.push(row("Balance due", "الرصيد المستحق", `${fmtMoney(f.mdFiling.balanceDue)} (filed / تم التقديم)`));
       } else if (f.mdFiling.onTime) {
-        rows.push(row("Timely discount", "الخصم مقابل السداد في الموعد", `− ${fmtMoney(f.mdFiling.discount)}`));
+        if (f.mdFiling.taxState === "MD") rows.push(row("Timely discount", "الخصم مقابل السداد في الموعد", `− ${fmtMoney(f.mdFiling.discount)}`));
         rows.push(row("Balance due", "الرصيد المستحق", `${fmtMoney(f.mdFiling.balanceDue)} (estimated / تقديري)`));
       } else {
-        rows.push(row("Late penalty (10%)", "غرامة التأخير (10%)", fmtMoney(f.mdFiling.penalty)));
-        rows.push(row(`Interest (${f.mdFiling.monthsLate} mo)`, `الفائدة (${f.mdFiling.monthsLate} شهر)`, fmtMoney(f.mdFiling.interest)));
+        const late = lateChargeLabels(f.mdFiling.taxState, f.mdFiling.monthsLate);
+        rows.push(row(late.penalty, late.penaltyAr, fmtMoney(f.mdFiling.penalty)));
+        rows.push(row(late.interest, late.interestAr, fmtMoney(f.mdFiling.interest)));
         rows.push(row("Balance due", "الرصيد المستحق", `${fmtMoney(f.mdFiling.balanceDue)} (estimated / تقديري)`));
       }
     }
@@ -694,8 +726,8 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
 
   if (f.annualReport || f.mdUi) {
     const rows: SummaryTableRow[] = [];
-    if (f.annualReport) rows.push(row("MD Annual Report", "التقرير السنوي لولاية ماريلاند", `${fmtMoney(f.annualReport.amount)} (filed ${fmtDate(f.annualReport.filedDate)})`));
-    if (f.mdUi) rows.push(row("MD Unemployment Insurance", "تأمين البطالة لولاية ماريلاند", `${fmtMoney(f.mdUi.amount)} (filed ${fmtDate(f.mdUi.filedDate)})`));
+    if (f.annualReport) rows.push(row(annualReportLabel(f.state), annualReportLabelAr(f.state), `${fmtMoney(f.annualReport.amount)} (filed ${fmtDate(f.annualReport.filedDate)})`));
+    if (f.mdUi) rows.push(row(unemploymentInsuranceLabel(f.state), unemploymentInsuranceLabelAr(f.state), `${fmtMoney(f.mdUi.amount)} (filed ${fmtDate(f.mdUi.filedDate)})`));
     sections.push({ title: "Other Filings", titleAr: "إقرارات أخرى", rows });
   }
 

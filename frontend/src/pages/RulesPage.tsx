@@ -253,7 +253,7 @@ export function RulesPage() {
                   <td>{r.task_type}</td>
                   <td className="muted">
                     {r.trigger_column ? `${r.trigger_column} = ${r.trigger_value}` : "Manual selection"}
-                    {r.trigger_column && r.trigger_column_2 ? ` AND ${r.trigger_column_2} = ${r.trigger_value_2}` : ""}
+                    {r.trigger_column && r.trigger_column_2 ? ` AND ${r.trigger_column_2} = ${r.trigger_value_2}` : ""}{r.state_scope ? ` · ${r.state_scope} only` : ""}
                   </td>
                   <td className="muted">{r.frequency}</td>
                   <td className="muted">{String(r.portal_name || "—")}</td>

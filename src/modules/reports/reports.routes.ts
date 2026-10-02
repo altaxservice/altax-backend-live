@@ -1,3 +1,4 @@
+import { statePayrollTaxLabels } from "../../common/stateNames";
 import { Router, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
@@ -2172,12 +2173,13 @@ export async function loadPayrollForPeriod(clientId: string, from: string, to: s
     employee ? [clientId, from, to, employee] : [clientId, from, to]
   );
   const sum = (col: string) => rows.reduce((s: number, r: any) => s + (Number(r[col]) || 0), 0);
+  const taxLabels = statePayrollTaxLabels((await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [clientId]))?.state);
   const taxRows: PayrollTaxRow[] = [
     { label: "Federal Withholding", employee: sum("federal_withholding"), employer: 0 },
     { label: "Social Security", employee: sum("social_security_ee"), employer: sum("social_security_er") },
     { label: "Medicare", employee: sum("medicare_ee"), employer: sum("medicare_er") },
-    { label: "MD Withholding", employee: sum("state_tax"), employer: 0 },
-    { label: "MD Unemployment (SUTA)", employee: 0, employer: sum("suta") },
+    { label: taxLabels.withholding, employee: sum("state_tax"), employer: 0 },
+    { label: taxLabels.suta, employee: 0, employer: sum("suta") },
     { label: "Federal Unemployment (FUTA)", employee: 0, employer: sum("futa") },
   ];
   const checks: PayrollCheckRow[] = rows.map((r: any) => ({ payDate: r.pay_date, employee: r.employee, gross: Number(r.gross_wages) || 0, net: Number(r.net_pay) || 0 }));
@@ -2212,14 +2214,15 @@ export async function loadPayrollTaxByEmployee(clientId: string, from: string, t
     if (!byEmployee.has(key)) byEmployee.set(key, []);
     byEmployee.get(key)!.push(r);
   }
+  const taxLabels = statePayrollTaxLabels((await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [clientId]))?.state);
   return Array.from(byEmployee.entries()).map(([employee, empRows]) => {
     const sum = (col: string) => empRows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
     const taxRows: PayrollTaxRow[] = [
       { label: "Federal Withholding", employee: sum("federal_withholding"), employer: 0 },
       { label: "Social Security", employee: sum("social_security_ee"), employer: sum("social_security_er") },
       { label: "Medicare", employee: sum("medicare_ee"), employer: sum("medicare_er") },
-      { label: "MD Withholding", employee: sum("state_tax"), employer: 0 },
-      { label: "MD Unemployment (SUTA)", employee: 0, employer: sum("suta") },
+      { label: taxLabels.withholding, employee: sum("state_tax"), employer: 0 },
+      { label: taxLabels.suta, employee: 0, employer: sum("suta") },
       { label: "Federal Unemployment (FUTA)", employee: 0, employer: sum("futa") },
     ];
     return { employee, taxRows };
