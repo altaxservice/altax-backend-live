@@ -1,3 +1,4 @@
+import { stateDisplayName } from "../../common/stateNames";
 import crypto from "crypto";
 import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
@@ -2772,6 +2773,9 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   }
   const dateOfFormationError = validateDateOfFormation(body.dateOfFormation);
   if (dateOfFormationError) return res.status(400).json({ error: dateOfFormationError });
+  // A client's state decides which state's deadlines, task rules, and message
+  // wording apply — and a blank one silently counts as Maryland.
+  if (!stateDisplayName(body.state)) return res.status(400).json({ error: "State is required — choose the client's state so the right deadlines and rules apply." });
 
   const dupe = await queryOne<any>(
     `SELECT client_id FROM altax.v3_clients WHERE lower(client_name) = lower($1) AND status <> 'Archived'`,
@@ -2995,6 +2999,9 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   const body = req.body || {};
   const dateOfFormationError = validateDateOfFormation(body.dateOfFormation);
   if (dateOfFormationError) return res.status(400).json({ error: dateOfFormationError });
+  if (Object.prototype.hasOwnProperty.call(body, "state") && !stateDisplayName(body.state)) {
+    return res.status(400).json({ error: "State can't be blank — choose the client's state so the right deadlines and rules apply." });
+  }
 
   const old = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!old) return res.status(404).json({ error: "Client not found." });

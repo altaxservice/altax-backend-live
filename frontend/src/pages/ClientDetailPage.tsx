@@ -657,6 +657,10 @@ export function ClientDetailPage() {
   async function handleSave(e: FormEvent) {
     e.preventDefault();
     if (!clientId) return;
+    if (!String(form.state || "").trim()) {
+      setSaveError("State is required — choose the client's state so the right deadlines and rules apply.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {

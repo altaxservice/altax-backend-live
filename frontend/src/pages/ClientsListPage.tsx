@@ -751,8 +751,8 @@ export function ClientsListPage() {
                     </div>
                   )}
                   <div className="field">
-                    <label htmlFor="nc-state">State</label>
-                    <select id="nc-state" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
+                    <label htmlFor="nc-state">State <span className="muted">(sets the deadlines, rules and wording)</span></label>
+                    <select id="nc-state" required value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
                       <option value="">Select…</option>
                       {US_STATES.map((s) => <option key={s}>{s}</option>)}
                     </select>
