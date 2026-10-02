@@ -14,8 +14,12 @@ import { getDashboardAlertSettings } from "../modules/clients/dashboardAlerts";
  * Late penalty: 5% per month or fraction of a month on the unpaid tax,
  * capped at 25% of the tax due (unlike MD's flat one-time 10%, DC's penalty
  * genuinely compounds by how many months late the filing is).
- * Late interest: 1.5% per month or fraction of a month on the unpaid tax,
- * uncapped, "without regard to any extension."
+ * Late interest: 10% per year, COMPOUNDED DAILY, on the unpaid tax, from the
+ * due date until paid. Corrected 2026-10-02: this used to be a flat 1.5% per
+ * month x months late (18%/yr, simple), which overstated every late DC
+ * period. DC OTR's own 2025 FR-800M instructions and its Sales and Use Tax
+ * FAQ both say "Interest of 10% per year, compounded daily, on a late
+ * payment." Interest is charged on the tax only, not on the penalty.
  * Due date: 20th of the month following the reporting period — same rule
  * MD happens to use, coincidentally.
  *
@@ -29,8 +33,10 @@ import { getDashboardAlertSettings } from "../modules/clients/dashboardAlerts";
 const FALLBACK = {
   penaltyRateMonthly: 0.05,
   penaltyCapRate: 0.25,
-  interestMonthly: 0.015,
+  interestAnnual: 0.10,
 };
+
+const DAYS_PER_YEAR = 365;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -54,19 +60,19 @@ async function getDcRateRow(rateId: string): Promise<{ rate: number } | null> {
 interface DcFilingParams {
   penaltyRateMonthly: number;
   penaltyCapRate: number;
-  interestMonthly: number;
+  interestAnnual: number;
 }
 
 async function loadDcFilingParams(): Promise<DcFilingParams> {
   const [penalty, penaltyCap, interest] = await Promise.all([
     getDcRateRow("DC-SUT-LATE-PENALTY-MONTHLY"),
     getDcRateRow("DC-SUT-LATE-PENALTY-CAP"),
-    getDcRateRow("DC-SUT-INTEREST-MONTHLY"),
+    getDcRateRow("DC-SUT-INTEREST-ANNUAL"),
   ]);
   return {
     penaltyRateMonthly: penalty?.rate ?? FALLBACK.penaltyRateMonthly,
     penaltyCapRate: penaltyCap?.rate ?? FALLBACK.penaltyCapRate,
-    interestMonthly: interest?.rate ?? FALLBACK.interestMonthly,
+    interestAnnual: interest?.rate ?? FALLBACK.interestAnnual,
   };
 }
 
@@ -89,9 +95,15 @@ export interface DcFilingResult {
   penalty: number;
   penaltyRateMonthly: number;
   interest: number;
-  interestRateMonthly: number;
+  /** Annual rate, compounded daily — see computeDcFiling. */
+  interestRateAnnual: number;
   monthsLate: number;
   balanceDue: number;
+}
+
+/** Whole calendar days from dueDate to paidDate (UTC, so DST can't skew it). */
+function daysLate(dueDate: Date, paidDate: Date): number {
+  return Math.max(0, Math.round((paidDate.getTime() - dueDate.getTime()) / 86400000));
 }
 
 /** DC FR-800's statutory due date for a given reporting period — the 20th of the month AFTER periodEnd. */
@@ -129,17 +141,17 @@ export async function computeDcFiling(taxDue: number, dueDateStr: string, filedD
   if (effectiveDate <= dueDate) {
     return {
       taxDue, onTime: true, discount: 0, penalty: 0, penaltyRateMonthly: params.penaltyRateMonthly,
-      interest: 0, interestRateMonthly: params.interestMonthly, monthsLate: 0, balanceDue: round2(taxDue),
+      interest: 0, interestRateAnnual: params.interestAnnual, monthsLate: 0, balanceDue: round2(taxDue),
     };
   }
 
   const monthsLate = monthsLateInclusive(dueDate, effectiveDate);
   const penaltyCap = round2(taxDue * params.penaltyCapRate);
   const penalty = Math.min(round2(taxDue * params.penaltyRateMonthly * monthsLate), penaltyCap);
-  const interest = round2(taxDue * params.interestMonthly * monthsLate);
+  const interest = round2(taxDue * (Math.pow(1 + params.interestAnnual / DAYS_PER_YEAR, daysLate(dueDate, effectiveDate)) - 1));
   return {
     taxDue, onTime: false, discount: 0, penalty, penaltyRateMonthly: params.penaltyRateMonthly,
-    interest, interestRateMonthly: params.interestMonthly, monthsLate, balanceDue: round2(taxDue + penalty + interest),
+    interest, interestRateAnnual: params.interestAnnual, monthsLate, balanceDue: round2(taxDue + penalty + interest),
   };
 }
 
@@ -350,7 +362,7 @@ export async function computeDcFilingBreakdown(
     const filedDate = recorded?.filedDate ?? salesPaymentDate ?? filedDateStr;
     if (recorded && recorded.paidDate === null) {
       results.push({
-        taxDue, onTime: true, discount: 0, penalty: 0, penaltyRateMonthly: 0, interest: 0, interestRateMonthly: 0, monthsLate: 0, balanceDue: taxDue,
+        taxDue, onTime: true, discount: 0, penalty: 0, penaltyRateMonthly: 0, interest: 0, interestRateAnnual: 0, monthsLate: 0, balanceDue: taxDue,
         start: period.start, end: period.end, dueDate: period.dueDate,
         targetFilingDate: dcFilingTargetDate(period.dueDate), filedDate, paidDate: filedDate,
         markedFiledDate: recorded.filedDate, markedPaidDate: null, acknowledgedAt: recorded.acknowledgedAt ?? null,

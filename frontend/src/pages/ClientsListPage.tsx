@@ -19,6 +19,7 @@ import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, deriveServiceType, INDUSTRY_CAT
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
+import { clientStateLabel, isMarylandClient, sosAgencyLabel } from "../utils/clientStateLabels";
 import { useFormDraft } from "../hooks/useFormDraft";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
@@ -852,17 +853,19 @@ export function ClientsListPage() {
                   ) : (
                     <>
                       <div className="field"><label htmlFor="nc-ein">EIN</label><input id="nc-ein" value={form.ein} onChange={(e) => setForm((f) => ({ ...f, ein: e.target.value }))} /></div>
-                      <div className="field"><label htmlFor="nc-sos">Secretary of State ID <span className="muted">(SDAT)</span></label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
+                      <div className="field"><label htmlFor="nc-sos">Secretary of State ID <span className="muted">({sosAgencyLabel(form.state)})</span></label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
+                      {isMarylandClient(form.state) && (
+                        <div className="field">
+                          <label htmlFor="nc-cra-number">CRA / Central Registration No. <span className="muted">(optional)</span></label>
+                          <input id="nc-cra-number" value={form.craRegistrationNumber} onChange={(e) => setForm((f) => ({ ...f, craRegistrationNumber: e.target.value }))} placeholder="Issued by Maryland after CRA is approved" />
+                        </div>
+                      )}
                       <div className="field">
-                        <label htmlFor="nc-cra-number">CRA / Central Registration No. <span className="muted">(optional)</span></label>
-                        <input id="nc-cra-number" value={form.craRegistrationNumber} onChange={(e) => setForm((f) => ({ ...f, craRegistrationNumber: e.target.value }))} placeholder="Issued by Maryland after CRA is approved" />
+                        <label htmlFor="nc-mdui-id">{clientStateLabel("MD UI Employer ID", form.state)} <span className="muted">(optional)</span></label>
+                        <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder={isMarylandClient(form.state) ? "Assigned by MD Dept of Labor" : "Assigned by your state unemployment agency"} />
                       </div>
                       <div className="field">
-                        <label htmlFor="nc-mdui-id">MD UI Employer ID <span className="muted">(optional)</span></label>
-                        <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder="Assigned by MD Dept of Labor" />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="nc-mdui-rate">MD UI Tax Rate <span className="muted">(%, optional)</span></label>
+                        <label htmlFor="nc-mdui-rate">{clientStateLabel("MD UI Tax Rate", form.state)} <span className="muted">(%, optional)</span></label>
                         <input id="nc-mdui-rate" type="number" step="0.01" min="0" max="20" value={form.mdUiTaxRate} onChange={(e) => setForm((f) => ({ ...f, mdUiTaxRate: e.target.value }))} placeholder="e.g. 2.60" />
                       </div>
                     </>
@@ -1018,7 +1021,7 @@ export function ClientsListPage() {
                       </select>
                     </div>
                     <div className="field">
-                      <label htmlFor="nc-mdw">MD Withholding Frequency</label>
+                      <label htmlFor="nc-mdw">{clientStateLabel("MD Withholding Frequency", form.state)}</label>
                       <select id="nc-mdw" value={form.mdWithholdingFrequency} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingFrequency: e.target.value }))}>
                         <option value="">Select…</option>
                         {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
@@ -1028,7 +1031,7 @@ export function ClientsListPage() {
                         Flags from treating periods before this client actually had
                         the obligation as "missing". See sql/102_obligation_registered_since.sql. */}
                     <div className="field">
-                      <label htmlFor="nc-mdw-reg">MD Withholding Registered Since</label>
+                      <label htmlFor="nc-mdw-reg">{clientStateLabel("MD Withholding Registered Since", form.state)}</label>
                       <input id="nc-mdw-reg" type="date" value={form.mdWithholdingRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingRegisteredSince: e.target.value }))} />
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
@@ -1041,10 +1044,10 @@ export function ClientsListPage() {
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
-                      MD UI enabled
+                      {clientStateLabel("MD UI enabled", form.state)}
                     </label>
                     <div className="field">
-                      <label htmlFor="nc-mdui-reg">MD UI Registered Since</label>
+                      <label htmlFor="nc-mdui-reg">{clientStateLabel("MD UI Registered Since", form.state)}</label>
                       <input id="nc-mdui-reg" type="date" value={form.mduiRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mduiRegisteredSince: e.target.value }))} />
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
@@ -1084,7 +1087,7 @@ export function ClientsListPage() {
                   </div>
                 </div>
 
-                {form.clientType === "Business" && (
+                {form.clientType === "Business" && (isMarylandClient(form.state) || form.mdAnnualReportEnabled) && (
                   <div className="ac-subcard">
                     <div className="ac-subcard-title">Business Compliance</div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 6 }}>

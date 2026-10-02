@@ -41,6 +41,7 @@ import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
 import { SubscriptionServicesChecklist } from "../components/SubscriptionServicesChecklist";
 import { DetailField } from "../components/DetailCard";
+import { clientStateLabel, isMarylandClient } from "../utils/clientStateLabels";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
 // Display-only fallback if the tiers admin page hasn't loaded here — the
@@ -92,7 +93,8 @@ const showMdui = (f: Record<string, any>) => hasService(f, "payroll") || Boolean
 const showW21099 = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.w21099Enabled);
 const showSalesTaxDetails = (f: Record<string, any>) => hasService(f, "sales_tax") || filled(f.salesTaxFrequency);
 const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "business_tax_prep") || filled(f.businessReturnType);
-const showMdAnnualReport = (f: Record<string, any>) => isBusiness(f) || Boolean(f.mdAnnualReportEnabled);
+// The Annual Report flag drives Maryland's April 15 deadline specifically, so it's only offered for MD clients (or ones that already have it on).
+const showMdAnnualReport = (f: Record<string, any>) => Boolean(f.mdAnnualReportEnabled) || (isBusiness(f) && isMarylandClient(f.state));
 const showEntityType = (f: Record<string, any>) => isBusiness(f) || filled(f.entityType);
 
 // Same 7-card shape and order as the Add Client wizard (ClientsListPage.tsx)
@@ -149,7 +151,8 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f), sensitive: true },
       { key: "ein", apiKey: "ein", label: "EIN", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID (SDAT)", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
-      { key: "cra_registration_number", apiKey: "craRegistrationNumber", label: "CRA / Central Registration No.", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      // Maryland-only (the state's Central Registration Authority) — hidden for other states unless a value is already on file.
+      { key: "cra_registration_number", apiKey: "craRegistrationNumber", label: "CRA / Central Registration No.", kind: "text", hidden: (f) => !isBusiness(f) || (!isMarylandClient(f.state) && !filled(f.craRegistrationNumber)), sensitive: true },
       // Employer-specific MD Unemployment Insurance account number + this
       // client's own experience-rated UI tax rate (varies per employer) —
       // grouped here with the other business tax IDs, not under Payroll
@@ -796,11 +799,11 @@ export function ClientDetailPage() {
                     checked={Boolean(form[f.apiKey])}
                     onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.checked }))}
                   />
-                  {f.label}
+                  {clientStateLabel(f.label, form.state)}
                 </label>
               ) : f.kind === "select" ? (
                 <div className="field" key={f.apiKey}>
-                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <label htmlFor={f.apiKey}>{clientStateLabel(f.label, form.state)}</label>
                   <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
                     <option value="">{f.apiKey === "assignedTo" ? "Unassigned" : "Select…"}</option>
                     {f.apiKey === "assignedTo" && form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && (
@@ -815,7 +818,7 @@ export function ClientDetailPage() {
                 // and nothing downstream parses this field strictly (real send-channel
                 // gating already uses the separate smsAllowed/emailAllowed checkboxes).
                 <div className="field" key={f.apiKey}>
-                  <label>{f.label}</label>
+                  <label>{clientStateLabel(f.label, form.state)}</label>
                   <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
                     {(f.options || []).map((o) => {
                       const selected = String(form[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -838,12 +841,12 @@ export function ClientDetailPage() {
                 </div>
               ) : f.kind === "textarea" ? (
                 <div className="field" style={{ gridColumn: "1 / -1" }} key={f.apiKey}>
-                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <label htmlFor={f.apiKey}>{clientStateLabel(f.label, form.state)}</label>
                   <textarea id={f.apiKey} rows={f.key === "notes" ? 3 : 2} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
                 </div>
               ) : f.kind === "date" ? (
                 <div className="field" key={f.apiKey}>
-                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <label htmlFor={f.apiKey}>{clientStateLabel(f.label, form.state)}</label>
                   <input
                     id={f.apiKey} type="date" value={form[f.apiKey] ?? ""}
                     min={f.dateMin} max={f.dateMaxToday ? new Date().toISOString().slice(0, 10) : undefined}
@@ -861,7 +864,7 @@ export function ClientDetailPage() {
                 </div>
               ) : (
                 <div className="field" key={f.apiKey}>
-                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <label htmlFor={f.apiKey}>{clientStateLabel(f.label, form.state)}</label>
                   <input id={f.apiKey} list={f.suggestions ? `${f.apiKey}-list` : undefined} data-no-suggest={f.sensitive || undefined} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
                   {f.suggestions && (
                     <datalist id={`${f.apiKey}-list`}>
@@ -1197,15 +1200,15 @@ export function ClientDetailPage() {
                   <DetailField label="Individual SSN" value={client.individual_ssn as string | null} />
                 )}
                 {isBusinessClient && <DetailField label="State Tax ID" value={client.state_tax_id as string | null} />}
-                {isBusinessClient && <DetailField label="Secretary of State ID (SDAT)" value={client.secretary_of_state_id as string | null} />}
-                {isBusinessClient && <DetailField label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
+                {isBusinessClient && <DetailField label={clientStateLabel("Secretary of State ID (SDAT)", client.state)} value={client.secretary_of_state_id as string | null} />}
+                {isBusinessClient && (isMarylandClient(client.state) || Boolean(client.cra_registration_number)) && <DetailField label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
                 {isBusinessClient && <DetailField label="Use and Occupancy Number" value={client.use_and_occupancy_number as string | null} />}
                 {isBusinessClient && <DetailField label="Fire Department Permit Number" value={client.fire_dept_permit_number as string | null} />}
                 {isBusinessClient && <DetailField label="Trader's License" value={client.traders_license_number as string | null} />}
                 {isBusinessClient && <DetailField label="Health Permit License" value={client.health_permit_license_number as string | null} />}
-                {isBusinessClient && <DetailField label="MD UI Employer ID" value={client.md_ui_employer_id as string | null} />}
+                {isBusinessClient && <DetailField label={clientStateLabel("MD UI Employer ID", client.state)} value={client.md_ui_employer_id as string | null} />}
                 {isBusinessClient && (
-                  <DetailField label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
+                  <DetailField label={clientStateLabel("MD UI Tax Rate", client.state)} value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
                 )}
                 <DetailField
                   label="Sales Tax Frequency"
@@ -1219,9 +1222,9 @@ export function ClientDetailPage() {
                 {Boolean(client.payroll_enabled) && <DetailField label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
                 {Boolean(client.payroll_enabled) && <DetailField label="Payroll Provider" value={client.payroll_system as string | null} />}
                 <DetailField label="EFTPS Enabled" value={client.eftps_enabled ? "Yes" : "No"} />
-                <DetailField label="MD Withholding Frequency" value={client.md_withholding_frequency as string | null} />
-                <DetailField label="MD UI Enabled" value={client.mdui_enabled ? "Yes" : "No"} />
-                <DetailField label="MD Annual Report Enabled" value={client.md_annual_report_enabled ? "Yes" : "No"} />
+                <DetailField label={clientStateLabel("MD Withholding Frequency", client.state)} value={client.md_withholding_frequency as string | null} />
+                <DetailField label={clientStateLabel("MD UI Enabled", client.state)} value={client.mdui_enabled ? "Yes" : "No"} />
+                {(isMarylandClient(client.state) || Boolean(client.md_annual_report_enabled)) && <DetailField label="MD Annual Report Enabled" value={client.md_annual_report_enabled ? "Yes" : "No"} />}
                 <DetailField label="Business Return Type" value={client.business_return_type as string | null} />
                 <DetailField label="W-2 / 1099 Enabled" value={client.w21099_enabled ? "Yes" : "No"} />
               </div>
