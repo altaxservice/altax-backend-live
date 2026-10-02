@@ -3,6 +3,7 @@
  * publicAnnualReportFilings.routes.ts. No PDF route — no PDF generator
  * exists for this filing type.
  */
+import { unemploymentInsuranceLabel } from "../../common/stateNames";
 import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -29,7 +30,7 @@ publicMdUiFilingsRouter.get("/:token", limiter, asyncHandler(async (req: Request
   const filing = await findByToken(req.params.token);
   if (!filing) return res.status(404).json({ error: "This link is invalid or has expired." });
 
-  const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [filing.client_id]);
+  const client = await queryOne<any>(`SELECT client_name, state FROM altax.v3_clients WHERE client_id = $1`, [filing.client_id]);
   res.json({
     filing: {
       client_name: client?.client_name || "",
@@ -61,7 +62,7 @@ publicMdUiFilingsRouter.post("/:token/acknowledge", limiter, asyncHandler(async 
   const periodStartIso = toIsoDate(filing.period_start);
   await notifyStaffOfObligationConfirmed({
     clientId: filing.client_id, clientName: client?.client_name || filing.client_id,
-    filingType: "Maryland Unemployment Insurance",
+    filingType: unemploymentInsuranceLabel(client?.state),
     periodLabel: (periodStartIso && deriveTaskRulesPeriodLabel(periodStartIso, "Quarterly")) || null,
     amount: Number(filing.amount), acknowledgedAt, acknowledgedIp: ip, req,
   });

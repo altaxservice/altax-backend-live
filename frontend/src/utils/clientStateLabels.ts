@@ -46,3 +46,16 @@ export function clientStateLabel(label: string, state: string | null | undefined
     .replace(/\bMD (UI|Withholding)\b/g, `${st} $1`)
     .replace("(SDAT)", `(${sosAgencyLabel(st)})`);
 }
+
+/**
+ * Catalog services named "State ..." ("State Withholding Filing") show the
+ * client's own state when it's known — "DC Withholding Filing", "MD
+ * Withholding Filing" — and stay generic when no state is chosen yet. The
+ * stored catalog label never changes, so pricing, contracts and invoices keep
+ * working off one stable name.
+ */
+export function serviceLabelForState(label: string, state: string | null | undefined): string {
+  const st = normalize(state);
+  if (!/^[A-Z]{2}$/.test(st)) return label;
+  return label.replace(/^State /, `${st} `);
+}

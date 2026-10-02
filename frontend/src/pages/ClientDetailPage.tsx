@@ -41,7 +41,7 @@ import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
 import { SubscriptionServicesChecklist } from "../components/SubscriptionServicesChecklist";
 import { DetailField } from "../components/DetailCard";
-import { clientStateLabel, hasAnnualReportRules, isMarylandClient } from "../utils/clientStateLabels";
+import { clientStateLabel, hasAnnualReportRules, isMarylandClient, serviceLabelForState } from "../utils/clientStateLabels";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
 // Display-only fallback if the tiers admin page hasn't loaded here — the
@@ -958,6 +958,7 @@ export function ClientDetailPage() {
                               services={(form.services as string[]) || []}
                               isBusinessClient={isBusiness(form)}
                               clientId={clientId}
+                              state={form.state as string | null}
                               onChange={(services) => setForm((prev) => ({ ...prev, services, payrollEnabled: services.includes("payroll") }))}
                               estimatedEmployeeCount={form.estimatedEmployeeCount ?? null}
                               onEstimatedEmployeeCountChange={(n) => setForm((prev) => ({ ...prev, estimatedEmployeeCount: n }))}
@@ -1150,7 +1151,7 @@ export function ClientDetailPage() {
                   <DetailField
                     label="Services Provided"
                     value={(client.services && client.services.length > 0)
-                      ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
+                      ? client.services.map((k) => serviceLabelForState(FIRM_SERVICES.find((s) => s.key === k)?.label || k, client.state)).join(", ")
                       : null}
                     multiline
                     wide

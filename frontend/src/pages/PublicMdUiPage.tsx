@@ -69,7 +69,7 @@ export function PublicMdUiPage() {
       <div style={pageStyle}>
         <div style={{ borderLeft: "4px solid var(--teal)", paddingLeft: 16, marginBottom: 4 }}>
           <div style={{ fontSize: 12, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--teal)", fontWeight: 700 }}>{filing.client_name}</div>
-          <h1 style={{ fontSize: 24, margin: "4px 0 0", fontWeight: 800, letterSpacing: -0.3 }}>Maryland Unemployment Insurance Filing</h1>
+          <h1 style={{ fontSize: 24, margin: "4px 0 0", fontWeight: 800, letterSpacing: -0.3 }}>Unemployment Insurance Filing</h1>
           <p className="muted" style={{ fontSize: 13.5, margin: "6px 0 0" }}>Period {periodLabel}</p>
         </div>
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ServiceCatalogEntry, SubscriptionTier } from "../api/types";
 import { INDIVIDUAL_SERVICE_KEYS } from "../utils/clientOptions";
+import { serviceLabelForState } from "../utils/clientStateLabels";
 import { computeSubscriptionFee, computeSubscriptionTier, type ClientWorkerCounts } from "../utils/subscriptionPricing";
 
 const PRICING_UNIT_SUFFIX: Record<string, string> = { per_employee: "/employee/mo", per_worker: "/worker/mo" };
@@ -24,13 +25,15 @@ const TIER_COLOR: Record<string, { fg: string; bg: string }> = {
  * keeps working unchanged), they just don't count toward the subscription.
  */
 export function SubscriptionServicesChecklist({
-  services, onChange, isBusinessClient, clientId, estimatedEmployeeCount, onEstimatedEmployeeCountChange,
+  services, onChange, isBusinessClient, clientId, state, estimatedEmployeeCount, onEstimatedEmployeeCountChange,
 }: {
   services: string[];
   onChange: (services: string[]) => void;
   isBusinessClient: boolean;
   /** Omitted while creating a brand-new client — worker counts default to 0/0, matching a client with no employees on file yet. */
   clientId?: string;
+  /** The client's state — fills in "State Withholding Filing" as e.g. "DC Withholding Filing". Generic wording when omitted/unset. */
+  state?: string | null;
   /** Staff-entered placeholder headcount for per-employee/per-worker pricing before real employees exist (sql/142) — see the merge note below. */
   estimatedEmployeeCount?: number | null;
   onEstimatedEmployeeCountChange?: (n: number | null) => void;
@@ -134,7 +137,7 @@ export function SubscriptionServicesChecklist({
                 return (
                   <label key={s.service_key} className={`service-item${services.includes(s.service_key) ? " checked" : ""}`}>
                     <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
-                    <span className="service-item-label">{s.label}</span>
+                    <span className="service-item-label">{serviceLabelForState(s.label, state)}</span>
                     {s.min_fee != null && (
                       <span className="service-item-price">
                         ${Number(s.min_fee).toFixed(0)}{PRICING_UNIT_SUFFIX[unit] || "/mo"}
@@ -180,7 +183,7 @@ export function SubscriptionServicesChecklist({
                     return (
                       <label key={s.service_key} className={`service-item${services.includes(s.service_key) ? " checked" : ""}`}>
                         <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
-                        <span className="service-item-label">{s.label}</span>
+                        <span className="service-item-label">{serviceLabelForState(s.label, state)}</span>
                         {rawFee != null && (
                           <span className="service-item-price">
                             {discountApplies ? (
