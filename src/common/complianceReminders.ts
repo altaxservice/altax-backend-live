@@ -12,6 +12,7 @@
  * sweep below so a client never gets the same filing reminded twice by
  * two different sweeps.
  */
+import { loadFiledCalendarKeys } from "./filedObligationKeys";
 import { query, queryOne, withTransaction } from "../config/db";
 import { sendChannel } from "./sendChannel";
 import { getFirmProfile } from "./firmProfile";
@@ -119,6 +120,7 @@ async function computeClientDeadlines(c: any, asOf: Date): Promise<ComplianceDea
     query<any>(`SELECT source, due_date FROM altax.v3_obligation_completions WHERE client_id = $1`, [c.client_id]),
   ]);
   const completedKeys = new Set(completionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
+  for (const k of await loadFiledCalendarKeys(c.client_id, c)) completedKeys.add(k);
 
   return computeUpcomingDeadlines({
     state: c.state || null,

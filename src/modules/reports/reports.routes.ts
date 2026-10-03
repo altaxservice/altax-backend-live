@@ -1,3 +1,4 @@
+import { loadFiledCalendarKeys } from "../../common/filedObligationKeys";
 import { statePayrollTaxLabels } from "../../common/stateNames";
 import { Router, Response } from "express";
 import crypto from "crypto";
@@ -2365,6 +2366,7 @@ export async function computeClientDashboard(clientId: string) {
     query<any>(`SELECT source, due_date FROM altax.v3_obligation_completions WHERE client_id = $1`, [clientId]),
   ]);
   const completedKeys = new Set(completionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
+  for (const k of await loadFiledCalendarKeys(clientId, clientRow)) completedKeys.add(k);
   // A period staff has already marked filed has nothing left pending, even if it
   // was filed late — showing its due date as an "upcoming deadline" would be
   // stale. Pick the last period that's still actually unresolved.

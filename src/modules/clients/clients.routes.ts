@@ -1,3 +1,4 @@
+import { loadFiledCalendarKeys } from "../../common/filedObligationKeys";
 import { stateDisplayName } from "../../common/stateNames";
 import crypto from "crypto";
 import { Router, Response } from "express";
@@ -1908,6 +1909,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
   // rules (or, for MD Annual Report, aren't yet one — left for a later pass).
   const obligationCompletionRows = await query<any>(`SELECT source, due_date FROM altax.v3_obligation_completions WHERE client_id = $1`, [clientId]);
   const obligationCompletedKeys = new Set(obligationCompletionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
+  for (const k of await loadFiledCalendarKeys(clientId, clientRow)) obligationCompletedKeys.add(k);
   const upcomingObligationDeadlines = computeUpcomingDeadlines({
     state: clientRow.state || null,
     mdCurrentPeriodDueDate: null, payrollNextDate: null, payrollEnabled: false,

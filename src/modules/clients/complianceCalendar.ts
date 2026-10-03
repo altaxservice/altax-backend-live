@@ -258,8 +258,8 @@ function computeStateUiDeadline(st: string, asOf: Date): ComplianceDeadline[] {
   const label = STATE_UI_LABELS[st];
   const date = recurringDue("Quarterly", 31, asOf);
   if (!label || !date) return [];
-  // Delaware's DOL doesn't state a weekend rule, so its date is left as published.
-  return [{ label, date: st === "DE" ? date : nextBusinessDay(date), source: "MD UI" }];
+  // Only Virginia and Pennsylvania publish a next-business-day rule for UI reports; DC's handbook says reports are due regardless of a non-business day, and Maryland and Delaware don't state one, so those dates are left as published.
+  return [{ label, date: st === "VA" || st === "PA" ? nextBusinessDay(date) : date, source: "MD UI" }];
 }
 
 function computeStateAnnualReportDeadlines(st: string, params: { entityType?: string | null; dateOfFormation?: string | null }, asOf: Date): ComplianceDeadline[] {

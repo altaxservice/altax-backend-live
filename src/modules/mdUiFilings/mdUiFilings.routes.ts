@@ -10,6 +10,7 @@
  * recompute is: staff can adjust it before filing.
  */
 import { unemploymentInsuranceLabel, uiTaskKeyword } from "../../common/stateNames";
+import { uiDueDate as statePeriodUiDueDate } from "../../common/obligationSchedules";
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
@@ -29,18 +30,19 @@ function toIsoDateStr(v: unknown): string {
 }
 
 /**
- * The statutory due date of a quarter's UI wage filing. MD: the 24th of the
- * month after quarter-end (matches TR-009's rule config, due_day=24 — same
- * convention as mdFiling.ts's mdDueDateForPeriod being a hardcoded statutory
- * fact rather than derived from an editable rule). DC (DOES, Form UC-30): the
- * last day of the month after quarter-end — Apr 30 / Jul 31 / Oct 31 / Jan 31.
+ * Due date this module's task-matching and client confirmations use. MD keeps
+ * the firm's internal target of the 24th (TR-009's rule config; Maryland's own
+ * statutory date is the last day of the month, shown in the Unemployment
+ * Insurance period table). Every other state uses its real due date — month-end
+ * after the quarter, with the weekend rules in obligationSchedules.ts.
  */
 function uiDueDate(periodEnd: string, state?: string | null): string {
+  const code = String(state || "").trim().toUpperCase();
+  if (code && code !== "MD") return statePeriodUiDueDate(code, periodEnd);
   const [y, m] = periodEnd.split("-").map(Number);
   const dueMonth0 = m === 12 ? 0 : m; // m is 1-indexed; next month 0-indexed
   const dueYear = m === 12 ? y + 1 : y;
-  const day = String(state || "").trim().toUpperCase() === "DC" ? new Date(Date.UTC(dueYear, dueMonth0 + 1, 0)).getUTCDate() : 24;
-  return `${dueYear}-${String(dueMonth0 + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return `${dueYear}-${String(dueMonth0 + 1).padStart(2, "0")}-24`;
 }
 
 type LoadClientResult = { error: string; status: number } | { client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone: string | null; smsAllowed: boolean; state: string | null } };

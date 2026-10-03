@@ -23,10 +23,8 @@ import { exportCsv } from "../components/FilterBar";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { EftpsDepositSection } from "../components/EftpsDepositSection";
-import { AnnualReportSection } from "../components/AnnualReportSection";
-import { MdUiSection } from "../components/MdUiSection";
-import { Form941Section } from "../components/Form941Section";
 import { WithholdingSection } from "../components/WithholdingSection";
+import { ObligationPeriodsSection } from "../components/ObligationPeriodsSection";
 import { clientStateLabel } from "../utils/clientStateLabels";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Withholding", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
@@ -139,9 +137,9 @@ export function AccountingPage() {
       {tab === "Import" && clientId && <ImportTab clientId={clientId} />}
       {tab === "EFTPS Deposits" && clientId && <EftpsDepositSection clientId={clientId} />}
       {tab === "Withholding" && clientId && <WithholdingSection clientId={clientId} />}
-      {tab === "Annual Report" && clientId && <AnnualReportSection clientId={clientId} />}
-      {tab === "MD UI" && clientId && <MdUiSection clientId={clientId} />}
-      {tab === "Form 941" && clientId && <Form941Section clientId={clientId} />}
+      {tab === "Annual Report" && clientId && <ObligationPeriodsSection clientId={clientId} kind="annual-report" />}
+      {tab === "MD UI" && clientId && <ObligationPeriodsSection clientId={clientId} kind="ui" />}
+      {tab === "Form 941" && clientId && <ObligationPeriodsSection clientId={clientId} kind="form941" />}
       {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} clientState={client?.state} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
       {tab === "Client Submissions" && clientId && <ClientSubmissionsTab clientId={clientId} />}
