@@ -63,6 +63,11 @@ export function detectCompanyName(rows: string[][], clients: ClientLite[]): stri
   // QBO: row 0 = company, row 1 = "Payroll details report" / "Employee details report".
   if (firstCell && /report$/i.test(secondCell) && !/report$/i.test(firstCell)) return firstCell;
 
+  // Drake: cell A1 holds the whole letterhead — company name, street, city/state/zip, then the report title
+  // ("FATIMA LLC / 504 H ST NE / WASHINGTON, DC 20002 / Payroll Wages"). The company is the first line.
+  const letterhead = firstCell.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (letterhead.length >= 2 && /payroll|employee listing|tax liability|wages/i.test(letterhead[letterhead.length - 1])) return letterhead[0];
+
   for (let r = 0; r < Math.min(rows.length, 10); r++) {
     for (let c = 0; c < 4; c++) {
       const text = cell(r, c);
