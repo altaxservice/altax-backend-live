@@ -113,8 +113,13 @@ async function isStillUnpaid(sourceSystem: string, sourceRecordId: string): Prom
     return !row || !row.paid_date;
   }
   if (sourceSystem === "WithholdingFiling") {
-    const [clientId, periodEnd] = sourceRecordId.split(":");
-    const row = await queryOne<any>(`SELECT paid_date FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2`, [clientId, periodEnd]);
+    // "client:periodEnd" for the client's own state, "client:periodEnd:ST" for an additional one.
+    const [clientId, periodEnd, stateCode] = sourceRecordId.split(":");
+    const row = await queryOne<any>(
+      `SELECT paid_date FROM altax.v3_withholding_filings f WHERE f.client_id = $1 AND f.period_end = $2
+         AND f.state = COALESCE($3, (SELECT upper(btrim(c.state)) FROM altax.v3_clients c WHERE c.client_id = $1))`,
+      [clientId, periodEnd, stateCode ?? null]
+    );
     return !row || !row.paid_date;
   }
   if (sourceSystem === "ObligationCompletion") {

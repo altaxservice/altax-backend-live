@@ -1,3 +1,4 @@
+import { CompanyCheckBanner, companyCheckNeedsConfirm, type CompanyCheckInfo } from "./CompanyCheckBanner";
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, viewFile, printFile, downloadFile, buildFilename } from "../api/client";
@@ -32,6 +33,7 @@ interface PaycheckPreviewRow {
   action: "create" | "duplicate";
 }
 interface TaxLiabilityPreview {
+  companyCheck?: CompanyCheckInfo;
   range: { start: string; end: string };
   summary: { federalIncomeTax: number; socialSecurity: number; medicare: number; total941: number };
   action: "create" | "duplicate";
@@ -87,14 +89,16 @@ const PERIOD_PRESETS = [
   { label: "Last 90 days", start: () => daysAgo(90), end: () => todayStr() },
 ];
 
-export function EftpsDepositSection({ clientId }: { clientId: string }) {
+export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { clientId: string; clientName: string; onSwitchClient: (id: string) => void }) {
+  const [wagesConfirmed, setWagesConfirmed] = useState(false);
+  const [taxLiabConfirmed, setTaxLiabConfirmed] = useState(false);
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [error, setError] = useState<string | null>(null);
 
   // --- Import: Payroll Wages ---
   const [paycheckFile, setPaycheckFile] = useState<File | null>(null);
-  const [paycheckPreview, setPaycheckPreview] = useState<{ rows: PaycheckPreviewRow[]; newCount: number; duplicateCount: number } | null>(null);
+  const [paycheckPreview, setPaycheckPreview] = useState<{ rows: PaycheckPreviewRow[]; newCount: number; duplicateCount: number; companyCheck?: CompanyCheckInfo } | null>(null);
   const [paycheckBusy, setPaycheckBusy] = useState<"preview" | "import" | null>(null);
 
   // --- Import: Tax Liability ---
@@ -233,7 +237,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
     setPaycheckBusy("preview");
     try {
       const fileBase64 = await fileToBase64(paycheckFile);
-      const res = await api.post<{ rows: PaycheckPreviewRow[]; newCount: number; duplicateCount: number }>(
+      const res = await api.post<{ rows: PaycheckPreviewRow[]; newCount: number; duplicateCount: number; companyCheck?: CompanyCheckInfo }>(
         "/eftps-deposits/import/payroll-wages/preview", { clientId, fileBase64 }
       );
       setPaycheckPreview(res);
@@ -252,10 +256,13 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       // A true duplicate (same employee + pay date + check number) can never
       // actually be inserted twice — the database itself rejects it (sql/125)
       // — so it's always safe to send every previewed row, new or not.
-      const res = await api.post<{ created: number; skipped: number }>("/eftps-deposits/import/payroll-wages/commit", { clientId, rows: paycheckPreview.rows });
+      const res = await api.post<{ created: number; skipped: number }>("/eftps-deposits/import/payroll-wages/commit", {
+        clientId, rows: paycheckPreview.rows, detectedCompanyName: paycheckPreview.companyCheck?.detectedName ?? null, confirmMismatch: wagesConfirmed,
+      });
       toast(`Imported ${res.created} paycheck(s)${res.skipped ? `, ${res.skipped} already on file` : ""}.`);
       setPaycheckFile(null);
       setPaycheckPreview(null);
+      setWagesConfirmed(false);
       loadImportedData();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not import these paychecks.");
@@ -288,12 +295,13 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       // place (sql/125's upsert) rather than creating a duplicate row.
       await api.post("/eftps-deposits/import/tax-liability/commit", {
         clientId, rangeStart: taxLiabilityPreview.range.start, rangeEnd: taxLiabilityPreview.range.end,
-        summary: taxLiabilityPreview.summary,
+        summary: taxLiabilityPreview.summary, detectedCompanyName: taxLiabilityPreview.companyCheck?.detectedName ?? null, confirmMismatch: taxLiabConfirmed,
       });
       toast(taxLiabilityPreview.action === "duplicate" ? "Tax Liability snapshot updated." : "Tax Liability snapshot imported.");
       loadImportedData();
       setTaxLiabilityFile(null);
       setTaxLiabilityPreview(null);
+      setTaxLiabConfirmed(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not import this snapshot.");
     } finally {
@@ -583,11 +591,13 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           </button>
         ) : (
           <div style={{ marginTop: 8 }}>
+            <CompanyCheckBanner check={paycheckPreview.companyCheck} clientName={clientName} confirmed={wagesConfirmed} onConfirmedChange={setWagesConfirmed}
+              onSwitchClient={(id) => { setPaycheckFile(null); setPaycheckPreview(null); setWagesConfirmed(false); onSwitchClient(id); }} />
             <p className="muted" style={{ fontSize: 13 }}>
               {paycheckPreview.newCount} new paycheck(s){paycheckPreview.duplicateCount ? `, ${paycheckPreview.duplicateCount} already on file — those will be skipped automatically` : ""}.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-primary" onClick={handlePaycheckImport} disabled={paycheckBusy !== null}>
+              <button className="btn btn-primary" onClick={handlePaycheckImport} disabled={paycheckBusy !== null || companyCheckNeedsConfirm(paycheckPreview.companyCheck, wagesConfirmed)}>
                 {paycheckBusy === "import" ? "Importing…" : "Import"}
               </button>
               <button className="btn" onClick={() => { setPaycheckFile(null); setPaycheckPreview(null); }}>Cancel</button>
@@ -605,12 +615,14 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           </button>
         ) : (
           <div style={{ marginTop: 8 }}>
+            <CompanyCheckBanner check={taxLiabilityPreview.companyCheck} clientName={clientName} confirmed={taxLiabConfirmed} onConfirmedChange={setTaxLiabConfirmed}
+              onSwitchClient={(id) => { setTaxLiabilityFile(null); setTaxLiabilityPreview(null); setTaxLiabConfirmed(false); onSwitchClient(id); }} />
             <p className="muted" style={{ fontSize: 13 }}>
               Covers {fmtDate(taxLiabilityPreview.range.start)} – {fmtDate(taxLiabilityPreview.range.end)} · Federal Deposit Total {money(taxLiabilityPreview.summary.total941)}
               {taxLiabilityPreview.action === "duplicate" ? " · a snapshot for this exact range already exists — importing will refresh it with these numbers" : ""}.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-primary" onClick={handleTaxLiabilityImport} disabled={taxLiabilityBusy !== null}>
+              <button className="btn btn-primary" onClick={handleTaxLiabilityImport} disabled={taxLiabilityBusy !== null || companyCheckNeedsConfirm(taxLiabilityPreview.companyCheck, taxLiabConfirmed)}>
                 {taxLiabilityBusy === "import" ? "Importing…" : taxLiabilityPreview.action === "duplicate" ? "Update" : "Import"}
               </button>
               <button className="btn" onClick={() => { setTaxLiabilityFile(null); setTaxLiabilityPreview(null); }}>Cancel</button>

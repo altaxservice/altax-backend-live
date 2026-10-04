@@ -25,6 +25,7 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 import { EftpsDepositSection } from "../components/EftpsDepositSection";
 import { WithholdingSection } from "../components/WithholdingSection";
 import { ObligationPeriodsSection } from "../components/ObligationPeriodsSection";
+import { CompanyCheckBanner, companyCheckNeedsConfirm, type CompanyCheckInfo } from "../components/CompanyCheckBanner";
 import { clientStateLabel } from "../utils/clientStateLabels";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Withholding", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
@@ -134,8 +135,8 @@ export function AccountingPage() {
       )}
       {tab === "Payroll" && clientId && <PayrollTab clientId={clientId} clientState={client?.state} />}
       {tab === "Employees" && clientId && <EmployeesTab clientId={clientId} clientState={client?.state} />}
-      {tab === "Import" && clientId && <ImportTab clientId={clientId} />}
-      {tab === "EFTPS Deposits" && clientId && <EftpsDepositSection clientId={clientId} />}
+      {tab === "Import" && clientId && <ImportTab clientId={clientId} clientName={client?.client_name || clientId} onSwitchClient={setClientId} />}
+      {tab === "EFTPS Deposits" && clientId && <EftpsDepositSection clientId={clientId} clientName={client?.client_name || clientId} onSwitchClient={setClientId} />}
       {tab === "Withholding" && clientId && <WithholdingSection clientId={clientId} />}
       {tab === "Annual Report" && clientId && <ObligationPeriodsSection clientId={clientId} kind="annual-report" />}
       {tab === "MD UI" && clientId && <ObligationPeriodsSection clientId={clientId} kind="ui" />}
@@ -2295,6 +2296,67 @@ function SalesRow({ label, value, bold }: { label: string; value: string; bold?:
   );
 }
 
+/**
+ * Group select + bulk delete for a paycheck list — for cleaning up a payroll
+ * import that landed on the wrong client, where deleting dozens one at a time
+ * isn't practical. Admin only, like the single delete. Checked rows survive a
+ * search/filter change, "select all" covers whatever is currently visible, and
+ * the typed confirmation names how many are about to go.
+ */
+function usePaycheckBulkDelete(visible: any[], isAdmin: boolean, onDone: () => void) {
+  const promptFor = usePrompt();
+  const notify = useNotify();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  const visibleIds = visible.map((p) => p.paycheck_id as string);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const toggle = (id: string) => setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllVisible = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id)); else visibleIds.forEach((id) => next.add(id));
+    return next;
+  });
+
+  async function deleteSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const typed = await promptFor({
+      title: `Permanently delete ${ids.length} paycheck${ids.length === 1 ? "" : "s"}`,
+      message: `${ids.length} selected paycheck${ids.length === 1 ? "" : "s"} and their payroll journal entries will be removed. Printed or finalized checks are skipped. This cannot be undone. Type DELETE PAYCHECKS to confirm.`,
+      placeholder: "DELETE PAYCHECKS",
+    });
+    if (typed === null) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ deleted: number; skipped: { paycheckId: string; reason: string }[] }>("/accounting/paychecks/bulk-delete", { paycheckIds: ids, confirm: typed });
+      setSelected(new Set());
+      onDone();
+      if (res.skipped.length > 0) {
+        await notify(`Deleted ${res.deleted}. ${res.skipped.length} skipped: ${Array.from(new Set(res.skipped.map((x) => x.reason))).join(" ")}`);
+      }
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete these paychecks.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const bar = isAdmin ? (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "0 16px 8px", fontSize: 12.5 }}>
+      <span className="muted">{selected.size === 0 ? "Tick rows to select them, then delete in one step." : `${selected.size} selected`}</span>
+      {visibleIds.length > 0 && <button type="button" className="btn btn-sm" onClick={toggleAllVisible}>{allVisibleSelected ? "Unselect all shown" : `Select all ${visibleIds.length} shown`}</button>}
+      {selected.size > 0 && (
+        <>
+          <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
+          <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={deleteSelected}>{busy ? "Deleting…" : `Delete ${selected.size} selected`}</button>
+        </>
+      )}
+    </div>
+  ) : null;
+  return { selected, toggle, toggleAllVisible, allVisibleSelected, bar };
+}
+
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const promptFor = usePrompt();
   const notify = useNotify();
@@ -2380,6 +2442,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   const visiblePaychecks = payrollSearchQ
     ? paychecksInPeriod.filter((p) => [p.employee, fmtDate(p.pay_date), fmtMoney(p.gross_wages), fmtMoney(p.net_pay)].some((v) => String(v || "").toLowerCase().includes(payrollSearchQ)))
     : paychecksInPeriod;
+  const bulk = usePaycheckBulkDelete(visiblePaychecks, isAdmin, load);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -2688,15 +2751,17 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             </p>
           </div>
         )}
+        {bulk.bar}
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col"></th></tr></thead>
+            <thead><tr>{isAdmin && <th scope="col" style={{ width: 28 }}><input type="checkbox" aria-label="Select all shown paychecks" checked={bulk.allVisibleSelected} onChange={bulk.toggleAllVisible} /></th>}<th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col"></th></tr></thead>
             <tbody>
               {/* This is a different table from the Paychecks tab's — it also
                   needs to open its record rather than being a dead list. */}
               {visiblePaychecks.map((p) => (
                 <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingPayCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingPayCheck(p); } }}>
+                  {isAdmin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${p.employee} ${fmtDate(p.pay_date)}`} checked={bulk.selected.has(p.paycheck_id)} onChange={() => bulk.toggle(p.paycheck_id)} /></td>}
                   <td>{fmtDate(p.pay_date)}</td>
                   <td>{p.employee}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(p.gross_wages)}</td>
@@ -3176,7 +3241,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 }
 
 type ImportPreviewRow = Record<string, any> & { action: "create" | "update" | "duplicate" };
-interface ImportPreview { source: "qbo" | "drake"; kind: "employees" | "paychecks"; rows: ImportPreviewRow[] }
+interface ImportPreview { source: "qbo" | "drake"; kind: "employees" | "paychecks"; rows: ImportPreviewRow[]; companyCheck?: CompanyCheckInfo }
 interface ImportResultRow { index: number; employeeName: string; ok: boolean; error?: string; created?: boolean; employeeId?: string; netPay?: number; payDate?: string }
 
 const SOURCE_LABEL: Record<string, string> = { qbo: "QuickBooks Online", drake: "Drake Accounting" };
@@ -3195,7 +3260,8 @@ const ACTION_LABEL: Record<string, { text: string; color: string }> = {
  * paychecks that would duplicate an existing one (same employee + pay date) are
  * flagged and skipped rather than silently double-posted.
  */
-function ImportTab({ clientId }: { clientId: string }) {
+function ImportTab({ clientId, clientName, onSwitchClient }: { clientId: string; clientName: string; onSwitchClient: (id: string) => void }) {
+  const [companyConfirmed, setCompanyConfirmed] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3206,7 +3272,7 @@ function ImportTab({ clientId }: { clientId: string }) {
 
   function reset() {
     setFile(null); setPreview(null); setResults(null); setError(null); setSelected(new Set());
-    setRowSearch("");
+    setRowSearch(""); setCompanyConfirmed(false);
   }
 
   async function handlePreview() {
@@ -3242,7 +3308,9 @@ function ImportTab({ clientId }: { clientId: string }) {
     setBusy(true); setError(null);
     try {
       const rows = preview.rows.filter((_, i) => selected.has(i));
-      const res = await api.post<{ results: ImportResultRow[] }>("/import/commit", { clientId, kind: preview.kind, rows });
+      const res = await api.post<{ results: ImportResultRow[] }>("/import/commit", {
+        clientId, kind: preview.kind, rows, detectedCompanyName: preview.companyCheck?.detectedName ?? null, confirmMismatch: companyConfirmed,
+      });
       setResults(res.results);
     } catch (err) {
       // A fully-failed import still comes back with a real per-row "results"
@@ -3295,6 +3363,7 @@ function ImportTab({ clientId }: { clientId: string }) {
             <p style={{ marginBottom: 12 }}>
               Detected <strong>{SOURCE_LABEL[preview.source]}</strong> — {preview.kind === "employees" ? "Employees" : "Paychecks"} ({preview.rows.length} rows found).
             </p>
+            <CompanyCheckBanner check={preview.companyCheck} clientName={clientName} confirmed={companyConfirmed} onConfirmedChange={setCompanyConfirmed} onSwitchClient={(id) => { reset(); onSwitchClient(id); }} />
             <input type="text" value={rowSearch} onChange={(e) => setRowSearch(e.target.value)} placeholder="Search employee, date, status…" style={{ maxWidth: 260, marginBottom: 10 }} />
             <div className="table-scroll" style={{ marginBottom: 14 }}>
               <table>
@@ -3353,7 +3422,7 @@ function ImportTab({ clientId }: { clientId: string }) {
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="button" className="btn" onClick={reset}>Cancel</button>
-              <button type="button" className="btn btn-primary" disabled={selected.size === 0 || busy} onClick={handleCommit}>
+              <button type="button" className="btn btn-primary" disabled={selected.size === 0 || busy || companyCheckNeedsConfirm(preview.companyCheck, companyConfirmed)} onClick={handleCommit}>
                 {busy ? "Importing…" : `Import ${selected.size} Row${selected.size === 1 ? "" : "s"}`}
               </button>
             </div>
@@ -5709,6 +5778,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
   const visiblePaychecks = paychecksSearchQ
     ? paychecks.filter((p) => [p.employee, fmtDate(p.pay_date), p.check_number, p.status].some((v) => String(v || "").toLowerCase().includes(paychecksSearchQ)))
     : paychecks;
+  const bulk = usePaycheckBulkDelete(visiblePaychecks, isAdmin, load);
 
   return (
     <Panel
@@ -5795,15 +5865,17 @@ function PaychecksTab({ clientId }: { clientId: string }) {
             </div>
           )}
       <p className="muted" style={{ fontSize: 11, margin: "0 16px 8px" }}>Searches the loaded rows only — narrow or widen the date range above to search older activity.</p>
+      {bulk.bar}
       <div className="scroll-list">
         <div className="table-scroll">
         <table>
           {/* Period/check#/employer-side figures are stacked under their subject —
               as 11 columns this ran past the right edge at 100% zoom. */}
-          <thead><tr><th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+          <thead><tr>{isAdmin && <th scope="col" style={{ width: 28 }}><input type="checkbox" aria-label="Select all shown paychecks" checked={bulk.allVisibleSelected} onChange={bulk.toggleAllVisible} /></th>}<th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
           <tbody>
             {visiblePaychecks.map((p) => (
               <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
+                {isAdmin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${p.employee} ${fmtDate(p.pay_date)}`} checked={bulk.selected.has(p.paycheck_id)} onChange={() => bulk.toggle(p.paycheck_id)} /></td>}
                 <td>
                   <div>{fmtDate(p.pay_date)}</div>
                   <div className="muted" style={{ fontSize: 11 }}>

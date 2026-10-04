@@ -6,6 +6,7 @@ import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { readWorkbookRows } from "../../common/xlsxReader";
+import { checkCompany, companyCheckBlocksCommit, detectCompanyName } from "../payrollImport/companyCheck";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
@@ -43,7 +44,7 @@ type LoadClientResult = { error: string; status: number } | { client: { client_i
 async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadClientResult> {
   if (!clientId) return { error: "Client is required.", status: 400 };
   if (!(await canAccessClient(req.user!, clientId))) return { error: "You do not have access to this client.", status: 403 };
-  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, dba_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return { error: "Client not found.", status: 404 };
   return { client };
 }
@@ -118,7 +119,11 @@ eftpsDepositsRouter.post("/import/payroll-wages/preview", requireAuth, requireRo
       return { ...p, action: existingKeys.has(key) ? "duplicate" : "create" };
     });
     const newCount = previewRows.filter((r) => r.action === "create").length;
-    res.json({ ok: true, rows: previewRows, newCount, duplicateCount: previewRows.length - newCount });
+    const companyCheck = await checkCompany({
+      client, detectedName: detectCompanyName(rows, await query<any>(`SELECT client_id, client_name, dba_name FROM altax.v3_clients`)),
+      employeeNames: paychecks.map((p) => p.employeeName),
+    });
+    res.json({ ok: true, rows: previewRows, newCount, duplicateCount: previewRows.length - newCount, companyCheck });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
@@ -133,6 +138,11 @@ eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRol
 
   const rows: DrakeFederalPaycheckDetail[] = Array.isArray(body.rows) ? body.rows.slice(0, 2000) : [];
   if (!rows.length) return res.status(400).json({ error: "No rows to import." });
+
+  const guard = await companyCheckBlocksCommit(client, body.detectedCompanyName, rows.map((r) => String(r.employeeName || "")), body.confirmMismatch);
+  if (guard.blocked) {
+    return res.status(409).json({ error: `This file doesn't clearly belong to ${client.client_name}. ${guard.check.reasons.join(" ")} Confirm the client before importing.`, companyCheck: guard.check });
+  }
 
   // ON CONFLICT DO NOTHING against uq_eftps_paycheck_import_key (sql/125) makes
   // a true duplicate structurally impossible, regardless of how many times this
@@ -194,7 +204,11 @@ eftpsDepositsRouter.post("/import/tax-liability/preview", requireAuth, requireRo
       [client.client_id, range.start, range.end]
     );
 
-    res.json({ ok: true, range, summary, action: existing ? "duplicate" : "create" });
+    // No employees in this report, so only a company name printed in the header can vouch for it.
+    const companyCheck = await checkCompany({
+      client, detectedName: detectCompanyName(rows, await query<any>(`SELECT client_id, client_name, dba_name FROM altax.v3_clients`)), employeeNames: [],
+    });
+    res.json({ ok: true, range, summary, action: existing ? "duplicate" : "create", companyCheck });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
@@ -213,6 +227,10 @@ eftpsDepositsRouter.post("/import/tax-liability/commit", requireAuth, requireRol
     if (!rangeStart || !rangeEnd) throw new ValidationError("A valid date range is required.");
     const summary: DrakeTaxLiabilitySummary | undefined = body.summary;
     if (!summary) throw new ValidationError("No parsed summary to import.");
+    const guard = await companyCheckBlocksCommit(client, body.detectedCompanyName, [], body.confirmMismatch);
+    if (guard.blocked) {
+      return res.status(409).json({ error: `This file doesn't clearly belong to ${client.client_name}. ${guard.check.reasons.join(" ")} Confirm the client before importing.`, companyCheck: guard.check });
+    }
 
     // Upsert against uq_eftps_tax_liability_import_key (sql/125) — a snapshot
     // isn't summed the way paychecks are (only the latest is ever used for

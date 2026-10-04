@@ -353,15 +353,15 @@ export async function computeWithholdingBreakdown(
       ? query<any>(
           `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date,
                   tax_due, acknowledged_at, sent_at
-             FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date`,
-          [clientId, spans[0].start, spans[spans.length - 1].end]
+             FROM altax.v3_withholding_filings WHERE client_id = $1 AND state = $4 AND period_end >= $2::date AND period_end <= $3::date`,
+          [clientId, spans[0].start, spans[spans.length - 1].end, state]
         )
       : Promise.resolve([] as any[]),
     spans.length
       ? query<{ period_end: string }>(
           `SELECT period_end::date::text AS period_end FROM altax.v3_withholding_period_exclusions
-            WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date`,
-          [clientId, spans[0].start, spans[spans.length - 1].end]
+            WHERE client_id = $1 AND state = $4 AND period_end >= $2::date AND period_end <= $3::date`,
+          [clientId, spans[0].start, spans[spans.length - 1].end, state]
         )
       : Promise.resolve([] as { period_end: string }[]),
     loadWithheldByPeriod(clientId, state, spans),

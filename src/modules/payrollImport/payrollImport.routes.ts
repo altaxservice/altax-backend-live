@@ -8,18 +8,19 @@ import { readWorkbookRows } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { detectFormat, parseQboEmployeeDetails, parseQboPayrollDetails, parseDrakeEmployeeListing, parseDrakePayrollSummary, type ParsedEmployee, type ParsedPaycheck } from "./parsers";
 import { createSinglePaycheck, upsertEmployeeRecord } from "../accounting/accounting.routes";
+import { checkCompany, companyCheckBlocksCommit, detectCompanyName } from "./companyCheck";
 
 export const payrollImportRouter = Router();
 
 /** Same cap as every other base64-in-JSON upload in this app (documents.routes.ts's MAX_UPLOAD_BYTES). */
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
-type LoadClientResult = { error: string; status: number } | { client: { client_id: string; client_name: string; state: string } };
+type LoadClientResult = { error: string; status: number } | { client: { client_id: string; client_name: string; state: string; dba_name: string | null } };
 
 async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadClientResult> {
   if (!clientId) return { error: "Client is required.", status: 400 };
   if (!(await canAccessClient(req.user!, clientId))) return { error: "You do not have access to this client.", status: 403 };
-  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, state, dba_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return { error: "Client not found.", status: 404 };
   return { client };
 }
@@ -85,7 +86,11 @@ payrollImportRouter.post("/preview", requireAuth, requireRole("admin", "staff"),
       action: existingByName.has(row.employeeName.toLowerCase()) ? "update" : "create",
       existingEmployeeId: existingByName.get(row.employeeName.toLowerCase()) || null,
     }));
-    return res.json({ ok: true, source: format.source, kind: "employees", rows: previewRows });
+    const companyCheck = await checkCompany({
+      client, detectedName: detectCompanyName(rows, await query<any>(`SELECT client_id, client_name, dba_name FROM altax.v3_clients`)),
+      employeeNames: parsed.map((r: ParsedEmployee) => r.employeeName),
+    });
+    return res.json({ ok: true, source: format.source, kind: "employees", rows: previewRows, companyCheck });
   }
 
   const parsed = (format.source === "qbo" ? parseQboPayrollDetails(rows) : parseDrakePayrollSummary(rows))
@@ -100,7 +105,11 @@ payrollImportRouter.post("/preview", requireAuth, requireRole("admin", "staff"),
     ...row,
     action: existingKeys.has(`${row.employeeName.toLowerCase()}|${row.payDate}`) ? "duplicate" : "create",
   }));
-  return res.json({ ok: true, source: format.source, kind: "paychecks", rows: previewRows });
+  const companyCheck = await checkCompany({
+    client, detectedName: detectCompanyName(rows, await query<any>(`SELECT client_id, client_name, dba_name FROM altax.v3_clients`)),
+    employeeNames: parsed.map((r: ParsedPaycheck) => r.employeeName),
+  });
+  return res.json({ ok: true, source: format.source, kind: "paychecks", rows: previewRows, companyCheck });
 }));
 
 /**
@@ -122,6 +131,12 @@ payrollImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"), 
   const rows: any[] = Array.isArray(body.rows) ? body.rows : [];
   if (!rows.length) return res.status(400).json({ error: "No rows to import." });
   if (rows.length > 500) return res.status(400).json({ error: "Imports are limited to 500 rows at a time." });
+
+  // A file that doesn't clearly belong to this client has to be confirmed — see companyCheck.ts.
+  const guard = await companyCheckBlocksCommit(client, body.detectedCompanyName, rows.map((r) => String(r.employeeName || "")), body.confirmMismatch);
+  if (guard.blocked) {
+    return res.status(409).json({ error: `This file doesn't clearly belong to ${client.client_name}. ${guard.check.reasons.join(" ")} Confirm the client before importing.`, companyCheck: guard.check });
+  }
 
   if (kind === "employees") {
     const results: any[] = [];

@@ -1725,6 +1725,42 @@ accountingRouter.post("/paychecks/:paycheckId/delete", requireAuth, requireRole(
 }));
 
 /**
+ * Bulk version of the permanent delete above — for cleaning up a payroll import
+ * that landed on the wrong client, where removing dozens of paychecks one at a
+ * time is impractical. Same rules per paycheck: admin only, typed confirmation,
+ * the client must be accessible, and a printed/paid/void check is skipped (it
+ * needs a void for the paper trail, not a delete). Each paycheck's 3 posted GL
+ * lines are reversed in the same transaction that removes it, so one bad row
+ * never leaves the books half-deleted; the response lists what was skipped and why.
+ */
+accountingRouter.post("/paychecks/bulk-delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  if (String(body.confirm || "").trim() !== "DELETE PAYCHECKS") {
+    return res.status(400).json({ error: 'Type "DELETE PAYCHECKS" to confirm this permanent action.' });
+  }
+  const ids: string[] = Array.isArray(body.paycheckIds) ? Array.from(new Set(body.paycheckIds.map((v: unknown) => String(v)))) as string[] : [];
+  if (ids.length === 0) return res.status(400).json({ error: "Select at least one paycheck." });
+  if (ids.length > 500) return res.status(400).json({ error: "Delete up to 500 paychecks at a time." });
+
+  const deleted: string[] = [];
+  const skipped: { paycheckId: string; reason: string }[] = [];
+  for (const paycheckId of ids) {
+    const existing = await queryOne<any>(`SELECT * FROM altax.v3_paychecks WHERE paycheck_id = $1`, [paycheckId]);
+    if (!existing) { skipped.push({ paycheckId, reason: "Not found." }); continue; }
+    if (!(await canAccessClient(req.user!, existing.client_id))) { skipped.push({ paycheckId, reason: "No access to this client." }); continue; }
+    if (isPaycheckLockedForEdit(existing)) { skipped.push({ paycheckId, reason: "Printed or finalized — void it instead." }); continue; }
+    await withTransaction(async (db) => {
+      await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);
+      await db.query(`DELETE FROM altax.v3_paychecks WHERE paycheck_id = $1`, [paycheckId]);
+    });
+    await logAudit("Accounting", "DELETE_PAYCHECK", paycheckId, "Employee", existing.employee || "", "",
+      `Paycheck permanently deleted (bulk) by ${req.user!.email}.`, req.user!.email);
+    deleted.push(paycheckId);
+  }
+  res.json({ ok: true, deleted: deleted.length, skipped });
+}));
+
+/**
  * Repost this paycheck's GL lines exactly as its ALREADY-STORED figures say — no
  * recalculation against current tax rates. Powers the Trial Balance "Repost lines"
  * fix action for an out-of-balance payroll entry. Previously that button called

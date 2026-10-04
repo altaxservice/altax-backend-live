@@ -11,8 +11,12 @@ interface PeriodRow {
   acknowledgedAt: string | null; sentAt: string | null;
 }
 interface Breakdown { periods: PeriodRow[]; totals: { taxDue: number; penalty: number; interest: number; balanceDue: number } }
+interface StateInfo {
+  state: string; isHome: boolean; employees: number; withheld: number; supportedState: boolean;
+  frequency: string | null; frequencyConfirmed: boolean; supportedFrequencies: string[];
+}
 interface Meta {
-  state: string; frequency: string | null; frequencyRaw: string | null; supported: boolean;
+  state: string; homeState?: string; isHome?: boolean; frequency: string | null; frequencyRaw: string | null; supported: boolean;
   agency: string; formName: string | null; hasLateCharges: boolean; supportedFrequencies: string[];
 }
 interface ExcludedRow { start: string; end: string; reason: string | null; excludedBy: string | null; excludedAt: string }
@@ -59,6 +63,9 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
   const [filedDate, setFiledDate] = useState(todayStr());
   const [paidDate, setPaidDate] = useState(todayStr());
 
+  const [states, setStates] = useState<StateInfo[] | null>(null);
+  const [workState, setWorkState] = useState<string | null>(null);
+  const [freqDraft, setFreqDraft] = useState("");
   const [meta, setMeta] = useState<Meta | null>(null);
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
   const [loading, setLoading] = useState(false);
@@ -81,25 +88,43 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
   const [editingEnd, setEditingEnd] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ filedDate: "", paidDate: "", taxDue: "" });
 
+  useEffect(() => { setFreqDraft(""); }, [workState]);
   const reload = () => setReloadKey((k) => k + 1);
+  /** "state=XX" as a query fragment — prefix "&" to append to existing params, "?" to start them (then no trailing "&"). */
+  function stateQ(prefix: "&" | "?", last = false): string {
+    if (!workState) return prefix === "?" && last ? "" : "";
+    return prefix === "&" ? `state=${workState}&` : `?state=${workState}`;
+  }
+
+  // Which states this client has withholding in (their own, plus any state an employee lives in).
+  useEffect(() => {
+    api.get<{ states: StateInfo[] }>(`/withholding-filings/${clientId}/states`)
+      .then((r) => {
+        setStates(r.states);
+        setWorkState((cur) => (cur && r.states.some((x) => x.state === cur) ? cur : r.states[0]?.state ?? null));
+      })
+      .catch(() => setStates([]));
+  }, [clientId, reloadKey]);
 
   useEffect(() => {
+    if (states === null) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
     api.get<{ meta: Meta; breakdown: Breakdown | null }>(
-      `/withholding-filings/${clientId}?from=${from}&to=${to}&filedDate=${filedDate}&paidDate=${paidDate}`
+      `/withholding-filings/${clientId}?${stateQ("&")}from=${from}&to=${to}&filedDate=${filedDate}&paidDate=${paidDate}`
     )
       .then((r) => { if (!cancelled) { setMeta(r.meta); setBreakdown(r.breakdown); } })
       .catch((err) => { if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not load withholding periods."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [clientId, from, to, filedDate, paidDate, reloadKey]);
+  }, [clientId, workState, states === null, from, to, filedDate, paidDate, reloadKey]);
 
   useEffect(() => {
-    api.get<{ periods: PeriodRow[] }>(`/withholding-filings/${clientId}/history`).then((r) => setHistory(r.periods)).catch(() => setHistory([]));
-    api.get<{ excluded: ExcludedRow[] }>(`/withholding-filings/${clientId}/excluded-periods`).then((r) => setExcluded(r.excluded)).catch(() => setExcluded([]));
-  }, [clientId, reloadKey]);
+    if (states === null) return;
+    api.get<{ periods: PeriodRow[] }>(`/withholding-filings/${clientId}/history${stateQ("?", true)}`).then((r) => setHistory(r.periods)).catch(() => setHistory([]));
+    api.get<{ excluded: ExcludedRow[] }>(`/withholding-filings/${clientId}/excluded-periods${stateQ("?", true)}`).then((r) => setExcluded(r.excluded)).catch(() => setExcluded([]));
+  }, [clientId, workState, states === null, reloadKey]);
 
   async function run(end: string, work: () => Promise<void>, failure: string) {
     setBusyEnd(end);
@@ -114,7 +139,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
     });
     if (!ok) return;
     await run(p.end, async () => {
-      const res = await api.post<{ notified?: boolean; noContact?: boolean }>(`/withholding-filings/${clientId}/mark-filed`, {
+      const res = await api.post<{ notified?: boolean; noContact?: boolean }>(`/withholding-filings/${clientId}/mark-filed`, { state: workState,
         periodStart: p.start, periodEnd: p.end, filedDate: pickFiled, paidDate: pickPaid || undefined, taxDue: Number(pickAmount), notify: sendConfirmation,
       });
       setPickingEnd(null);
@@ -131,7 +156,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
       confirmLabel: "Delete", danger: true,
     });
     if (!ok) return;
-    await run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/unmark`, { periodEnd: p.end }); }, "Could not delete this filing.");
+    await run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/unmark`, { state: workState, periodEnd: p.end }); }, "Could not delete this filing.");
   }
 
   async function handleExclude(p: PeriodRow) {
@@ -143,7 +168,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
     });
     if (reason === null) return;
     await run(p.end, async () => {
-      await api.post(`/withholding-filings/${clientId}/exclude-period`, { periodStart: p.start, periodEnd: p.end, reason: reason || undefined });
+      await api.post(`/withholding-filings/${clientId}/exclude-period`, { state: workState, periodStart: p.start, periodEnd: p.end, reason: reason || undefined });
     }, "Could not exclude this period.");
   }
 
@@ -175,7 +200,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
               <input id={`wh-edit-tax-${p.end}`} type="number" step="0.01" min="0" value={editForm.taxDue} onChange={(e) => setEditForm((s) => ({ ...s, taxDue: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
                 <button type="button" className="btn btn-sm btn-primary" disabled={busy || !editForm.filedDate || editForm.taxDue === ""} onClick={() => run(p.end, async () => {
-                  await api.post(`/withholding-filings/${clientId}/edit`, { periodEnd: p.end, filedDate: editForm.filedDate, paidDate: editForm.paidDate || undefined, taxDue: Number(editForm.taxDue) });
+                  await api.post(`/withholding-filings/${clientId}/edit`, { state: workState, periodEnd: p.end, filedDate: editForm.filedDate, paidDate: editForm.paidDate || undefined, taxDue: Number(editForm.taxDue) });
                   setEditingEnd(null);
                 }, "Could not save this correction.")}>{busy ? "…" : "Save"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => setEditingEnd(null)}>Cancel</button>
@@ -188,7 +213,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
                   <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
                   <div style={{ display: "flex", gap: 4 }}>
                     <button type="button" className="btn btn-sm btn-primary" disabled={busy || !payDate} onClick={() => run(p.end, async () => {
-                      await api.post(`/withholding-filings/${clientId}/record-payment`, { periodEnd: p.end, paidDate: payDate });
+                      await api.post(`/withholding-filings/${clientId}/record-payment`, { state: workState, periodEnd: p.end, paidDate: payDate });
                       setPayingEnd(null);
                     }, "Could not record this payment.")}>{busy ? "…" : "Record"}</button>
                     <button type="button" className="btn btn-sm" onClick={() => setPayingEnd(null)}>Cancel</button>
@@ -201,7 +226,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
                 {p.sentAt ? (
                   <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
                 ) : (
-                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/send`, { periodEnd: p.end }); }, "Could not send this confirmation.")}>{busy ? "…" : "Send"}</button>
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/send`, { state: workState, periodEnd: p.end }); }, "Could not send this confirmation.")}>{busy ? "…" : "Send"}</button>
                 )}
                 <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { setEditingEnd(p.end); setEditForm({ filedDate: (p.markedFiledDate || "").slice(0, 10), paidDate: (p.markedPaidDate || "").slice(0, 10), taxDue: String(p.taxDue) }); }}>Edit</button>
                 <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => handleDelete(p)}>Delete</button>
@@ -251,6 +276,45 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
             {meta.agency}{meta.frequency ? ` · ${meta.frequency}` : ""}{meta.formName ? ` · ${meta.formName}` : ""}. The amount withheld comes from this client's recorded paychecks
             (only employees whose payroll state is {meta.state}). {meta.hasLateCharges ? "Late penalty and interest are calculated from the filed and payment dates." : `Penalty and interest aren't calculated for ${meta.state} yet — due dates, filing, payment and client confirmation are all tracked.`}
           </p>
+        )}
+
+        {states && states.length > 0 && (states.length > 1 || states.some((x) => !x.isHome)) && (
+          <div style={{ margin: "0 0 12px" }}>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+              An employee's home state decides whose income tax is withheld, so each state with employees needs its own withholding filings.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {states.map((st) => (
+                <button key={st.state} type="button" onClick={() => setWorkState(st.state)}
+                  style={{
+                    padding: "8px 12px", borderRadius: 8, cursor: "pointer", font: "inherit", textAlign: "left",
+                    border: workState === st.state ? "2px solid var(--teal)" : "1px solid var(--line)", background: workState === st.state ? "var(--surface-2, #f0f7f6)" : "transparent", color: "inherit",
+                  }}>
+                  <div style={{ fontWeight: 700 }}>{st.state}{st.isHome ? " · client's state" : ""}</div>
+                  <div className="muted" style={{ fontSize: 11.5 }}>{st.employees} employee{st.employees === 1 ? "" : "s"} · {money(st.withheld)} withheld</div>
+                  {!st.supportedState && <div style={{ fontSize: 11, color: "var(--red)" }}>Not built yet</div>}
+                </button>
+              ))}
+            </div>
+            {meta && !meta.isHome && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <label htmlFor="wh-state-freq" style={{ fontSize: 12.5 }}>{meta.state} filing frequency</label>
+                <select id="wh-state-freq" value={freqDraft || meta.frequency || ""} onChange={(e) => setFreqDraft(e.target.value)} style={{ padding: "4px 6px" }}>
+                  <option value="" disabled>Choose…</option>
+                  {meta.supportedFrequencies.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+                <button type="button" className="btn btn-sm" disabled={!(freqDraft || meta.frequency)} onClick={async () => {
+                  try {
+                    await api.post(`/withholding-filings/${clientId}/state-frequency`, { state: meta.state, frequency: freqDraft || meta.frequency });
+                    setFreqDraft(""); reload();
+                  } catch (err) { await notify(err instanceof ApiError ? err.message : "Could not save this frequency."); }
+                }}>Save</button>
+                {states.find((x) => x.state === meta.state)?.frequencyConfirmed === false && (
+                  <span className="muted" style={{ fontSize: 11.5 }}>Not set yet — showing the client's own frequency until you save one for {meta.state}.</span>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {meta && !meta.supported ? (
@@ -327,7 +391,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
                     <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
                     <td className="muted">{p.reason || "—"}</td>
                     <td className="muted">{fmtDate(p.excludedAt)}{p.excludedBy ? ` by ${p.excludedBy}` : ""}</td>
-                    <td><button type="button" className="btn btn-sm" disabled={busyEnd === p.end} onClick={() => run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/restore-period`, { periodEnd: p.end }); }, "Could not restore this period.")}>{busyEnd === p.end ? "…" : "Restore"}</button></td>
+                    <td><button type="button" className="btn btn-sm" disabled={busyEnd === p.end} onClick={() => run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/restore-period`, { state: workState, periodEnd: p.end }); }, "Could not restore this period.")}>{busyEnd === p.end ? "…" : "Restore"}</button></td>
                   </tr>
                 ))}
               </tbody>

@@ -39,9 +39,16 @@ function money(n: number): string {
 
 interface LoadedClient {
   clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone: string | null; smsAllowed: boolean;
-  state: WithholdingState; frequency: WithholdingFrequency | null; frequencyRaw: string | null;
+  /** The state THIS request is about — the client's home state unless ?state= asks for another one they have employees in. */
+  state: WithholdingState; homeState: string; isHome: boolean;
+  frequency: WithholdingFrequency | null; frequencyRaw: string | null;
 }
 type LoadResult = { error: string; status: number } | { client: LoadedClient };
+
+/** Which state a request is for: ?state= / body.state, else the client's own. */
+function requestedState(req: AuthedRequest): string {
+  return String(req.query.state ?? (req.body || {}).state ?? "").trim().toUpperCase();
+}
 
 async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadResult> {
   if (!clientId) return { error: "Client is required.", status: 400 };
@@ -51,17 +58,32 @@ async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadRes
     [clientId]
   );
   if (!c) return { error: "Client not found.", status: 404 };
-  const state = asWithholdingState(c.state);
+  const homeState = String(c.state || "").trim().toUpperCase();
+  const wanted = requestedState(req) || homeState;
+  const state = asWithholdingState(wanted);
   if (!state) {
-    return { error: `Withholding tracking isn't built for ${String(c.state || "this client's") || "this client's"} state yet — it covers MD, DC, VA, PA and DE.`, status: 400 };
+    return { error: `Withholding tracking isn't built for ${wanted || "this client's"} state yet — it covers MD, DC, VA, PA and DE.`, status: 400 };
+  }
+  const isHome = state === homeState;
+  // The home state's frequency lives on the client's profile; every other state has its own row (defaulting to the
+  // home frequency until one is set, so periods show up immediately and can be corrected).
+  let frequencyRaw: string | null = c.md_withholding_frequency || null;
+  if (!isHome) {
+    const row = await queryOne<{ frequency: string }>(`SELECT frequency FROM altax.v3_client_withholding_states WHERE client_id = $1 AND state = $2`, [clientId, state]);
+    if (row?.frequency) frequencyRaw = row.frequency;
   }
   return {
     client: {
       clientId: c.client_id, clientName: c.client_name, email: c.email, emailAllowed: Boolean(c.email_allowed),
-      phone: c.phone, smsAllowed: Boolean(c.sms_allowed), state,
-      frequency: normalizeWithholdingFrequency(c.md_withholding_frequency), frequencyRaw: c.md_withholding_frequency || null,
+      phone: c.phone, smsAllowed: Boolean(c.sms_allowed), state, homeState, isHome,
+      frequency: normalizeWithholdingFrequency(frequencyRaw), frequencyRaw,
     },
   };
+}
+
+/** Key used for payment reminders and confirmation dedupe — the home state keeps the original format. */
+function recordId(client: LoadedClient, periodEnd: string): string {
+  return client.isHome ? `${client.clientId}:${periodEnd}` : `${client.clientId}:${periodEnd}:${client.state}`;
 }
 
 /** "Maryland Withholding Tax" / "DC Withholding Tax" — what the client reads in a confirmation. */
@@ -78,7 +100,7 @@ const COMPLETION_LABEL_PREFIX = "Withholding filing";
  * that's filed would keep showing as an upcoming/overdue deadline.
  */
 async function recordCalendarCompletion(client: LoadedClient, periodStart: string, periodEnd: string, filedDate: string, paidDate: string | null, taxDue: number, userEmail: string) {
-  if (!client.frequency) return;
+  if (!client.frequency || !client.isHome) return;
   for (const date of calendarDatesSatisfied(client.state, client.frequency, periodEnd)) {
     await query(
       `INSERT INTO altax.v3_obligation_completions (client_id, source, due_date, label, completed_date, completed_by, amount, paid_date)
@@ -91,7 +113,7 @@ async function recordCalendarCompletion(client: LoadedClient, periodStart: strin
 }
 
 async function removeCalendarCompletion(client: LoadedClient, periodStart: string, periodEnd: string) {
-  if (!client.frequency) return;
+  if (!client.frequency || !client.isHome) return;
   await query(
     `DELETE FROM altax.v3_obligation_completions WHERE client_id = $1 AND source = 'MD Withholding' AND due_date = ANY($2::date[]) AND label = $3`,
     [client.clientId, calendarDatesSatisfied(client.state, client.frequency, periodEnd), `${COMPLETION_LABEL_PREFIX} ${periodStart} – ${periodEnd}`]
@@ -106,7 +128,7 @@ function metaFor(client: LoadedClient) {
   const rules = withholdingRulesFor(client.state);
   const supported = client.frequency !== null && rules.frequencies.includes(client.frequency);
   return {
-    state: client.state, frequency: client.frequency, frequencyRaw: client.frequencyRaw, supported,
+    state: client.state, homeState: client.homeState, isHome: client.isHome, frequency: client.frequency, frequencyRaw: client.frequencyRaw, supported,
     agency: rules.agency, formName: client.frequency ? rules.formName[client.frequency] ?? null : null,
     hasLateCharges: rules.hasLateCharges, supportedFrequencies: rules.frequencies,
   };
@@ -136,7 +158,7 @@ withholdingFilingsRouter.get("/:clientId/history", requireAuth, requireRole("adm
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const { client } = loaded;
   if (!client.frequency) return res.json({ periods: [] });
-  const first = await queryOne<{ d: string | null }>(`SELECT MIN(period_start)::date::text AS d FROM altax.v3_withholding_filings WHERE client_id = $1`, [client.clientId]);
+  const first = await queryOne<{ d: string | null }>(`SELECT MIN(period_start)::date::text AS d FROM altax.v3_withholding_filings WHERE client_id = $1 AND state = $2`, [client.clientId, client.state]);
   if (!first?.d) return res.json({ periods: [] });
   const today = new Date().toISOString().slice(0, 10);
   const breakdown = await computeWithholdingBreakdown(client.clientId, client.state, client.frequency, first.d, today, today, today);
@@ -148,8 +170,8 @@ withholdingFilingsRouter.get("/:clientId/excluded-periods", requireAuth, require
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const rows = await query<any>(
     `SELECT period_start::date::text AS period_start, period_end::date::text AS period_end, reason, excluded_by, excluded_at
-       FROM altax.v3_withholding_period_exclusions WHERE client_id = $1 ORDER BY period_end DESC`,
-    [loaded.client.clientId]
+       FROM altax.v3_withholding_period_exclusions WHERE client_id = $1 AND state = $2 ORDER BY period_end DESC`,
+    [loaded.client.clientId, loaded.client.state]
   );
   res.json({ excluded: rows.map((r) => ({ start: r.period_start, end: r.period_end, reason: r.reason, excludedBy: r.excluded_by, excludedAt: r.excluded_at })) });
 }));
@@ -162,7 +184,7 @@ async function sendConfirmation(
   const canSms = Boolean(client.smsAllowed && client.phone);
   if (!canEmail && !canSms) return { sent: false, noContact: true };
   const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
-  const sourceRecordId = `${client.clientId}:${row.periodEnd}`;
+  const sourceRecordId = recordId(client, row.periodEnd);
   const hasBalanceDue = row.balanceDue != null && round2(row.balanceDue) !== row.taxDue;
   const { sent } = await sendFilingConfirmation({
     client: { clientId: client.clientId, clientName: client.clientName, email: client.email, emailAllowed: client.emailAllowed, phone: client.phone, smsAllowed: client.smsAllowed },
@@ -189,7 +211,7 @@ withholdingFilingsRouter.post("/:clientId/mark-filed", requireAuth, requireRole(
   if (!DATE_RE.test(periodStart) || !DATE_RE.test(periodEnd) || !DATE_RE.test(filedDate) || (paidDate !== null && !DATE_RE.test(paidDate))) {
     return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD (paidDate too, if provided)." });
   }
-  const existing = await queryOne<any>(`SELECT 1 FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  const existing = await queryOne<any>(`SELECT 1 FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [client.clientId, periodEnd, client.state]);
   if (existing) return res.status(400).json({ error: "A filing for this period has already been recorded. Delete it first if you need to re-file." });
 
   const [withheld] = await loadWithheldByPeriod(client.clientId, client.state, [{ start: periodStart, end: periodEnd }]);
@@ -218,11 +240,11 @@ withholdingFilingsRouter.post("/:clientId/mark-filed", requireAuth, requireRole(
     const out = await sendConfirmation(req, client, { periodStart, periodEnd, filedDate, paidDate, taxDue, balanceDue: result?.balanceDue ?? null, shareToken }, dueDate);
     notified = out.sent; noContact = out.noContact;
     if (out.sent) {
-      await query(`UPDATE altax.v3_withholding_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+      await query(`UPDATE altax.v3_withholding_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [client.clientId, periodEnd, client.state]);
       if (!paidDate) {
         const { schedulePaymentReminder } = await import("../../common/paymentReminders");
         await schedulePaymentReminder({
-          sourceSystem: "WithholdingFiling", sourceRecordId: `${client.clientId}:${periodEnd}`, clientId: client.clientId, filingType: filingTypeLabel(client.state),
+          sourceSystem: "WithholdingFiling", sourceRecordId: recordId(client, periodEnd), clientId: client.clientId, filingType: filingTypeLabel(client.state),
           periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
         });
       }
@@ -241,14 +263,14 @@ withholdingFilingsRouter.post("/:clientId/record-payment", requireAuth, requireR
   const paidDate = String((req.body || {}).paidDate || "").trim();
   if (!DATE_RE.test(periodEnd) || !DATE_RE.test(paidDate)) return res.status(400).json({ error: "periodEnd and paidDate must be YYYY-MM-DD." });
 
-  const existing = await queryOne<any>(`SELECT period_start, filed_date, paid_date, tax_due FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  const existing = await queryOne<any>(`SELECT period_start, filed_date, paid_date, tax_due FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [client.clientId, periodEnd, client.state]);
   if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
   if (existing.paid_date) return res.status(400).json({ error: "This period already has a payment recorded. Delete the filing and re-file to correct it." });
 
   const dueDate = withholdingDueDate(client.state, client.frequency, periodEnd);
   const result = await computeWithholdingFiling(client.state, Number(existing.tax_due), dueDate, isoDate(existing.filed_date), paidDate);
-  await query(`UPDATE altax.v3_withholding_filings SET paid_date = $3, balance_due = $4, on_time = $5 WHERE client_id = $1 AND period_end = $2::date`,
-    [client.clientId, periodEnd, paidDate, result.balanceDue, result.onTime]);
+  await query(`UPDATE altax.v3_withholding_filings SET paid_date = $3, balance_due = $4, on_time = $5 WHERE client_id = $1 AND period_end = $2::date AND state = $6`,
+    [client.clientId, periodEnd, paidDate, result.balanceDue, result.onTime, client.state]);
   await logAudit("Accounting", "WITHHOLDING_FILING_RECORD_PAYMENT", client.clientId, "Period", "", `${periodEnd}: paid ${paidDate}`,
     `Payment for ${client.state} withholding filing (period ending ${periodEnd}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
 
@@ -258,7 +280,7 @@ withholdingFilingsRouter.post("/:clientId/record-payment", requireAuth, requireR
   });
   await recordCalendarCompletion(client, isoDate(existing.period_start), periodEnd, isoDate(existing.filed_date), paidDate, Number(existing.tax_due), req.user!.email);
   const { cancelPaymentReminder } = await import("../../common/paymentReminders");
-  await cancelPaymentReminder("WithholdingFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");
+  await cancelPaymentReminder("WithholdingFiling", recordId(client, periodEnd), "Payment recorded");
 
   res.json({ ok: true, periodEnd, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
 }));
@@ -272,8 +294,8 @@ withholdingFilingsRouter.post("/:clientId/send", requireAuth, requireRole("admin
   const periodEnd = String((req.body || {}).periodEnd || "").trim();
   if (!DATE_RE.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
   const e = await queryOne<any>(
-    `SELECT period_start, filed_date, paid_date, tax_due, balance_due, share_token FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`,
-    [client.clientId, periodEnd]
+    `SELECT period_start, filed_date, paid_date, tax_due, balance_due, share_token FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`,
+    [client.clientId, periodEnd, client.state]
   );
   if (!e) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
 
@@ -286,7 +308,7 @@ withholdingFilingsRouter.post("/:clientId/send", requireAuth, requireRole("admin
     return res.status(400).json({ error: "This client has no email or phone number on file (or both are opted out) — nothing was sent. Add contact info on the client's profile first." });
   }
   if (!out.sent) return res.status(502).json({ error: "Could not send this confirmation — the email/SMS provider reported a failure. Try again, or check the client's contact info." });
-  await query(`UPDATE altax.v3_withholding_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await query(`UPDATE altax.v3_withholding_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [client.clientId, periodEnd, client.state]);
   await logAudit("Accounting", "WITHHOLDING_FILING_SENT", client.clientId, "Period", "", periodEnd,
     `${client.state} withholding filing confirmation (period ending ${periodEnd}) sent by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
@@ -306,14 +328,14 @@ withholdingFilingsRouter.post("/:clientId/edit", requireAuth, requireRole("admin
   if (!DATE_RE.test(periodEnd) || !DATE_RE.test(filedDate) || (paidDate !== null && !DATE_RE.test(paidDate)) || !Number.isFinite(taxDue) || taxDue < 0) {
     return res.status(400).json({ error: "periodEnd and filedDate must be YYYY-MM-DD; paidDate must be YYYY-MM-DD or empty; taxDue must be a non-negative number." });
   }
-  const existing = await queryOne<any>(`SELECT period_start, paid_date FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  const existing = await queryOne<any>(`SELECT period_start, paid_date FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [client.clientId, periodEnd, client.state]);
   if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet." });
 
   const dueDate = withholdingDueDate(client.state, client.frequency, periodEnd);
   const result = paidDate ? await computeWithholdingFiling(client.state, taxDue, dueDate, filedDate, paidDate) : null;
   await query(
-    `UPDATE altax.v3_withholding_filings SET filed_date = $3, paid_date = $4, tax_due = $5, balance_due = $6, on_time = $7 WHERE client_id = $1 AND period_end = $2::date`,
-    [client.clientId, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? taxDue, result?.onTime ?? null]
+    `UPDATE altax.v3_withholding_filings SET filed_date = $3, paid_date = $4, tax_due = $5, balance_due = $6, on_time = $7 WHERE client_id = $1 AND period_end = $2::date AND state = $8`,
+    [client.clientId, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? taxDue, result?.onTime ?? null, client.state]
   );
   await logAudit("Accounting", "WITHHOLDING_FILING_EDITED", client.clientId, "Period", "", periodEnd,
     `${client.state} withholding filing (period ending ${periodEnd}) corrected to filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}, tax $${taxDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
@@ -333,11 +355,11 @@ withholdingFilingsRouter.post("/:clientId/unmark", requireAuth, requireRole("adm
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const periodEnd = String((req.body || {}).periodEnd || "").trim();
   if (!DATE_RE.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
-  const toRemove = await queryOne<any>(`SELECT period_start FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`, [loaded.client.clientId, periodEnd]);
-  await query(`DELETE FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`, [loaded.client.clientId, periodEnd]);
+  const toRemove = await queryOne<any>(`SELECT period_start FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [loaded.client.clientId, periodEnd, loaded.client.state]);
+  await query(`DELETE FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [loaded.client.clientId, periodEnd, loaded.client.state]);
   if (toRemove) await removeCalendarCompletion(loaded.client, isoDate(toRemove.period_start), periodEnd);
   const { cancelPaymentReminder } = await import("../../common/paymentReminders");
-  await cancelPaymentReminder("WithholdingFiling", `${loaded.client.clientId}:${periodEnd}`, "Filing deleted");
+  await cancelPaymentReminder("WithholdingFiling", recordId(loaded.client, periodEnd), "Filing deleted");
   await logAudit("Accounting", "WITHHOLDING_FILING_UNMARKED", loaded.client.clientId, "Period", "", periodEnd,
     `${loaded.client.state} withholding filing (period ending ${periodEnd}) deleted by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
@@ -350,11 +372,11 @@ withholdingFilingsRouter.post("/:clientId/exclude-period", requireAuth, requireR
   const periodEnd = String((req.body || {}).periodEnd || "").trim();
   const reason = String((req.body || {}).reason || "").trim() || null;
   if (!DATE_RE.test(periodStart) || !DATE_RE.test(periodEnd)) return res.status(400).json({ error: "periodStart and periodEnd must be YYYY-MM-DD." });
-  const filed = await queryOne<any>(`SELECT 1 FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date`, [loaded.client.clientId, periodEnd]);
+  const filed = await queryOne<any>(`SELECT 1 FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [loaded.client.clientId, periodEnd, loaded.client.state]);
   if (filed) return res.status(400).json({ error: "This period has already been filed — delete that filing first if you need to exclude it instead." });
   await query(
-    `INSERT INTO altax.v3_withholding_period_exclusions (client_id, period_start, period_end, reason, excluded_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (client_id, period_end) DO NOTHING`,
-    [loaded.client.clientId, periodStart, periodEnd, reason, req.user!.email]
+    `INSERT INTO altax.v3_withholding_period_exclusions (client_id, state, period_start, period_end, reason, excluded_by) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (client_id, state, period_end) DO NOTHING`,
+    [loaded.client.clientId, loaded.client.state, periodStart, periodEnd, reason, req.user!.email]
   );
   await logAudit("Accounting", "WITHHOLDING_PERIOD_EXCLUDED", loaded.client.clientId, "Period", "", periodEnd,
     `${loaded.client.state} withholding period ${periodStart} - ${periodEnd} excluded (no filing obligation)${reason ? `: ${reason}` : ""}, by ${req.user!.email}.`, req.user!.email);
@@ -366,9 +388,77 @@ withholdingFilingsRouter.post("/:clientId/restore-period", requireAuth, requireR
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const periodEnd = String((req.body || {}).periodEnd || "").trim();
   if (!DATE_RE.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
-  await query(`DELETE FROM altax.v3_withholding_period_exclusions WHERE client_id = $1 AND period_end = $2::date`, [loaded.client.clientId, periodEnd]);
+  await query(`DELETE FROM altax.v3_withholding_period_exclusions WHERE client_id = $1 AND period_end = $2::date AND state = $3`, [loaded.client.clientId, periodEnd, loaded.client.state]);
   await logAudit("Accounting", "WITHHOLDING_PERIOD_RESTORED", loaded.client.clientId, "Period", "", periodEnd,
     `${loaded.client.state} withholding period ending ${periodEnd} restored by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
 }));
 
+
+/**
+ * Every state this client has withholding in: their own, plus each state an
+ * employee lives in (an employee's home state decides whose tax is withheld).
+ * Each entry says how many employees and how much was withheld, so a state that
+ * needs its own filings is visible instead of silently missing.
+ */
+withholdingFilingsRouter.get("/:clientId/states", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loadedHome = await (async () => {
+    if (!(await canAccessClient(req.user!, req.params.clientId))) return null;
+    return queryOne<any>(`SELECT client_id, state, md_withholding_frequency FROM altax.v3_clients WHERE client_id = $1`, [req.params.clientId]);
+  })();
+  if (!loadedHome) return res.status(403).json({ error: "You do not have access to this client." });
+  const home = String(loadedHome.state || "").trim().toUpperCase();
+
+  const [emps, withheld, saved] = await Promise.all([
+    query<{ st: string; n: string }>(
+      `SELECT upper(COALESCE(NULLIF(btrim(state), ''), $2)) AS st, count(*) AS n FROM altax.v3_employees
+        WHERE client_id = $1 AND (status IS NULL OR lower(status) = 'active') GROUP BY 1`, [req.params.clientId, home]),
+    query<{ st: string; withheld: string }>(
+      `SELECT upper(COALESCE(NULLIF(btrim(e.state), ''), $2)) AS st, COALESCE(SUM(p.state_tax), 0) AS withheld
+         FROM altax.v3_paychecks p LEFT JOIN altax.v3_employees e ON e.employee_id = p.employee_id
+        WHERE p.client_id = $1 AND lower(p.status) <> 'void' GROUP BY 1`, [req.params.clientId, home]),
+    query<{ state: string; frequency: string }>(`SELECT state, frequency FROM altax.v3_client_withholding_states WHERE client_id = $1`, [req.params.clientId]),
+  ]);
+
+  const byState = new Map<string, { employees: number; withheld: number }>();
+  const touch = (st: string) => { if (!byState.has(st)) byState.set(st, { employees: 0, withheld: 0 }); return byState.get(st)!; };
+  if (home) touch(home);
+  for (const r of emps) touch(r.st).employees = Number(r.n) || 0;
+  for (const r of withheld) touch(r.st).withheld = round2(Number(r.withheld) || 0);
+  const savedFreq = new Map(saved.map((r) => [r.state, r.frequency]));
+
+  const states = Array.from(byState.entries())
+    .map(([st, v]) => {
+      const supportedState = asWithholdingState(st);
+      const isHome = st === home;
+      const frequencyRaw = isHome ? loadedHome.md_withholding_frequency || null : savedFreq.get(st) ?? loadedHome.md_withholding_frequency ?? null;
+      const frequency = normalizeWithholdingFrequency(frequencyRaw);
+      return {
+        state: st, isHome, employees: v.employees, withheld: v.withheld, supportedState: Boolean(supportedState),
+        frequency, frequencyConfirmed: isHome ? Boolean(loadedHome.md_withholding_frequency) : savedFreq.has(st),
+        supportedFrequencies: supportedState ? withholdingRulesFor(supportedState).frequencies : [],
+      };
+    })
+    .sort((a, b) => Number(b.isHome) - Number(a.isHome) || b.withheld - a.withheld);
+  res.json({ states });
+}));
+
+/** Sets the filing frequency for an additional (non-home) state — the home state's is the client profile's Withholding Frequency. */
+withholdingFilingsRouter.post("/:clientId/state-frequency", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+  if (client.isHome) return res.status(400).json({ error: "This is the client's own state — change its frequency under Withholding Frequency on their profile." });
+  const frequency = normalizeWithholdingFrequency((req.body || {}).frequency);
+  if (!frequency || !withholdingRulesFor(client.state).frequencies.includes(frequency)) {
+    return res.status(400).json({ error: `${client.state} doesn't have that withholding schedule — choose ${withholdingRulesFor(client.state).frequencies.join(", ").toLowerCase()}.` });
+  }
+  await query(
+    `INSERT INTO altax.v3_client_withholding_states (client_id, state, frequency, updated_by) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (client_id, state) DO UPDATE SET frequency = EXCLUDED.frequency, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    [client.clientId, client.state, frequency, req.user!.email]
+  );
+  await logAudit("Accounting", "WITHHOLDING_STATE_FREQUENCY", client.clientId, "State", "", `${client.state}: ${frequency}`,
+    `${client.state} withholding frequency set to ${frequency} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, state: client.state, frequency });
+}));
