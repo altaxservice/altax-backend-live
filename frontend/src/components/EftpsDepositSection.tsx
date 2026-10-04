@@ -84,6 +84,8 @@ function suggestDueDate(periodEnd: string): string {
   return due.toISOString().slice(0, 10);
 }
 
+const stepTitle: React.CSSProperties = { fontSize: 15, fontWeight: 700, margin: "8px 0 10px" };
+
 const PERIOD_PRESETS = [
   { label: "This month", start: () => firstOfMonth(0), end: () => lastOfMonth(0) },
   { label: "Last month", start: () => firstOfMonth(1), end: () => lastOfMonth(1) },
@@ -131,7 +133,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
   // --- Imported data: raw rows, so staff can inspect and clean up an import
   // themselves (e.g. duplicates from before the database gained a unique
   // constraint) instead of it requiring a direct DB fix every time. ---
-  const [showImportedData, setShowImportedData] = useState(false);
+  const [showImportedData, setShowImportedData] = useState(true);
   const [importedPaychecks, setImportedPaychecks] = useState<ImportedPaycheckRow[] | null>(null);
   const [importedSnapshots, setImportedSnapshots] = useState<ImportedTaxLiabilityRow[] | null>(null);
   const [importedRowBusy, setImportedRowBusy] = useState<string | null>(null);
@@ -310,9 +312,9 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
     }
   }
 
-  async function handleReview() {
+  async function handleReview(quiet = false) {
     if (!periodStart || !periodEnd) return;
-    setError(null);
+    if (!quiet) setError(null);
     setReviewing(true);
     try {
       const res = await api.get<{ months: EftpsMonthReview[] }>(
@@ -323,19 +325,26 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
       for (const m of res.months) inputs[m.monthKey] = { filingDate: todayStr(), dueDate: suggestDueDate(m.periodEnd) };
       setMonthInputs(inputs);
       setExpandedMonthKey(null);
-      if (res.months.every((m) => !m.paycheckCount)) setError(`No imported paychecks fall within ${periodStart} to ${periodEnd}.`);
+      if (!quiet && res.months.every((m) => !m.paycheckCount)) setError(`No imported paychecks fall within ${periodStart} to ${periodEnd}.`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not load this period.");
+      if (!quiet) setError(err instanceof ApiError ? err.message : "Could not load this period.");
     } finally {
       setReviewing(false);
     }
   }
 
+  // The month table loads on its own whenever the period (or the imported data under it) changes —
+  // no separate "Review" click needed.
+  useEffect(() => {
+    if (!periodStart || !periodEnd || periodStart > periodEnd) return;
+    handleReview(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, periodStart, periodEnd, importedPaychecks, importedSnapshots]);
+
   function applyPreset(preset: (typeof PERIOD_PRESETS)[number]) {
     const s = preset.start(), e = preset.end();
     setPeriodStart(s);
     setPeriodEnd(e);
-    setMonths(null);
   }
 
   async function handleMarkFiled(month: EftpsMonthReview, notify: boolean) {
@@ -524,6 +533,14 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
       }
     }
   }
+  // Does each snapshot agree with the imported paychecks that fall inside its own date range?
+  // A deposit is the employee's federal tax plus the employee AND employer share of Soc. Sec. and Medicare.
+  const snapshotCheck = (r: ImportedTaxLiabilityRow) => {
+    const inRange = (importedPaychecks || []).filter((c) => c.pay_date.slice(0, 10) >= r.range_start.slice(0, 10) && c.pay_date.slice(0, 10) <= r.range_end.slice(0, 10));
+    const expected = sumCents(inRange.map((c) => Number(c.federal_withheld) + 2 * Number(c.social_security_withheld) + 2 * Number(c.medicare_withheld)));
+    const diff = Math.round((Number(r.total_941) - expected) * 100) / 100;
+    return { count: inRange.length, expected, diff, ok: inRange.length > 0 && Math.abs(diff) <= 2 };
+  };
   const visibleHistory = (history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo));
 
   /** One deposit's action row, exactly as History always has — reused both for
@@ -607,14 +624,15 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
   return (
     <div>
       <p className="muted" style={{ fontSize: 13, maxWidth: 680, marginBottom: 16 }}>
-        Import Drake's "Payroll Wages" and "Tax Liability by Check Date" reports whenever you have them — any date
-        range, no need to match a specific month. Then review and file by whatever period you choose below — a
-        range spanning more than one month shows one row per calendar month.
+        Three steps: bring in Drake's two reports, confirm they agree, then file by month.
       </p>
       {error && <ErrorBanner error={error} />}
 
-      <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>Import Payroll Wages</h3>
-      <div className="card" style={{ marginBottom: 16 }}>
+      <h3 style={stepTitle}>Step 1 — Import from Drake</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16, marginBottom: 16, alignItems: "start" }}>
+      <div className="card">
+        <div style={{ fontWeight: 700, fontSize: 13.5 }}>Payroll Wages</div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>One row per paycheck: federal tax, Soc. Sec. and Medicare withheld from the employee.</div>
         <FileDropInput file={paycheckFile} onChange={(f) => { setPaycheckFile(f); setPaycheckPreview(null); }} accept=".xls,.xlsx" hint="Drake report — any period" />
         {!paycheckPreview ? (
           <button className="btn btn-primary" onClick={handlePaycheckPreview} disabled={!paycheckFile || paycheckBusy !== null} style={{ marginTop: 8 }}>
@@ -637,8 +655,9 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
         )}
       </div>
 
-      <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>Import Tax Liability by Check Date</h3>
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card">
+        <div style={{ fontWeight: 700, fontSize: 13.5 }}>Tax Liability by Check Date</div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Drake's own total for a date range, used to double-check the paychecks. Employee and employer shares combined.</div>
         <FileDropInput file={taxLiabilityFile} onChange={(f) => { setTaxLiabilityFile(f); setTaxLiabilityPreview(null); }} accept=".xls,.xlsx" hint="Drake report — any period" />
         {!taxLiabilityPreview ? (
           <button className="btn btn-primary" onClick={handleTaxLiabilityPreview} disabled={!taxLiabilityFile || taxLiabilityBusy !== null} style={{ marginTop: 8 }}>
@@ -671,17 +690,20 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setShowImportedData((v) => !v)}
-        style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", padding: 0, border: "none", background: "none", cursor: "pointer", textDecoration: "underline", color: "inherit", font: "inherit", display: "block" }}
-      >
-        Imported Data ({(importedPaychecks?.length || 0) + (importedSnapshots?.length || 0)})
+      </div>
+
+      <button type="button" onClick={() => setShowImportedData((v) => !v)} style={{ ...stepTitle, background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+        <span aria-hidden="true" style={{ fontSize: 11 }}>{showImportedData ? "▼" : "▶"}</span>
+        Step 2 — Check what's imported
+        <span className="muted" style={{ fontWeight: 400, fontSize: 12.5 }}>
+          {importedPaychecks?.length || 0} paycheck{importedPaychecks?.length === 1 ? "" : "s"} · {importedSnapshots?.length || 0} snapshot{importedSnapshots?.length === 1 ? "" : "s"}
+          {(dupPaycheckKeys.size + overlappingSnapshotIds.size > 0 || snaps.some((r) => !snapshotCheck(r).ok)) && <span style={{ color: "var(--amber)", fontWeight: 600 }}> · needs attention</span>}
+        </span>
       </button>
       {showImportedData && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-            <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>Imported paychecks ({importedPaychecks?.length || 0}) — review and delete any wrong or duplicate rows directly.</p>
+            <p className="muted" style={{ fontSize: 12.5, margin: 0 }}><strong>Paychecks</strong> ({importedPaychecks?.length || 0}) — delete any wrong or duplicate row.</p>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input type="text" value={importedPaycheckSearch} onChange={(e) => setImportedPaycheckSearch(e.target.value)}
                 placeholder="Search employee, date, check #…" style={{ padding: "4px 6px", maxWidth: 200 }} />
@@ -701,7 +723,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
             <div className="table-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
               <table>
-                <thead><tr><th>Employee</th><th>Pay Date</th><th>Check #</th><th style={{ textAlign: "right" }}>Federal</th><th style={{ textAlign: "right" }}>Soc. Sec.</th><th style={{ textAlign: "right" }}>Medicare</th><th></th></tr></thead>
+                <thead><tr><th>Employee</th><th>Pay Date</th><th>Check #</th><th style={{ textAlign: "right" }}>Federal Tax</th><th style={{ textAlign: "right" }} title="Employee share only">Soc. Sec. (employee)</th><th style={{ textAlign: "right" }} title="Employee share only">Medicare (employee)</th><th></th></tr></thead>
                 <tbody>
                   {visiblePaychecks
                     .map((r) => (
@@ -740,17 +762,23 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                       <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.medicare_withheld)))}</td>
                       <td></td>
                     </tr>
+                    <tr>
+                      <td colSpan={7} className="muted" style={{ fontSize: 12, padding: "6px 10px" }}>
+                        Federal deposit these paychecks produce: <strong>{money(sumCents(visiblePaychecks.map((r) => Number(r.federal_withheld) + 2 * Number(r.social_security_withheld) + 2 * Number(r.medicare_withheld))))}</strong>
+                        {" "}= Federal + 2 × Soc. Sec. + 2 × Medicare (the employer matches Soc. Sec. and Medicare).
+                      </td>
+                    </tr>
                   </tfoot>
                 )}
               </table>
             </div>
           </div>
 
-          <p className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>Imported Tax Liability snapshots ({importedSnapshots?.length || 0}).</p>
+          <p className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}><strong>Tax Liability snapshots</strong> ({importedSnapshots?.length || 0}) — Drake's own totals, to compare against the paychecks above.</p>
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
             <div className="table-scroll">
               <table>
-                <thead><tr><th>Range</th><th style={{ textAlign: "right" }}>Federal</th><th style={{ textAlign: "right" }}>Soc. Sec.</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>941 Total</th><th></th></tr></thead>
+                <thead><tr><th>Range</th><th style={{ textAlign: "right" }}>Federal Tax</th><th style={{ textAlign: "right" }} title="Employee + employer">Soc. Sec. (both)</th><th style={{ textAlign: "right" }} title="Employee + employer">Medicare (both)</th><th style={{ textAlign: "right" }}>941 Total</th><th>Matches paychecks?</th><th></th></tr></thead>
                 <tbody>
                   {(importedSnapshots || []).map((r) => (
                     <tr key={r.id}>
@@ -764,6 +792,15 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                       <td style={{ textAlign: "right" }}>{money(r.social_security)}</td>
                       <td style={{ textAlign: "right" }}>{money(r.medicare)}</td>
                       <td style={{ textAlign: "right", fontWeight: 600 }}>{money(r.total_941)}</td>
+                      <td style={{ fontSize: 12 }}>
+                        {(() => {
+                          const c = snapshotCheck(r);
+                          if (!c.count) return <span className="muted">No paychecks imported in this range</span>;
+                          return c.ok
+                            ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>✓ Matches the {c.count} paycheck{c.count === 1 ? "" : "s"} ({money(c.expected)})</span>
+                            : <span style={{ color: "var(--red)", fontWeight: 600 }} title="Drake's total and the imported paychecks disagree — one of them may be for the wrong client or period.">✗ Paychecks add up to {money(c.expected)} ({money(Math.abs(c.diff))} {c.diff > 0 ? "less" : "more"})</span>;
+                        })()}
+                      </td>
                       <td style={{ textAlign: "right" }}>
                         <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeleteSnapshotRow(r)}>
                           {importedRowBusy === r.id ? "…" : "Delete"}
@@ -772,13 +809,13 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                     </tr>
                   ))}
                   {importedSnapshots && !importedSnapshots.length && (
-                    <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 16 }}>No Tax Liability snapshots imported yet.</td></tr>
+                    <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>No Tax Liability snapshots imported yet.</td></tr>
                   )}
                 </tbody>
                 {snaps.length > 0 && (
                   <tfoot>
                     {overlappingSnapshotIds.size > 0 ? (
-                      <tr><td colSpan={6} style={{ color: "var(--amber)", fontSize: 12.5, padding: 10 }}>
+                      <tr><td colSpan={7} style={{ color: "var(--amber)", fontSize: 12.5, padding: 10 }}>
                         No total shown — some snapshot date ranges overlap, so adding them would double-count. Delete the overlapping one you don't need.
                       </td></tr>
                     ) : (
@@ -788,7 +825,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                         <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.social_security)))}</td>
                         <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.medicare)))}</td>
                         <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.total_941)))}</td>
-                        <td></td>
+                        <td></td><td></td>
                       </tr>
                     )}
                   </tfoot>
@@ -799,7 +836,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
         </div>
       )}
 
-      <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>Review & File</h3>
+      <h3 style={stepTitle}>Step 3 — Review & File</h3>
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
           {PERIOD_PRESETS.map((p) => (
@@ -807,12 +844,12 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
           ))}
         </div>
         <div className="form-grid">
-          <div className="field"><label htmlFor="eftps-period-start">Period Start</label><input id="eftps-period-start" type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setMonths(null); }} /></div>
-          <div className="field"><label htmlFor="eftps-period-end">Period End</label><input id="eftps-period-end" type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setMonths(null); }} /></div>
+          <div className="field"><label htmlFor="eftps-period-start">Period Start</label><input id="eftps-period-start" type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /></div>
+          <div className="field"><label htmlFor="eftps-period-end">Period End</label><input id="eftps-period-end" type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></div>
         </div>
-        <button className="btn btn-primary" onClick={handleReview} disabled={reviewing} style={{ marginTop: 4 }}>
-          {reviewing ? "Loading…" : "Review This Period"}
-        </button>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          {reviewing ? "Loading…" : "Pick a period above — each calendar month in it gets its own row below. Click a row to review and file it."}
+        </div>
       </div>
 
       {months && (
@@ -957,9 +994,10 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
       <button
         type="button"
         onClick={() => setShowHistory((v) => !v)}
-        style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", padding: 0, border: "none", background: "none", cursor: "pointer", textDecoration: "underline", color: "inherit", font: "inherit", display: "block" }}
+        style={{ ...stepTitle, background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", gap: 8 }}
       >
-        History ({(history || []).length})
+        <span aria-hidden="true" style={{ fontSize: 11 }}>{showHistory ? "▼" : "▶"}</span>
+        Filed deposits <span className="muted" style={{ fontWeight: 400, fontSize: 12.5 }}>({(history || []).length})</span>
       </button>
       {showHistory && (
         <>
