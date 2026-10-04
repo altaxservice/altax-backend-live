@@ -729,7 +729,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                     <th rowSpan={2} style={{ textAlign: "right" }}>Federal Tax</th>
                     <th colSpan={2} style={{ textAlign: "center" }}>Social Security</th>
                     <th colSpan={2} style={{ textAlign: "center" }}>Medicare</th>
-                    <th rowSpan={2} style={{ textAlign: "right" }} title="Federal + 2 × Soc. Sec. + 2 × Medicare">Federal Deposit</th>
+                    <th rowSpan={2} style={{ textAlign: "right" }} title="Federal + 2 × Soc. Sec. + 2 × Medicare">Deposit Total</th>
                     <th rowSpan={2}></th>
                   </tr>
                   <tr>
@@ -782,7 +782,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                     </tr>
                     <tr>
                       <td colSpan={10} className="muted" style={{ fontSize: 12, padding: "6px 10px", fontWeight: 400 }}>
-                        Federal Deposit = Federal Tax + Soc. Sec. (employee + employer) + Medicare (employee + employer). The employer's share equals the employee's, so only the employee amounts come from Drake's paycheck file.
+                        Deposit Total = Federal Tax + Soc. Sec. (employee + employer) + Medicare (employee + employer). The employer's share equals the employee's, so only the employee amounts come from Drake's paycheck file.
                       </td>
                     </tr>
                   </tfoot>
@@ -795,7 +795,7 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
             <div className="table-scroll">
               <table>
-                <thead><tr><th>Range</th><th style={{ textAlign: "right" }}>Federal Tax</th><th style={{ textAlign: "right" }} title="Employee + employer">Soc. Sec. (both)</th><th style={{ textAlign: "right" }} title="Employee + employer">Medicare (both)</th><th style={{ textAlign: "right" }}>941 Total</th><th>Matches paychecks?</th><th></th></tr></thead>
+                <thead><tr><th>Range</th><th style={{ textAlign: "right" }}>Federal Tax</th><th style={{ textAlign: "right" }} title="Employee + employer">Soc. Sec. (both)</th><th style={{ textAlign: "right" }} title="Employee + employer">Medicare (both)</th><th style={{ textAlign: "right" }}>Deposit Total</th><th>Matches paychecks?</th><th></th></tr></thead>
                 <tbody>
                   {(importedSnapshots || []).map((r) => (
                     <tr key={r.id}>
