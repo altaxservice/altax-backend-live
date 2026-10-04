@@ -37,6 +37,7 @@ interface TaxLiabilityPreview {
   range: { start: string; end: string };
   summary: { federalIncomeTax: number; socialSecurity: number; medicare: number; total941: number };
   action: "create" | "duplicate";
+  overlaps?: { range_start: string; range_end: string; total_941: number }[];
 }
 interface ImportedPaycheckRow {
   id: string; employee_name: string; pay_date: string; check_number: string | null;
@@ -495,6 +496,36 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
     catch (err) { toast(err instanceof ApiError ? err.message : "Could not download this PDF."); }
   }
 
+  // --- Totals + duplicate/overlap checks shown under the tables ---
+  const sumCents = (vals: unknown[]) => Math.round(vals.reduce<number>((a, v) => a + (Number(v) || 0) * 100, 0)) / 100;
+  const visiblePaychecks = (importedPaychecks || []).filter((r) => {
+    const q = importedPaycheckSearch.trim().toLowerCase();
+    if (q && !([r.employee_name, fmtDate(r.pay_date), r.check_number].some((v) => String(v || "").toLowerCase().includes(q)))) return false;
+    if (importedPaycheckDateFrom && r.pay_date < importedPaycheckDateFrom) return false;
+    if (importedPaycheckDateTo && r.pay_date > importedPaycheckDateTo) return false;
+    return true;
+  });
+  const normName = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  // Same person + same pay date more than once is a likely double import.
+  const paycheckDupCount = new Map<string, number>();
+  for (const r of importedPaychecks || []) {
+    const k = `${normName(r.employee_name)}|${r.pay_date.slice(0, 10)}`;
+    paycheckDupCount.set(k, (paycheckDupCount.get(k) || 0) + 1);
+  }
+  const dupPaycheckKeys = new Set([...paycheckDupCount.entries()].filter(([, n]) => n > 1).map(([k]) => k));
+  // Two Tax Liability snapshots whose date ranges overlap would double-count if added together.
+  const overlappingSnapshotIds = new Set<string>();
+  const snaps = importedSnapshots || [];
+  for (let i = 0; i < snaps.length; i++) {
+    for (let j = i + 1; j < snaps.length; j++) {
+      const a = snaps[i], b = snaps[j];
+      if (a.range_start.slice(0, 10) <= b.range_end.slice(0, 10) && b.range_start.slice(0, 10) <= a.range_end.slice(0, 10)) {
+        overlappingSnapshotIds.add(a.id); overlappingSnapshotIds.add(b.id);
+      }
+    }
+  }
+  const visibleHistory = (history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo));
+
   /** One deposit's action row, exactly as History always has — reused both for
    * History's own table and for an already-filed month bucket in Review & File,
    * so Preview/Print/Download/Record Payment/Send/Undo behave identically in
@@ -621,6 +652,15 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
               Covers {fmtDate(taxLiabilityPreview.range.start)} – {fmtDate(taxLiabilityPreview.range.end)} · Federal Deposit Total {money(taxLiabilityPreview.summary.total941)}
               {taxLiabilityPreview.action === "duplicate" ? " · a snapshot for this exact range already exists — importing will refresh it with these numbers" : ""}.
             </p>
+            {!!taxLiabilityPreview.overlaps?.length && (
+              <div className="card" style={{ borderColor: "var(--amber)", padding: 10, marginBottom: 8 }}>
+                <strong style={{ color: "var(--amber)" }}>Overlaps an existing snapshot</strong>
+                <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                  This file covers days that are already in: {taxLiabilityPreview.overlaps.map((o) => `${fmtDate(o.range_start)} – ${fmtDate(o.range_end)} (${money(o.total_941)})`).join("; ")}.
+                  Don't add them together — after importing, delete whichever one you don't need.
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-primary" onClick={handleTaxLiabilityImport} disabled={taxLiabilityBusy !== null || companyCheckNeedsConfirm(taxLiabilityPreview.companyCheck, taxLiabConfirmed)}>
                 {taxLiabilityBusy === "import" ? "Importing…" : taxLiabilityPreview.action === "duplicate" ? "Update" : "Import"}
@@ -663,20 +703,16 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
               <table>
                 <thead><tr><th>Employee</th><th>Pay Date</th><th>Check #</th><th style={{ textAlign: "right" }}>Federal</th><th style={{ textAlign: "right" }}>Soc. Sec.</th><th style={{ textAlign: "right" }}>Medicare</th><th></th></tr></thead>
                 <tbody>
-                  {(importedPaychecks || [])
-                    .filter((r) => {
-                      const q = importedPaycheckSearch.trim().toLowerCase();
-                      if (q && !([r.employee_name, fmtDate(r.pay_date), r.check_number].some((v) => String(v || "").toLowerCase().includes(q)))) return false;
-                      if (importedPaycheckDateFrom && r.pay_date < importedPaycheckDateFrom) return false;
-                      if (importedPaycheckDateTo && r.pay_date > importedPaycheckDateTo) return false;
-                      return true;
-                    })
+                  {visiblePaychecks
                     .map((r) => (
                     <tr key={r.id}>
                       <td>
                         {employeeIdByName[r.employee_name]
                           ? <Link to={`/employees/${employeeIdByName[r.employee_name]}`}>{r.employee_name}</Link>
                           : r.employee_name}
+                        {dupPaycheckKeys.has(`${normName(r.employee_name)}|${r.pay_date.slice(0, 10)}`) && (
+                          <span title="Another imported paycheck has the same employee and pay date — check for a double import." style={{ marginLeft: 6, color: "var(--amber)", fontWeight: 600, fontSize: 11.5 }}>⚠ Possible duplicate</span>
+                        )}
                       </td>
                       <td>{fmtDate(r.pay_date)}</td>
                       <td>{r.check_number || "—"}</td>
@@ -694,6 +730,18 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                     <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>No paychecks imported yet.</td></tr>
                   )}
                 </tbody>
+                {visiblePaychecks.length > 0 && (
+                  <tfoot>
+                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                      <td>Total ({visiblePaychecks.length} paycheck{visiblePaychecks.length === 1 ? "" : "s"}{visiblePaychecks.length !== (importedPaychecks || []).length ? ", filtered" : ""})</td>
+                      <td></td><td></td>
+                      <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.federal_withheld)))}</td>
+                      <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.social_security_withheld)))}</td>
+                      <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.medicare_withheld)))}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
@@ -706,7 +754,12 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                 <tbody>
                   {(importedSnapshots || []).map((r) => (
                     <tr key={r.id}>
-                      <td>{fmtDate(r.range_start)} – {fmtDate(r.range_end)}</td>
+                      <td>
+                        {fmtDate(r.range_start)} – {fmtDate(r.range_end)}
+                        {overlappingSnapshotIds.has(r.id) && (
+                          <span title="This date range overlaps another imported snapshot. Don't add them together — delete the one you don't need." style={{ marginLeft: 6, color: "var(--amber)", fontWeight: 600, fontSize: 11.5 }}>⚠ Overlaps another snapshot</span>
+                        )}
+                      </td>
                       <td style={{ textAlign: "right" }}>{money(r.federal_income_tax)}</td>
                       <td style={{ textAlign: "right" }}>{money(r.social_security)}</td>
                       <td style={{ textAlign: "right" }}>{money(r.medicare)}</td>
@@ -722,6 +775,24 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                     <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 16 }}>No Tax Liability snapshots imported yet.</td></tr>
                   )}
                 </tbody>
+                {snaps.length > 0 && (
+                  <tfoot>
+                    {overlappingSnapshotIds.size > 0 ? (
+                      <tr><td colSpan={6} style={{ color: "var(--amber)", fontSize: 12.5, padding: 10 }}>
+                        No total shown — some snapshot date ranges overlap, so adding them would double-count. Delete the overlapping one you don't need.
+                      </td></tr>
+                    ) : (
+                      <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                        <td>Total ({snaps.length} snapshot{snaps.length === 1 ? "" : "s"})</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.federal_income_tax)))}</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.social_security)))}</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.medicare)))}</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents(snaps.map((r) => r.total_941)))}</td>
+                        <td></td>
+                      </tr>
+                    )}
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
@@ -822,6 +893,15 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                                         </tr>
                                       ))}
                                     </tbody>
+                                    <tfoot>
+                                      <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                                        <td>Total</td>
+                                        <td style={{ textAlign: "right" }}>{money(m.computation!.federalIncomeTaxTotal)}</td>
+                                        <td style={{ textAlign: "right" }}>{money(m.computation!.socialSecurityTotal)}</td>
+                                        <td style={{ textAlign: "right" }}>{money(m.computation!.medicareTotal)}</td>
+                                        <td style={{ textAlign: "right" }}>{money(m.computation!.totalAmount)}</td>
+                                      </tr>
+                                    </tfoot>
                                   </table>
                                 </div>
 
@@ -861,6 +941,14 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                  <td>Total ({months.length} month{months.length === 1 ? "" : "s"})</td>
+                  <td style={{ textAlign: "right" }}>{months.reduce((a, m) => a + (m.paycheckCount || 0), 0)}</td>
+                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.existingDeposit ? m.existingDeposit.total_amount : m.computation ? m.computation.totalAmount : 0)))}</td>
+                  <td></td><td></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -892,16 +980,25 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
               <table>
                 <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
                 <tbody>
-                  {(history || [])
-                    .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
-                    .map((d) => renderDepositRow(d))}
+                  {visibleHistory.map((d) => renderDepositRow(d))}
                   {history && !history.length && (
                     <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
                   )}
-                  {history && !!history.length && !(history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo)).length && (
+                  {history && !!history.length && !visibleHistory.length && (
                     <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
                   )}
                 </tbody>
+                {visibleHistory.length > 0 && (
+                  <tfoot>
+                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                      <td>Total ({visibleHistory.length} deposit{visibleHistory.length === 1 ? "" : "s"})</td>
+                      <td></td><td></td><td></td>
+                      {showClientColumn && <td></td>}
+                      <td style={{ textAlign: "right" }}>{money(sumCents(visibleHistory.map((d) => d.total_amount)))}</td>
+                      <td></td><td></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>

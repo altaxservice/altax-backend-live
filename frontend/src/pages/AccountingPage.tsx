@@ -2779,6 +2779,16 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                 </tr>
               ))}
             </tbody>
+            {visiblePaychecks.length > 0 && (
+              <tfoot>
+                <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                  <td colSpan={isAdmin ? 3 : 2}>Total ({visiblePaychecks.length} paycheck{visiblePaychecks.length === 1 ? "" : "s"})</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(sumMoney(visiblePaychecks.map((p) => p.gross_wages)))}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(sumMoney(visiblePaychecks.map((p) => p.net_pay)))}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
           </div>
         </div>
@@ -3995,6 +4005,15 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
                 </tr>
               ))}
             </tbody>
+            {visiblePayments.length > 0 && (
+              <tfoot>
+                <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                  <td colSpan={2}>Total ({visiblePayments.length} payment{visiblePayments.length === 1 ? "" : "s"})</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(sumMoney(visiblePayments.map((p) => p.amount)))}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
           </div>
         </div>
@@ -4025,6 +4044,9 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
 }
 
 /** Sum one side of a journal entry — used for both the list total and the balance check. */
+function sumMoney(vals: unknown[]): number {
+  return Math.round(vals.reduce<number>((a, v) => a + (Number(v) || 0) * 100, 0)) / 100;
+}
 function jeTotal(entry: any, side: "debit" | "credit"): number {
   return (entry?.lines || []).reduce((sum: number, l: any) => sum + Number(l[side] || 0), 0);
 }
@@ -5916,6 +5938,22 @@ function PaychecksTab({ clientId }: { clientId: string }) {
               </tr>
             ))}
           </tbody>
+          {visiblePaychecks.length > 0 && (
+            <tfoot>
+              <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                <td colSpan={isAdmin ? 3 : 2}>Total ({visiblePaychecks.length} paycheck{visiblePaychecks.length === 1 ? "" : "s"})</td>
+                <td style={{ textAlign: "right" }}>
+                  <div>{fmtMoney(sumMoney(visiblePaychecks.map((p) => p.gross_wages)))}</div>
+                  <div className="muted" style={{ fontSize: 11, fontWeight: 400 }}>−{fmtMoney(sumMoney(visiblePaychecks.map((p) => p.employee_taxes)))} tax</div>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <div>{fmtMoney(sumMoney(visiblePaychecks.map((p) => p.net_pay)))}</div>
+                  <div className="muted" style={{ fontSize: 11, fontWeight: 400 }}>Cost {fmtMoney(sumMoney(visiblePaychecks.map((p) => p.total_cost)))}</div>
+                </td>
+                <td></td><td></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
         </div>
       </div>
@@ -6394,6 +6432,17 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
                     </tr>
                   ))}
                 </tbody>
+                {visibleEmployees.length > 0 && (
+                  <tfoot>
+                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                      <td colSpan={2}>Total ({visibleEmployees.length})</td>
+                      <td>{fmtMoney(sumMoney(visibleEmployees.map((e) => e.wages)))}</td>
+                      <td>{fmtMoney(sumMoney(visibleEmployees.map((e) => e.fedTax)))}</td>
+                      <td>{fmtMoney(sumMoney(visibleEmployees.map((e) => e.mdTax)))}</td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
               </div>
             </div>
@@ -6428,6 +6477,15 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
                     </tr>
                   ))}
                 </tbody>
+                {visibleContractors.length > 0 && (
+                  <tfoot>
+                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                      <td colSpan={2}>Total ({visibleContractors.length})</td>
+                      <td>{fmtMoney(sumMoney(visibleContractors.map((c) => c.nec)))}</td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
               </div>
             </div>

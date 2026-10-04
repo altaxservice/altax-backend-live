@@ -298,6 +298,32 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
     );
   }
 
+  /** Total row under a period table — sums exactly what the rows display
+   * (late charges only count on rows that show them). */
+  function renderTotalRow(rows: PeriodRow[]) {
+    if (!rows.length) return null;
+    const cents = (vals: number[]) => Math.round(vals.reduce((a, v) => a + (Number(v) || 0) * 100, 0)) / 100;
+    const charged = (p: PeriodRow) => {
+      const paidByNow = Boolean(p.markedPaidDate) && p.markedPaidDate!.slice(0, 10) <= todayStr();
+      return !(p.markedFiledDate && !paidByNow) && !p.onTime;
+    };
+    const built = meta?.lateChargesBuilt ?? false;
+    return (
+      <tfoot>
+        <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+          <td colSpan={3}>Total ({rows.length} period{rows.length === 1 ? "" : "s"})</td>
+          <td>{money(cents(rows.map((p) => p.amount)))}</td>
+          <td></td>
+          <td>{built ? money(cents(rows.map((p) => (charged(p) ? p.penalty : 0)))) : <span className="muted">n/a</span>}</td>
+          <td>{built ? money(cents(rows.map((p) => (charged(p) ? p.interest : 0)))) : <span className="muted">n/a</span>}</td>
+          <td>{money(cents(rows.map((p) => p.balanceDue)))}</td>
+          {showClientColumn && <td></td>}
+          <td></td>
+        </tr>
+      </tfoot>
+    );
+  }
+
   const head = (
     <tr>
       <th>Period</th><th>Due Date</th><th>Target Filing Date</th><th>{cfg.amountHeader}</th><th>Status</th><th>Penalty</th><th>Interest</th><th>Balance Due</th>
@@ -348,6 +374,7 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
                 {breakdown.periods.map((p) => renderRow(p))}
                 {breakdown.periods.length === 0 && <tr><td colSpan={showClientColumn ? 10 : 9} className="muted" style={{ textAlign: "center", padding: 16 }}>No periods in this range.</td></tr>}
               </tbody>
+              {renderTotalRow(breakdown.periods)}
             </table>
           </div>
           {breakdown.periods.length > 0 && (
@@ -365,7 +392,7 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
           History ({history?.length ?? 0})
         </button>
         {showHistory && (history === null ? <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p> : history.length === 0 ? <p className="muted" style={{ fontSize: 12.5 }}>Nothing filed yet.</p> : (
-          <div className="table-scroll"><table><thead>{head}</thead><tbody>{history.map((p) => renderRow(p))}</tbody></table></div>
+          <div className="table-scroll"><table><thead>{head}</thead><tbody>{history.map((p) => renderRow(p))}</tbody>{renderTotalRow(history)}</table></div>
         ))}
       </div>
 

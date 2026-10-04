@@ -204,11 +204,22 @@ eftpsDepositsRouter.post("/import/tax-liability/preview", requireAuth, requireRo
       [client.client_id, range.start, range.end]
     );
 
+    // Different range, but covering some of the same days as an existing snapshot — adding the
+    // two together would double-count, so the preview warns about it.
+    const overlaps = await query<any>(
+      `SELECT range_start::text AS range_start, range_end::text AS range_end, total_941
+         FROM altax.v3_eftps_tax_liability_import
+        WHERE client_id = $1 AND range_start <= $3 AND range_end >= $2
+          AND NOT (range_start = $2 AND range_end = $3)
+        ORDER BY range_start`,
+      [client.client_id, range.start, range.end]
+    );
+
     // No employees in this report, so only a company name printed in the header can vouch for it.
     const companyCheck = await checkCompany({
       client, detectedName: detectCompanyName(rows, await query<any>(`SELECT client_id, client_name, dba_name FROM altax.v3_clients`)), employeeNames: [],
     });
-    res.json({ ok: true, range, summary, action: existing ? "duplicate" : "create", companyCheck });
+    res.json({ ok: true, range, summary, action: existing ? "duplicate" : "create", overlaps, companyCheck });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
