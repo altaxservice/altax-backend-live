@@ -755,24 +755,60 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                 {visiblePaychecks.length > 0 && (
                   <tfoot>
                     <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
-                      <td>Total ({visiblePaychecks.length} paycheck{visiblePaychecks.length === 1 ? "" : "s"}{visiblePaychecks.length !== (importedPaychecks || []).length ? ", filtered" : ""})</td>
+                      <td>Employee total ({visiblePaychecks.length} paycheck{visiblePaychecks.length === 1 ? "" : "s"}{visiblePaychecks.length !== (importedPaychecks || []).length ? ", filtered" : ""})</td>
                       <td></td><td></td>
                       <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.federal_withheld)))}</td>
                       <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.social_security_withheld)))}</td>
                       <td style={{ textAlign: "right" }}>{money(sumCents(visiblePaychecks.map((r) => r.medicare_withheld)))}</td>
                       <td></td>
                     </tr>
-                    <tr>
-                      <td colSpan={7} className="muted" style={{ fontSize: 12, padding: "6px 10px" }}>
-                        Federal deposit these paychecks produce: <strong>{money(sumCents(visiblePaychecks.map((r) => Number(r.federal_withheld) + 2 * Number(r.social_security_withheld) + 2 * Number(r.medicare_withheld))))}</strong>
-                        {" "}= Federal + 2 × Soc. Sec. + 2 × Medicare (the employer matches Soc. Sec. and Medicare).
-                      </td>
-                    </tr>
                   </tfoot>
                 )}
               </table>
             </div>
           </div>
+
+          {visiblePaychecks.length > 0 && (() => {
+            const fed = sumCents(visiblePaychecks.map((r) => r.federal_withheld));
+            const ss = sumCents(visiblePaychecks.map((r) => r.social_security_withheld));
+            const med = sumCents(visiblePaychecks.map((r) => r.medicare_withheld));
+            const row = (label: string, emp: number, match: number, note?: string) => (
+              <tr>
+                <td>{label}{note && <div className="muted" style={{ fontSize: 11 }}>{note}</div>}</td>
+                <td style={{ textAlign: "right" }}>{money(emp)}</td>
+                <td style={{ textAlign: "right" }}>{match ? money(match) : <span className="muted">—</span>}</td>
+                <td style={{ textAlign: "right", fontWeight: 600 }}>{money(Math.round((emp + match) * 100) / 100)}</td>
+              </tr>
+            );
+            return (
+              <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+                <div style={{ padding: "10px 12px 4px" }}>
+                  <strong style={{ fontSize: 13 }}>How these {visiblePaychecks.length} paycheck{visiblePaychecks.length === 1 ? "" : "s"} become the federal deposit</strong>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                    The paycheck table above shows only what was taken out of the employee's pay. Drake's 941 figures also include the employer's matching share of Soc. Sec. and Medicare — that's why they look bigger.
+                  </div>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <thead><tr><th></th><th style={{ textAlign: "right" }}>Employee (from paychecks)</th><th style={{ textAlign: "right" }}>Employer match</th><th style={{ textAlign: "right" }}>Deposit total</th></tr></thead>
+                    <tbody>
+                      {row("Federal income tax", fed, 0, "Withheld only — no employer match")}
+                      {row("Social Security", ss, ss, "Employer pays the same amount")}
+                      {row("Medicare", med, med, "Employer pays the same amount")}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
+                        <td>Federal deposit (941)</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents([fed, ss, med]))}</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents([ss, med]))}</td>
+                        <td style={{ textAlign: "right" }}>{money(sumCents([fed, ss * 2, med * 2]))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
           <p className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}><strong>Tax Liability snapshots</strong> ({importedSnapshots?.length || 0}) — Drake's own totals, to compare against the paychecks above.</p>
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
