@@ -543,6 +543,20 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
   };
   const visibleHistory = (history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo));
 
+  /** An amount staff will type into the EFTPS website — click it to copy the plain number (no $ or commas). */
+  function copyAmount(v: number | null | undefined) {
+    if (v === null || v === undefined || !Number.isFinite(Number(v))) return <span className="muted">—</span>;
+    const plain = Number(v).toFixed(2);
+    return (
+      <button type="button" title="Click to copy" onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(plain).then(() => toast(`Copied ${plain}`)).catch(() => toast("Could not copy — select the number instead."));
+      }} style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "copy", fontWeight: "inherit" }}>
+        {money(v)}
+      </button>
+    );
+  }
+
   /** One deposit's action row, exactly as History always has — reused both for
    * History's own table and for an already-filed month bucket in Review & File,
    * so Preview/Print/Download/Record Payment/Send/Undo behave identically in
@@ -859,13 +873,22 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
           {PERIOD_PRESETS.map((p) => (
             <button key={p.label} type="button" className="btn btn-sm" onClick={() => applyPreset(p)}>{p.label}</button>
           ))}
+          {!!importedPaychecks?.length && (
+            <button type="button" className="btn btn-sm" title="Every month that has imported paychecks" onClick={() => {
+              const dates = importedPaychecks.map((r) => r.pay_date.slice(0, 10)).sort();
+              setPeriodStart(dates[0].slice(0, 7) + "-01");
+              const last = new Date(`${dates[dates.length - 1].slice(0, 7)}-01T00:00:00Z`);
+              last.setUTCMonth(last.getUTCMonth() + 1, 0);
+              setPeriodEnd(last.toISOString().slice(0, 10));
+            }}>All imported months</button>
+          )}
         </div>
         <div className="form-grid">
           <div className="field"><label htmlFor="eftps-period-start">Period Start</label><input id="eftps-period-start" type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /></div>
           <div className="field"><label htmlFor="eftps-period-end">Period End</label><input id="eftps-period-end" type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></div>
         </div>
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-          {reviewing ? "Loading…" : "Pick a period above — each calendar month in it gets its own row below. Click a row to review and file it."}
+          {reviewing ? "Loading…" : "Each month gets its own row with the Federal, Social Security and Medicare amounts and the total to enter on EFTPS — click any amount to copy it. Click a row to review and file that month."}
         </div>
       </div>
 
@@ -873,12 +896,14 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Period</th><th style={{ textAlign: "right" }}>Paychecks</th><th style={{ textAlign: "right" }}>Total</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Month</th><th style={{ textAlign: "right" }}>Paychecks</th><th style={{ textAlign: "right" }}>Federal Income Tax</th><th style={{ textAlign: "right" }}>Social Security</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>Total Deposit</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {months.map((m) => {
                   const isExpanded = expandedMonthKey === m.monthKey;
                   const statusLabel = !m.paycheckCount ? "No paychecks" : m.existingDeposit ? m.existingDeposit.status : "Not filed";
-                  const totalDisplay = m.existingDeposit ? money(m.existingDeposit.total_amount) : m.computation ? money(m.computation.totalAmount) : "—";
+                  const filedTotal = m.existingDeposit ? Number(m.existingDeposit.total_amount) : null;
+                  const depositTotal = filedTotal ?? m.computation?.totalAmount ?? null;
+                  const totalDiffers = filedTotal !== null && m.computation !== null && Math.abs(filedTotal - m.computation.totalAmount) > 0.005;
                   return (
                     <Fragment key={m.monthKey}>
                       <tr
@@ -887,13 +912,19 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                       >
                         <td>{m.label}</td>
                         <td style={{ textAlign: "right" }}>{m.paycheckCount}</td>
-                        <td style={{ textAlign: "right" }}>{totalDisplay}</td>
+                        <td style={{ textAlign: "right" }}>{copyAmount(m.computation?.federalIncomeTaxTotal)}</td>
+                        <td style={{ textAlign: "right" }}>{copyAmount(m.computation?.socialSecurityTotal)}</td>
+                        <td style={{ textAlign: "right" }}>{copyAmount(m.computation?.medicareTotal)}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700 }}>
+                          {copyAmount(depositTotal)}
+                          {totalDiffers && <div className="muted" style={{ fontSize: 11, fontWeight: 400 }} title="The filed deposit amount was edited after it was computed.">computed {money(m.computation!.totalAmount)}</div>}
+                        </td>
                         <td>{statusLabel}{m.existingDeposit?.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
                         <td style={{ textAlign: "right" }}>{isExpanded ? "▲" : "▼"}</td>
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={5} style={{ background: "var(--surface-2, #f8fafb)", padding: 16 }}>
+                          <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)", padding: 16 }}>
                             {!m.paycheckCount ? (
                               <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>No imported paychecks fall within this month.</p>
                             ) : m.existingDeposit ? (
@@ -999,6 +1030,9 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                 <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
                   <td>Total ({months.length} month{months.length === 1 ? "" : "s"})</td>
                   <td style={{ textAlign: "right" }}>{months.reduce((a, m) => a + (m.paycheckCount || 0), 0)}</td>
+                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.computation?.federalIncomeTaxTotal ?? 0)))}</td>
+                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.computation?.socialSecurityTotal ?? 0)))}</td>
+                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.computation?.medicareTotal ?? 0)))}</td>
                   <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.existingDeposit ? m.existingDeposit.total_amount : m.computation ? m.computation.totalAmount : 0)))}</td>
                   <td></td><td></td>
                 </tr>
