@@ -24,7 +24,7 @@ export function fmtPeriodLabel(start: unknown, end: unknown): string {
 
 export async function computeForPeriod(clientId: string, periodStart: string, periodEnd: string) {
   const rows = await query<any>(
-    `SELECT employee_name, pay_date::text AS pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld
+    `SELECT employee_name, pay_date::text AS pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, social_security_wages, medicare_wages
        FROM altax.v3_eftps_paycheck_import
       WHERE client_id = $1 AND pay_date >= $2 AND pay_date <= $3`,
     [clientId, periodStart, periodEnd]
@@ -34,6 +34,8 @@ export async function computeForPeriod(clientId: string, periodStart: string, pe
     federalWithheld: Number(r.federal_withheld) || 0,
     socialSecurityWithheld: Number(r.social_security_withheld) || 0,
     medicareWithheld: Number(r.medicare_withheld) || 0,
+    socialSecurityWageBase: r.social_security_wages === null || r.social_security_wages === undefined ? undefined : Number(r.social_security_wages),
+    medicareWageBase: r.medicare_wages === null || r.medicare_wages === undefined ? undefined : Number(r.medicare_wages),
   }));
 
   const snapshot = await queryOne<any>(
@@ -99,7 +101,7 @@ export async function computeMonthlyReview(clientId: string, periodStart: string
   const rangeStart = buckets[0].periodStart, rangeEnd = buckets[buckets.length - 1].periodEnd;
 
   const paycheckRows = await query<any>(
-    `SELECT employee_name, pay_date::text AS pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld
+    `SELECT employee_name, pay_date::text AS pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, social_security_wages, medicare_wages
        FROM altax.v3_eftps_paycheck_import
       WHERE client_id = $1 AND pay_date >= $2 AND pay_date <= $3`,
     [clientId, rangeStart, rangeEnd]
@@ -113,6 +115,8 @@ export async function computeMonthlyReview(clientId: string, periodStart: string
       federalWithheld: Number(r.federal_withheld) || 0,
       socialSecurityWithheld: Number(r.social_security_withheld) || 0,
       medicareWithheld: Number(r.medicare_withheld) || 0,
+      socialSecurityWageBase: r.social_security_wages === null || r.social_security_wages === undefined ? undefined : Number(r.social_security_wages),
+      medicareWageBase: r.medicare_wages === null || r.medicare_wages === undefined ? undefined : Number(r.medicare_wages),
     });
     paychecksByMonth.set(key, list);
   }

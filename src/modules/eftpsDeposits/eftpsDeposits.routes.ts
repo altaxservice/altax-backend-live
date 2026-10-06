@@ -136,29 +136,47 @@ eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRol
   // an app-level SELECT-then-insert check and a confirm dialog, each time
   // doubling every federal deposit total. This replaces that fragile check
   // entirely rather than adding another layer on top of it.
-  let created = 0, skipped = 0;
+  let created = 0, skipped = 0, updated = 0;
+  const wageOrNull = (v: unknown) => (v === undefined || v === null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
   for (const r of rows) {
     const employeeName = String(r.employeeName || "").trim();
+    const ssWages = wageOrNull(r.socialSecurityWageBase);
+    const medWages = wageOrNull(r.medicareWageBase);
     const payDate = String(r.payDate || "").trim();
     if (!employeeName || !payDate) { skipped++; continue; }
     const checkNumber = r.checkNumber ? String(r.checkNumber).trim() : null;
 
     const inserted = await query<{ id: string }>(
       `INSERT INTO altax.v3_eftps_paycheck_import
-         (id, client_id, employee_name, pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EFTPS Payroll Wages Import',$1)
+         (id, client_id, employee_name, pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, social_security_wages, medicare_wages, source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'EFTPS Payroll Wages Import',$1)
        ON CONFLICT (client_id, employee_name, pay_date, COALESCE(check_number, '')) DO NOTHING
        RETURNING id`,
       [`EFTPSPC-${idSuffix()}`, client.client_id, employeeName, payDate, checkNumber,
-        Number(r.federalWithheld) || 0, Number(r.socialSecurityWithheld) || 0, Number(r.medicareWithheld) || 0]
+        Number(r.federalWithheld) || 0, Number(r.socialSecurityWithheld) || 0, Number(r.medicareWithheld) || 0, ssWages, medWages]
     );
-    if (inserted.length) created++; else skipped++;
+    if (inserted.length) created++;
+    else {
+      skipped++;
+      // Already on file — if it was imported before wage details were kept, fill them in now.
+      if (ssWages !== null || medWages !== null) {
+        const filled = await query<{ id: string }>(
+          `UPDATE altax.v3_eftps_paycheck_import
+              SET social_security_wages = COALESCE(social_security_wages, $5), medicare_wages = COALESCE(medicare_wages, $6)
+            WHERE client_id = $1 AND employee_name = $2 AND pay_date = $3 AND COALESCE(check_number, '') = COALESCE($4, '')
+              AND (social_security_wages IS NULL OR medicare_wages IS NULL)
+          RETURNING id`,
+          [client.client_id, employeeName, payDate, checkNumber, ssWages, medWages]
+        );
+        if (filled.length) updated++;
+      }
+    }
   }
 
   await logAudit("Clients", "IMPORT_EFTPS_PAYCHECKS", client.client_id, "", "", `${created}/${rows.length}`,
-    `Imported ${created} paycheck(s) for EFTPS from Payroll Wages by ${req.user!.email} (${skipped} already on file, skipped).`, req.user!.email);
+    `Imported ${created} paycheck(s) for EFTPS from Payroll Wages by ${req.user!.email} (${skipped} already on file, skipped${updated ? `; wage details added to ${updated}` : ""}).`, req.user!.email);
 
-  res.status(201).json({ ok: true, created, skipped });
+  res.status(201).json({ ok: true, created, skipped, updated });
 }));
 
 /* ------------------------------------------------------------------ */

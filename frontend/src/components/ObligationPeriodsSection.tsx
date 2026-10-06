@@ -261,6 +261,10 @@ export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clien
               {copyable(p.detail.federalIncomeTax, "Federal")}
               {copyable(p.detail.socialSecurity, "Soc. Sec.")}
               {copyable(p.detail.medicare, "Medicare")}
+              <span style={{ fontSize: 10.5, color: p.detail.basis === 0 ? "var(--amber)" : "var(--teal)" }}
+                title={p.detail.basis === 0 ? "These come from adding up each paycheck's withholding, which can be a cent or two off Drake. Import this client's Payroll Wages file again (or that month's Tax Liability report) and they become exact." : "Same figures as Drake's Tax Liability report."}>
+                {p.detail.basis === 2 ? "✓ Matches Drake's report" : p.detail.basis === 1 ? "✓ Exact — computed like Drake" : "From paychecks — may be cents off Drake"}
+              </span>
               {p.markedFiledDate && Math.abs(p.detail.computedTotal - p.amount) > 0.005 && (
                 <span style={{ color: "var(--amber)", fontWeight: 600 }} title="The filed amount differs from what the imported reports add up to now. Use Edit to correct the filed amount if the report is right.">
                   Reports now say {money(p.detail.computedTotal)}

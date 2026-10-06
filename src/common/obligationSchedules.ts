@@ -276,6 +276,7 @@ export async function listObligationPeriods(kind: ObligationKind, client: Obliga
         detail: m.computation ? {
           federalIncomeTax: m.computation.federalIncomeTaxTotal, socialSecurity: m.computation.socialSecurityTotal,
           medicare: m.computation.medicareTotal, paychecks: m.paycheckCount, computedTotal: m.computation.totalAmount,
+          basis: m.computation.basis === "drake" ? 2 : m.computation.basis === "wages" ? 1 : 0,
         } : undefined,
       }));
   }

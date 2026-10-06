@@ -29,6 +29,12 @@ export interface EftpsComputation {
    * between the two, so the breakdown still adds up — null when nothing was adjusted.
    */
   roundingAdjustment: { federalIncomeTax: number; socialSecurity: number; medicare: number; total: number } | null;
+  /**
+   * Where the totals come from: "drake" = Drake's Tax Liability report for this exact month,
+   * "wages" = 12.4% / 2.9% of the month's total taxable wages (Drake's own method), "paychecks" =
+   * the sum of each paycheck's withholding doubled (can be a cent or two off Drake).
+   */
+  basis: "drake" | "wages" | "paychecks";
   reconciliationStatus: "Matched" | "Mismatch";
   reconciliationDifference: number | null;
 }
@@ -76,6 +82,27 @@ export function computeEftpsBreakdown(
   let medicareTotal = round2(employees.reduce((s, e) => s + e.medicare, 0));
   let totalAmount = round2(federalIncomeTaxTotal + socialSecurityTotal + medicareTotal);
   const paycheckTotal = totalAmount;
+  let basis: EftpsComputation["basis"] = "paychecks";
+  let roundingAdjustment: EftpsComputation["roundingAdjustment"] = null;
+
+  // Drake rounds each tax once on the period's total taxable wages (12.4% Social Security, 2.9%
+  // Medicare, employee + employer). When every paycheck carries its wage bases, do the same — then
+  // any month matches Drake to the cent without needing that month's own Tax Liability report.
+  // Guarded: if the wage-based figure is far from the withholding, the wage columns can't be trusted.
+  if (paychecks.length > 0 && paychecks.every((p) => p.socialSecurityWageBase !== undefined && p.socialSecurityWageBase !== null && p.medicareWageBase !== undefined && p.medicareWageBase !== null)) {
+    const ssWages = paychecks.reduce((s, p) => s + (p.socialSecurityWageBase || 0), 0);
+    const medWages = paychecks.reduce((s, p) => s + (p.medicareWageBase || 0), 0);
+    const exactSs = round2(ssWages * 0.124);
+    const exactMed = round2(medWages * 0.029);
+    if (Math.abs(exactSs - socialSecurityTotal) <= 1 && Math.abs(exactMed - medicareTotal) <= 1) {
+      roundingAdjustment = { federalIncomeTax: 0, socialSecurity: round2(exactSs - socialSecurityTotal), medicare: round2(exactMed - medicareTotal), total: 0 };
+      socialSecurityTotal = exactSs; medicareTotal = exactMed;
+      totalAmount = round2(federalIncomeTaxTotal + socialSecurityTotal + medicareTotal);
+      roundingAdjustment.total = round2(totalAmount - paycheckTotal);
+      basis = "wages";
+      if (roundingAdjustment.total === 0 && roundingAdjustment.socialSecurity === 0 && roundingAdjustment.medicare === 0) roundingAdjustment = null;
+    }
+  }
 
   const drakeTotal941 = taxLiability ? round2(taxLiability.total941) : null;
   // A few dollars of tolerance absorbs normal per-paycheck rounding noise between
@@ -90,7 +117,6 @@ export function computeEftpsBreakdown(
 
   // Matched, and Drake's three lines add up to its own 941 total: use Drake's figures so the amounts
   // typed into EFTPS equal the report (and the Form 941 that follows).
-  let roundingAdjustment: EftpsComputation["roundingAdjustment"] = null;
   if (taxLiability && drakeTotal941 !== null && reconciliationStatus === "Matched") {
     const dFed = round2(taxLiability.federalIncomeTax), dSs = round2(taxLiability.socialSecurity), dMed = round2(taxLiability.medicare);
     const near = (a: number, b: number) => Math.abs(a - b) <= 0.5;
@@ -100,6 +126,7 @@ export function computeEftpsBreakdown(
         medicare: round2(dMed - medicareTotal), total: round2(drakeTotal941 - paycheckTotal),
       };
       federalIncomeTaxTotal = dFed; socialSecurityTotal = dSs; medicareTotal = dMed; totalAmount = drakeTotal941;
+      basis = "drake";
       if (roundingAdjustment.total === 0 && roundingAdjustment.socialSecurity === 0 && roundingAdjustment.medicare === 0 && roundingAdjustment.federalIncomeTax === 0) roundingAdjustment = null;
     }
   }
@@ -112,6 +139,7 @@ export function computeEftpsBreakdown(
     totalAmount,
     drakeTotal941,
     roundingAdjustment,
+    basis,
     reconciliationStatus,
     reconciliationDifference: drakeTotal941 !== null ? round2(totalAmount - drakeTotal941) : null,
   };

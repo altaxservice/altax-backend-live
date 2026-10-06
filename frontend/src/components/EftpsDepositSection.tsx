@@ -179,10 +179,10 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
       // A true duplicate (same employee + pay date + check number) can never
       // actually be inserted twice — the database itself rejects it (sql/125)
       // — so it's always safe to send every previewed row, new or not.
-      const res = await api.post<{ created: number; skipped: number }>("/eftps-deposits/import/payroll-wages/commit", {
+      const res = await api.post<{ created: number; skipped: number; updated?: number }>("/eftps-deposits/import/payroll-wages/commit", {
         clientId, rows: paycheckPreview.rows, detectedCompanyName: paycheckPreview.companyCheck?.detectedName ?? null, confirmMismatch: wagesConfirmed,
       });
-      toast(`Imported ${res.created} paycheck(s)${res.skipped ? `, ${res.skipped} already on file` : ""}.`);
+      toast(`Imported ${res.created} paycheck(s)${res.skipped ? `, ${res.skipped} already on file` : ""}${res.updated ? ` — wage details added to ${res.updated}, so the deposit amounts now match Drake to the cent` : ""}.`);
       setPaycheckFile(null);
       setPaycheckPreview(null);
       setWagesConfirmed(false);
