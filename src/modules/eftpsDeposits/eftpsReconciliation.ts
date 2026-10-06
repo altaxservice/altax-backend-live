@@ -22,6 +22,13 @@ export interface EftpsComputation {
   totalAmount: number;
   /** Drake's own "941 Total" row, kept alongside for comparison — never silently substituted for the computed total. */
   drakeTotal941: number | null;
+  /**
+   * When Drake's own Tax Liability report for this exact month agrees with the paychecks to within
+   * rounding, the totals above ARE Drake's figures (Drake rounds each tax on the month's total wages;
+   * doubling each paycheck's withholding can land a cent or two away). This is the small difference
+   * between the two, so the breakdown still adds up — null when nothing was adjusted.
+   */
+  roundingAdjustment: { federalIncomeTax: number; socialSecurity: number; medicare: number; total: number } | null;
   reconciliationStatus: "Matched" | "Mismatch";
   reconciliationDifference: number | null;
 }
@@ -64,10 +71,11 @@ export function computeEftpsBreakdown(
     subtotal: round2(row.federalIncomeTax + row.socialSecurity + row.medicare),
   }));
 
-  const federalIncomeTaxTotal = round2(employees.reduce((s, e) => s + e.federalIncomeTax, 0));
-  const socialSecurityTotal = round2(employees.reduce((s, e) => s + e.socialSecurity, 0));
-  const medicareTotal = round2(employees.reduce((s, e) => s + e.medicare, 0));
-  const totalAmount = round2(federalIncomeTaxTotal + socialSecurityTotal + medicareTotal);
+  let federalIncomeTaxTotal = round2(employees.reduce((s, e) => s + e.federalIncomeTax, 0));
+  let socialSecurityTotal = round2(employees.reduce((s, e) => s + e.socialSecurity, 0));
+  let medicareTotal = round2(employees.reduce((s, e) => s + e.medicare, 0));
+  let totalAmount = round2(federalIncomeTaxTotal + socialSecurityTotal + medicareTotal);
+  const paycheckTotal = totalAmount;
 
   const drakeTotal941 = taxLiability ? round2(taxLiability.total941) : null;
   // A few dollars of tolerance absorbs normal per-paycheck rounding noise between
@@ -80,6 +88,22 @@ export function computeEftpsBreakdown(
   const reconciliationStatus: "Matched" | "Mismatch" =
     reconciliationDifference === null || Math.abs(reconciliationDifference) <= TOLERANCE ? "Matched" : "Mismatch";
 
+  // Matched, and Drake's three lines add up to its own 941 total: use Drake's figures so the amounts
+  // typed into EFTPS equal the report (and the Form 941 that follows).
+  let roundingAdjustment: EftpsComputation["roundingAdjustment"] = null;
+  if (taxLiability && drakeTotal941 !== null && reconciliationStatus === "Matched") {
+    const dFed = round2(taxLiability.federalIncomeTax), dSs = round2(taxLiability.socialSecurity), dMed = round2(taxLiability.medicare);
+    const near = (a: number, b: number) => Math.abs(a - b) <= 0.5;
+    if (Math.abs(round2(dFed + dSs + dMed) - drakeTotal941) <= 0.03 && near(dFed, federalIncomeTaxTotal) && near(dSs, socialSecurityTotal) && near(dMed, medicareTotal)) {
+      roundingAdjustment = {
+        federalIncomeTax: round2(dFed - federalIncomeTaxTotal), socialSecurity: round2(dSs - socialSecurityTotal),
+        medicare: round2(dMed - medicareTotal), total: round2(drakeTotal941 - paycheckTotal),
+      };
+      federalIncomeTaxTotal = dFed; socialSecurityTotal = dSs; medicareTotal = dMed; totalAmount = drakeTotal941;
+      if (roundingAdjustment.total === 0 && roundingAdjustment.socialSecurity === 0 && roundingAdjustment.medicare === 0 && roundingAdjustment.federalIncomeTax === 0) roundingAdjustment = null;
+    }
+  }
+
   return {
     employees,
     federalIncomeTaxTotal,
@@ -87,7 +111,8 @@ export function computeEftpsBreakdown(
     medicareTotal,
     totalAmount,
     drakeTotal941,
+    roundingAdjustment,
     reconciliationStatus,
-    reconciliationDifference,
+    reconciliationDifference: drakeTotal941 !== null ? round2(totalAmount - drakeTotal941) : null,
   };
 }

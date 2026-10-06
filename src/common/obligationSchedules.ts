@@ -1,5 +1,6 @@
 import { query, queryOne } from "../config/db";
 import { computeForm941Quarter, sumEftpsDepositsInPeriod } from "../modules/accounting/form941Data";
+import { computeMonthlyReview } from "../modules/eftpsDeposits/eftpsMonthly";
 import { splitIntoWithholdingPeriods, type WithholdingPeriodSpan } from "./withholdingFiling";
 
 /**
@@ -17,8 +18,8 @@ import { splitIntoWithholdingPeriods, type WithholdingPeriodSpan } from "./withh
  * shows no penalty rather than a number that might be wrong.
  */
 
-export type ObligationKind = "ui" | "annual-report" | "form941";
-export const OBLIGATION_KINDS: ObligationKind[] = ["ui", "annual-report", "form941"];
+export type ObligationKind = "ui" | "annual-report" | "form941" | "eftps";
+export const OBLIGATION_KINDS: ObligationKind[] = ["ui", "annual-report", "form941", "eftps"];
 export function asObligationKind(v: unknown): ObligationKind | null {
   return (OBLIGATION_KINDS as string[]).includes(String(v)) ? (v as ObligationKind) : null;
 }
@@ -95,6 +96,21 @@ export function form941DueDate(periodEnd: string): string {
   const dueYear = end.getUTCMonth() === 11 ? end.getUTCFullYear() + 1 : end.getUTCFullYear();
   const dueMonth0 = (end.getUTCMonth() + 1) % 12;
   return nextBusinessDay(iso(new Date(Date.UTC(dueYear, dueMonth0, lastDayOfMonth(dueYear, dueMonth0)))));
+}
+
+/**
+ * Federal payroll tax deposit (EFTPS) for a monthly depositor: the 15th of the month after the
+ * payroll month, moved to the next business day when that's a weekend (Pub. 15, Circular E).
+ * MLK Day and Washington's Birthday, the two federal holidays that can fall on the 15th–17th, are handled.
+ */
+export function eftpsDueDate(periodEnd: string): string {
+  const end = parseIso(periodEnd);
+  let d = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 15));
+  // Weekends, and the two federal holidays that fall around the 15th: Martin Luther King Jr. Day
+  // (3rd Monday of January) and Washington's Birthday (3rd Monday of February).
+  const isHoliday = (x: Date) => (x.getUTCMonth() === 0 || x.getUTCMonth() === 1) && x.getUTCDay() === 1 && x.getUTCDate() >= 15 && x.getUTCDate() <= 21;
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6 || isHoliday(d)) d = new Date(d.getTime() + 86400000);
+  return iso(d);
 }
 
 /** "Internal target" a couple of days early, same buffer the sales tax tables use. */
@@ -245,6 +261,24 @@ export async function listObligationPeriods(kind: ObligationKind, client: Obliga
     }
     return out;
   }
+  if (kind === "eftps") {
+    // One period per calendar month that has imported paychecks (or an already-filed deposit).
+    const first = `${from.slice(0, 7)}-01`;
+    const lastDay = new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0)).getUTCDate();
+    const last = `${to.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
+    const months = await computeMonthlyReview(client.clientId, first, last);
+    return months
+      .filter((m) => m.paycheckCount > 0 || m.existingDeposit)
+      .map((m) => ({
+        start: m.periodStart, end: m.periodEnd, dueDate: eftpsDueDate(m.periodEnd),
+        label: new Date(`${m.periodStart}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }),
+        suggestedAmount: m.computation ? m.computation.totalAmount : null,
+        detail: m.computation ? {
+          federalIncomeTax: m.computation.federalIncomeTaxTotal, socialSecurity: m.computation.socialSecurityTotal,
+          medicare: m.computation.medicareTotal, paychecks: m.paycheckCount, computedTotal: m.computation.totalAmount,
+        } : undefined,
+      }));
+  }
   // annual report: one period per due year whose report year (due year - 1) overlaps [from, to]
   const out: ObligationPeriodSpan[] = [];
   for (let reportYear = Number(from.slice(0, 4)); reportYear <= Number(to.slice(0, 4)); reportYear++) {
@@ -265,9 +299,24 @@ export async function listObligationPeriods(kind: ObligationKind, client: Obliga
 export interface RecordedObligation {
   filedDate: string; paidDate: string | null; amount: number;
   acknowledgedAt: string | null; sentAt: string | null;
+  /** The filing's own id when its routes are addressed by id (EFTPS deposits). */
+  recordId: string | null;
 }
 
 export async function loadRecordedObligations(kind: ObligationKind, clientId: string, from: string, to: string): Promise<Map<string, RecordedObligation>> {
+  if (kind === "eftps") {
+    const rows = await query<any>(
+      `SELECT deposit_id, period_end::date::text AS period_end, filing_date::date::text AS filed_date, payment_date::date::text AS paid_date,
+              total_amount AS amount, acknowledged_at, CASE WHEN status = 'Sent' THEN updated_at END AS sent_at
+         FROM altax.v3_eftps_deposits WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date`,
+      [clientId, from, to]
+    );
+    return new Map(rows.map((r: any) => [r.period_end, {
+      filedDate: r.filed_date, paidDate: r.paid_date, amount: Number(r.amount) || 0,
+      acknowledgedAt: r.acknowledged_at ? new Date(r.acknowledged_at).toISOString() : null,
+      sentAt: r.sent_at ? new Date(r.sent_at).toISOString() : null, recordId: r.deposit_id,
+    }]));
+  }
   const table = kind === "ui" ? "v3_md_ui_filings" : kind === "annual-report" ? "v3_annual_report_filings" : "v3_form941_filings";
   const amountCol = kind === "form941" ? "balance_due" : "amount";
   const rows = await query<any>(
@@ -279,7 +328,7 @@ export async function loadRecordedObligations(kind: ObligationKind, clientId: st
   return new Map(rows.map((r: any) => [r.period_end, {
     filedDate: r.filed_date, paidDate: r.paid_date, amount: Number(r.amount) || 0,
     acknowledgedAt: r.acknowledged_at ? new Date(r.acknowledged_at).toISOString() : null,
-    sentAt: r.sent_at ? new Date(r.sent_at).toISOString() : null,
+    sentAt: r.sent_at ? new Date(r.sent_at).toISOString() : null, recordId: null,
   }]));
 }
 
@@ -335,6 +384,26 @@ function form941Late(amount: number, dueDate: string, filedDate: string, paidDat
   for (let d = new Date(due.getTime() + 86400000); d <= paid; d = new Date(d.getTime() + 86400000)) factor *= 1 + irsRateOn(d) / 365;
   const interest = round2(amount * (factor - 1));
   return { amount, onTime: false, penalty, interest, monthsLate: Math.max(fm, pm), balanceDue: round2(amount + penalty + interest), lateChargesComputed: true };
+}
+
+/**
+ * Federal failure-to-deposit penalty (IRC 6656; Pub. 15 "Deposit Penalties"): 2% of the late deposit
+ * when it's 1-5 days late, 5% when 6-15 days late, 10% when more than 15 days late (15% after an IRS
+ * demand, not modelled). The deposit counts as made on the day it was paid. Interest is the quarterly
+ * underpayment rate compounded daily from the due date to the payment date.
+ */
+function eftpsLate(amount: number, dueDate: string, paidDate: string): ObligationLateResult {
+  const due = parseIso(dueDate);
+  const paid = parseIso(paidDate);
+  const days = paid > due ? daysBetween(due, paid) : 0;
+  if (days === 0) return { amount, onTime: true, penalty: 0, interest: 0, monthsLate: 0, balanceDue: round2(amount), lateChargesComputed: true };
+  const rate = days <= 5 ? 0.02 : days <= 15 ? 0.05 : 0.10;
+  let factor = 1;
+  for (let d = new Date(due.getTime() + 86400000); d <= paid; d = new Date(d.getTime() + 86400000)) factor *= 1 + irsRateOn(d) / 365;
+  const penalty = round2(amount * rate);
+  const interest = round2(amount * (factor - 1));
+  // monthsLate carries the number of DAYS late for this filing (the table shows "Late — N days").
+  return { amount, onTime: false, penalty, interest, monthsLate: days, balanceDue: round2(amount + penalty + interest), lateChargesComputed: true };
 }
 
 interface UiRule { reportPenalty: (amount: number) => number; interestMonthly: number; singlePenaltyEitherLate: boolean }
@@ -397,7 +466,7 @@ function annualLate(client: ObligationClient, amount: number, dueDate: string, f
 
 export function lateChargesBuilt(kind: ObligationKind, client: ObligationClient): boolean {
   const st = client.state.toUpperCase();
-  if (kind === "form941") return true;
+  if (kind === "form941" || kind === "eftps") return true;
   if (kind === "ui") return st in UI_RULES;
   if (st === "DC" || st === "DE") return true;
   if (st === "VA") return entityClass(client.entityType) === "llc" || entityClass(client.entityType) === "corp";
@@ -408,6 +477,7 @@ export async function computeObligationLate(
   kind: ObligationKind, client: ObligationClient, amount: number, dueDate: string, filedDate: string, paidDate: string
 ): Promise<ObligationLateResult> {
   if (kind === "form941") return form941Late(amount, dueDate, filedDate, paidDate);
+  if (kind === "eftps") return eftpsLate(amount, dueDate, paidDate);
   if (kind === "ui") {
     const rule = UI_RULES[client.state.toUpperCase()];
     if (rule) return uiLate(rule, amount, dueDate, filedDate, paidDate);
@@ -429,7 +499,7 @@ export const _internal = { monthsLateInclusive, daysBetween, round2, parseIso };
 export interface ObligationPeriodResult extends ObligationLateResult {
   start: string; end: string; label: string; dueDate: string; targetFilingDate: string;
   filedDate: string; paidDate: string; markedFiledDate: string | null; markedPaidDate: string | null;
-  acknowledgedAt: string | null; sentAt: string | null; detail?: Record<string, number>;
+  acknowledgedAt: string | null; sentAt: string | null; recordId: string | null; detail?: Record<string, number>;
 }
 
 export interface ObligationBreakdown {
@@ -464,7 +534,7 @@ export async function computeObligationBreakdown(
     periods.push({
       ...late, start: span.start, end: span.end, label: span.label, dueDate: span.dueDate, targetFilingDate: targetFilingDate(span.dueDate),
       filedDate, paidDate, markedFiledDate: rec?.filedDate ?? null, markedPaidDate: rec?.paidDate ?? null,
-      acknowledgedAt: rec?.acknowledgedAt ?? null, sentAt: rec?.sentAt ?? null, detail: span.detail,
+      acknowledgedAt: rec?.acknowledgedAt ?? null, sentAt: rec?.sentAt ?? null, recordId: rec?.recordId ?? null, detail: span.detail,
     });
   }
   const totals = periods.reduce(

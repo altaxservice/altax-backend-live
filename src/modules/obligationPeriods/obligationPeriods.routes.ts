@@ -20,7 +20,7 @@ import {
 export const obligationPeriodsRouter = Router();
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const KIND_LABEL: Record<ObligationKind, string> = { ui: "Unemployment insurance", "annual-report": "Annual report", form941: "Form 941" };
+const KIND_LABEL: Record<ObligationKind, string> = { ui: "Unemployment insurance", "annual-report": "Annual report", form941: "Form 941", eftps: "EFTPS deposit" };
 
 type Loaded = { error: string; status: number } | { kind: ObligationKind; client: ObligationClient & { clientName: string } };
 
@@ -61,7 +61,7 @@ obligationPeriodsRouter.get("/:kind/:clientId", requireAuth, requireRole("admin"
   res.json({ meta, breakdown: await computeObligationBreakdown(loaded.kind, loaded.client, from, to, filedDate, paidDate) });
 }));
 
-const TABLE: Record<ObligationKind, string> = { ui: "v3_md_ui_filings", "annual-report": "v3_annual_report_filings", form941: "v3_form941_filings" };
+const TABLE: Record<ObligationKind, string> = { ui: "v3_md_ui_filings", "annual-report": "v3_annual_report_filings", form941: "v3_form941_filings", eftps: "v3_eftps_deposits" };
 
 obligationPeriodsRouter.get("/:kind/:clientId/history", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const loaded = await load(req);

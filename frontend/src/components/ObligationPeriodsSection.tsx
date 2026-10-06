@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, viewFile } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
+import { useToast } from "./Toast";
 import { useConfirm, usePrompt, useNotify } from "./ConfirmProvider";
 
-export type ObligationKind = "ui" | "annual-report" | "form941";
+export type ObligationKind = "ui" | "annual-report" | "form941" | "eftps";
 
 interface PeriodRow {
   start: string; end: string; label: string; dueDate: string; targetFilingDate: string;
   amount: number; onTime: boolean; penalty: number; interest: number; monthsLate: number; balanceDue: number;
   lateChargesComputed: boolean;
   filedDate: string; paidDate: string; markedFiledDate: string | null; markedPaidDate: string | null;
-  acknowledgedAt: string | null; sentAt: string | null; detail?: Record<string, number>;
+  acknowledgedAt: string | null; sentAt: string | null; recordId: string | null; detail?: Record<string, number>;
 }
 interface Breakdown { periods: PeriodRow[]; totals: { amount: number; penalty: number; interest: number; balanceDue: number } }
 interface Meta { kind: ObligationKind; state: string; applies: boolean; reason?: string; lateChargesBuilt: boolean }
@@ -42,9 +43,34 @@ interface KindConfig {
   amountEditableOnFile: boolean;
   editBody: (v: { filed: string; paid: string; amount: string }) => Record<string, unknown>;
   pdfPath?: (clientId: string, p: PeriodRow) => string;
+  /** URL for a per-period action; filings addressed by id (EFTPS deposits) override this. */
+  actionPath?: (action: "record-payment" | "send" | "edit" | "unmark", clientId: string, p: PeriodRow) => string;
+  paymentBody?: (date: string) => Record<string, unknown>;
+  /** What monthsLate counts for this filing. */
+  lateUnit?: "mo" | "day";
 }
 
 const KINDS: Record<ObligationKind, KindConfig> = {
+  eftps: {
+    title: () => "Federal Payroll Tax Deposit (EFTPS)",
+    blurb: () => "Monthly federal payroll tax deposit, due the 15th of the month after payroll. The amounts come from the imported Drake reports — and match Drake's Tax Liability report when one is imported for that exact month. Under each total are the Federal, Social Security and Medicare amounts (employee + employer) to type into the EFTPS website; click any amount to copy it. A late deposit adds the IRS failure-to-deposit penalty (2% / 5% / 10% by days late) and interest, counted from the payment date.",
+    amountHeader: "Deposit", amountWord: "deposit", basePath: "/eftps-deposits",
+    presets: [
+      { label: "This year", range: () => yearRange(new Date().getFullYear()) },
+      { label: "Last year", range: () => yearRange(new Date().getFullYear() - 1) },
+      { label: "Last 12 months", range: () => { const e = new Date(); return { from: new Date(e.getFullYear(), e.getMonth() - 11, 1).toISOString().slice(0, 10), to: todayStr() }; } },
+    ],
+    markBody: (clientId, p, v) => ({
+      clientId, periodStart: p.start, periodEnd: p.end, dueDate: p.dueDate, filingDate: v.filed, paymentDate: v.paid || undefined,
+      totalAmount: Number(v.amount), notify: v.notify, periodLabel: p.label,
+    }),
+    amountEditableOnFile: true,
+    editBody: (v) => ({ filingDate: v.filed, paymentDate: v.paid || "", totalAmount: Number(v.amount) }),
+    pdfPath: (_clientId, p) => `/eftps-deposits/${p.recordId}/pdf`,
+    actionPath: (action, _clientId, p) => `/eftps-deposits/${p.recordId}/${action}`,
+    paymentBody: (date) => ({ paymentDate: date }),
+    lateUnit: "day",
+  },
   ui: {
     title: (st) => `${st} Unemployment Insurance Filing`,
     blurb: (st) => `Quarterly ${st} UI contribution and wage report. The amount is suggested from the SUTA recorded on this client's paychecks (only employees whose payroll state is ${st}) — correct it to match the report.`,
@@ -100,11 +126,12 @@ const KINDS: Record<ObligationKind, KindConfig> = {
  * filing's own routes (which also close tasks, email the client, and schedule
  * payment reminders).
  */
-export function ObligationPeriodsSection({ clientId, kind }: { clientId: string; kind: ObligationKind }) {
+export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clientId: string; kind: ObligationKind; refreshKey?: unknown }) {
   const cfg = KINDS[kind];
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
   const notify = useNotify();
+  const toast = useToast();
   const initial = cfg.presets[0].range();
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -151,12 +178,27 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
       .catch((err) => { if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not load these periods."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [periodsPath, from, to, filedDate, paidDate, reloadKey]);
+  }, [periodsPath, from, to, filedDate, paidDate, reloadKey, refreshKey]);
 
   useEffect(() => {
     api.get<{ periods: PeriodRow[] }>(`${periodsPath}/history`).then((r) => setHistory(r.periods)).catch(() => setHistory([]));
     api.get<{ excluded: ExcludedRow[] }>(`${periodsPath}/excluded-periods`).then((r) => setExcluded(r.excluded)).catch(() => setExcluded([]));
-  }, [periodsPath, reloadKey]);
+  }, [periodsPath, reloadKey, refreshKey]);
+
+  const actionUrl = (action: "record-payment" | "send" | "edit" | "unmark", p: PeriodRow) =>
+    cfg.actionPath ? cfg.actionPath(action, clientId, p) : `${cfg.basePath}/${clientId}/${p.end}/${action}`;
+
+  /** An amount staff type into another website — click to copy the plain number. */
+  function copyable(v: unknown, label?: string) {
+    const plain = Number(v).toFixed(2);
+    return (
+      <button type="button" title={`Click to copy ${plain}`} onClick={() => {
+        navigator.clipboard?.writeText(plain).then(() => toast(`Copied ${plain}`)).catch(() => toast("Could not copy — select the number instead."));
+      }} style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "copy" }}>
+        {label ? `${label} ` : ""}{money(v)}
+      </button>
+    );
+  }
 
   async function run(end: string, work: () => Promise<void>, failure: string) {
     setBusyEnd(end);
@@ -186,7 +228,7 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
       confirmLabel: "Delete", danger: true,
     });
     if (!ok) return;
-    await run(p.end, async () => { await api.post(`${cfg.basePath}/${clientId}/${p.end}/unmark`, {}); }, "Could not delete this filing.");
+    await run(p.end, async () => { await api.post(actionUrl("unmark", p), {}); }, "Could not delete this filing.");
   }
 
   async function handleExclude(p: PeriodRow) {
@@ -211,12 +253,24 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
         <td className="muted">{fmtDate(p.targetFilingDate)}</td>
         <td>
           {money(p.amount)}
-          {p.detail && !p.markedFiledDate && (
+          {kind === "form941" && p.detail && !p.markedFiledDate && (
             <div className="muted" style={{ fontSize: 11 }}>Gross {money(p.detail.grossLiability)} − deposits {money(p.detail.eftpsDeposits)}</div>
+          )}
+          {kind === "eftps" && p.detail && (
+            <div className="muted" style={{ fontSize: 11, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1, marginTop: 2 }}>
+              {copyable(p.detail.federalIncomeTax, "Federal")}
+              {copyable(p.detail.socialSecurity, "Soc. Sec.")}
+              {copyable(p.detail.medicare, "Medicare")}
+              {p.markedFiledDate && Math.abs(p.detail.computedTotal - p.amount) > 0.005 && (
+                <span style={{ color: "var(--amber)", fontWeight: 600 }} title="The filed amount differs from what the imported reports add up to now. Use Edit to correct the filed amount if the report is right.">
+                  Reports now say {money(p.detail.computedTotal)}
+                </span>
+              )}
+            </div>
           )}
         </td>
         <td className={p.onTime && !p.markedFiledDate ? "muted" : ""} style={!p.onTime && !paidByNow ? { color: "var(--red)", fontWeight: 600 } : p.markedFiledDate && !paidByNow ? { color: "var(--amber)", fontWeight: 600 } : undefined}>
-          {paidByNow ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? (p.markedPaidDate ? "Filed — payment scheduled" : "Filed — payment pending") : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
+          {paidByNow ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? (p.markedPaidDate ? "Filed — payment scheduled" : "Filed — payment pending") : p.onTime ? "On time" : cfg.lateUnit === "day" ? `Late — ${p.monthsLate} day${p.monthsLate === 1 ? "" : "s"}` : `Late — ${p.monthsLate} mo`}
         </td>
         <td>{!built ? <span className="muted" title="Penalty isn't calculated for this yet">n/a</span> : showCharges ? money(p.penalty) : "—"}</td>
         <td>{!built ? <span className="muted" title="Interest isn't calculated for this yet">n/a</span> : showCharges ? money(p.interest) : "—"}</td>
@@ -233,7 +287,7 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
               <input type="number" step="0.01" min="0" value={editForm.amount} onChange={(e) => setEditForm((s) => ({ ...s, amount: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
                 <button type="button" className="btn btn-sm btn-primary" disabled={busy || !editForm.filed || editForm.amount === ""} onClick={() => run(p.end, async () => {
-                  await api.post(`${cfg.basePath}/${clientId}/${p.end}/edit`, cfg.editBody(editForm));
+                  await api.post(actionUrl("edit", p), cfg.editBody(editForm));
                   setEditingEnd(null);
                 }, "Could not save this correction.")}>{busy ? "…" : "Save"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => setEditingEnd(null)}>Cancel</button>
@@ -246,7 +300,7 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
                   <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
                   <div style={{ display: "flex", gap: 4 }}>
                     <button type="button" className="btn btn-sm btn-primary" disabled={busy || !payDate} onClick={() => run(p.end, async () => {
-                      await api.post(`${cfg.basePath}/${clientId}/${p.end}/record-payment`, { paidDate: payDate });
+                      await api.post(actionUrl("record-payment", p), cfg.paymentBody ? cfg.paymentBody(payDate) : { paidDate: payDate });
                       setPayingEnd(null);
                     }, "Could not record this payment.")}>{busy ? "…" : "Record"}</button>
                     <button type="button" className="btn btn-sm" onClick={() => setPayingEnd(null)}>Cancel</button>
@@ -259,7 +313,7 @@ export function ObligationPeriodsSection({ clientId, kind }: { clientId: string;
                 {p.sentAt ? (
                   <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
                 ) : (
-                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run(p.end, async () => { await api.post(`${cfg.basePath}/${clientId}/${p.end}/send`, {}); }, "Could not send this confirmation.")}>{busy ? "…" : "Send"}</button>
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run(p.end, async () => { await api.post(actionUrl("send", p), {}); }, "Could not send this confirmation.")}>{busy ? "…" : "Send"}</button>
                 )}
                 {cfg.pdfPath && <button type="button" className="btn btn-sm" onClick={() => viewFile(cfg.pdfPath!(clientId, p))}>PDF</button>}
                 <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { setEditingEnd(p.end); setEditForm({ filed: (p.markedFiledDate || "").slice(0, 10), paid: (p.markedPaidDate || "").slice(0, 10), amount: String(p.amount) }); }}>Edit</button>

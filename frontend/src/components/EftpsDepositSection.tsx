@@ -1,32 +1,15 @@
 import { CompanyCheckBanner, companyCheckNeedsConfirm, type CompanyCheckInfo } from "./CompanyCheckBanner";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, viewFile, printFile, downloadFile, buildFilename } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { fileToBase64 } from "../utils/file";
 import { FileDropInput } from "./FileDropInput";
 import { ErrorBanner } from "./ErrorBanner";
+import { ObligationPeriodsSection } from "./ObligationPeriodsSection";
 import { useToast } from "./Toast";
 import { useConfirm } from "./ConfirmProvider";
 import type { Employee } from "../api/types2";
 
-interface EftpsEmployeeBreakdown {
-  employeeName: string; federalIncomeTax: number; socialSecurity: number; medicare: number; subtotal: number;
-}
-interface EftpsComputation {
-  employees: EftpsEmployeeBreakdown[];
-  federalIncomeTaxTotal: number; socialSecurityTotal: number; medicareTotal: number; totalAmount: number;
-  drakeTotal941: number | null; reconciliationStatus: "Matched" | "Mismatch"; reconciliationDifference: number | null;
-}
-interface EftpsDepositHistoryRow {
-  deposit_id: string; period_start: string; period_end: string; due_date: string;
-  filing_date: string | null; payment_date: string | null; total_amount: number; status: string; reconciliation_status: string;
-  acknowledged_at: string | null;
-}
-interface EftpsMonthReview {
-  monthKey: string; periodStart: string; periodEnd: string; label: string;
-  paycheckCount: number; computation: EftpsComputation | null; hasReconciliationReference: boolean;
-  existingDeposit: EftpsDepositHistoryRow | null;
-}
 interface PaycheckPreviewRow {
   employeeName: string; payDate: string; checkNumber?: string;
   federalWithheld?: number; socialSecurityWithheld?: number; medicareWithheld?: number;
@@ -58,39 +41,8 @@ function fmtDate(v: string | null): string {
   const d = new Date(`${v.slice(0, 10)}T00:00:00`);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-function firstOfMonth(monthsBack: number): string {
-  const d = new Date();
-  d.setUTCMonth(d.getUTCMonth() - monthsBack, 1);
-  return d.toISOString().slice(0, 10);
-}
-function lastOfMonth(monthsBack: number): string {
-  const d = new Date();
-  d.setUTCMonth(d.getUTCMonth() - monthsBack + 1, 0);
-  return d.toISOString().slice(0, 10);
-}
-/** Suggests the 15th of the month after periodEnd — EFTPS's standard monthly due date for these clients — still fully editable. */
-function suggestDueDate(periodEnd: string): string {
-  const d = new Date(`${periodEnd}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return "";
-  const due = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 15));
-  return due.toISOString().slice(0, 10);
-}
-
 const stepTitle: React.CSSProperties = { fontSize: 15, fontWeight: 700, margin: "8px 0 10px" };
 
-const PERIOD_PRESETS = [
-  { label: "This month", start: () => firstOfMonth(0), end: () => lastOfMonth(0) },
-  { label: "Last month", start: () => firstOfMonth(1), end: () => lastOfMonth(1) },
-  { label: "Last 90 days", start: () => daysAgo(90), end: () => todayStr() },
-];
 
 export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { clientId: string; clientName: string; onSwitchClient: (id: string) => void }) {
   const [wagesConfirmed, setWagesConfirmed] = useState(false);
@@ -109,27 +61,6 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
   const [taxLiabilityPreview, setTaxLiabilityPreview] = useState<TaxLiabilityPreview | null>(null);
   const [taxLiabilityBusy, setTaxLiabilityBusy] = useState<"preview" | "import" | null>(null);
 
-  // --- Review & File: any period, one row per calendar month touched ---
-  const [periodStart, setPeriodStart] = useState(firstOfMonth(1));
-  const [periodEnd, setPeriodEnd] = useState(lastOfMonth(1));
-  const [reviewing, setReviewing] = useState(false);
-  const [months, setMonths] = useState<EftpsMonthReview[] | null>(null);
-  // Keyed by monthKey — each month row needs its own independently-editable Filing/Due date pair.
-  const [monthInputs, setMonthInputs] = useState<Record<string, { filingDate: string; dueDate: string }>>({});
-  const [filingBusy, setFilingBusy] = useState<string | null>(null); // `${monthKey}:close` | `${monthKey}:send`
-  // Only one month's detail is expanded at a time — a compact row list reads
-  // far better than every month's full breakdown + filing form all open at
-  // once, which repeats the same reconciliation disclaimer text on every card.
-  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
-
-  const [history, setHistory] = useState<EftpsDepositHistoryRow[] | null>(null);
-  function loadHistory() {
-    api.get<{ deposits: EftpsDepositHistoryRow[] }>(`/eftps-deposits?clientId=${encodeURIComponent(clientId)}`)
-      .then((r) => setHistory(r.deposits))
-      .catch(() => setHistory([]));
-  }
-  useEffect(loadHistory, [clientId]);
-
   // --- Imported data: raw rows, so staff can inspect and clean up an import
   // themselves (e.g. duplicates from before the database gained a unique
   // constraint) instead of it requiring a direct DB fix every time. ---
@@ -140,8 +71,6 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
   const [importedPaycheckSearch, setImportedPaycheckSearch] = useState("");
   const [importedPaycheckDateFrom, setImportedPaycheckDateFrom] = useState("");
   const [importedPaycheckDateTo, setImportedPaycheckDateTo] = useState("");
-  const [historyDateFrom, setHistoryDateFrom] = useState("");
-  const [historyDateTo, setHistoryDateTo] = useState("");
 
   // Imported paychecks only carry a free-text employee name (no employee_id
   // — v3_eftps_paycheck_import has no such column) — this client-side name
@@ -165,6 +94,9 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
       .then((r) => setImportedSnapshots(r.rows)).catch(() => setImportedSnapshots([]));
   }
   useEffect(loadImportedData, [clientId]);
+  // Tells the Step 3 table to reload whenever the imported data underneath it changes.
+  const [importTick, setImportTick] = useState(0);
+  useEffect(() => { setImportTick((t) => t + 1); }, [importedPaychecks, importedSnapshots]);
 
   async function handleDeletePaycheckRow(row: ImportedPaycheckRow) {
     const ok = await confirmDialog({
@@ -221,18 +153,6 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
       setImportedRowBusy(null);
     }
   }
-
-  // --- History row actions ---
-  const [payingDepositId, setPayingDepositId] = useState<string | null>(null);
-  const [payingDate, setPayingDate] = useState(todayStr());
-  const [rowBusy, setRowBusy] = useState<string | null>(null); // `${depositId}:${action}`
-  const [showClientColumn, setShowClientColumn] = useState(true);
-  // History used to render fully open all the time. It now starts
-  // collapsed behind a one-click "Show (N)" toggle, same pattern as
-  // EFTPS Deposits' "Imported Data" section.
-  const [showHistory, setShowHistory] = useState(false);
-  const [editingDepositId, setEditingDepositId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ filingDate: "", paymentDate: "", totalAmount: "" });
 
   async function handlePaycheckPreview() {
     if (!paycheckFile) return;
@@ -312,199 +232,6 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
     }
   }
 
-  async function handleReview(quiet = false) {
-    if (!periodStart || !periodEnd) return;
-    if (!quiet) setError(null);
-    setReviewing(true);
-    try {
-      const res = await api.get<{ months: EftpsMonthReview[] }>(
-        `/eftps-deposits/review?clientId=${encodeURIComponent(clientId)}&periodStart=${periodStart}&periodEnd=${periodEnd}`
-      );
-      setMonths(res.months);
-      const inputs: Record<string, { filingDate: string; dueDate: string }> = {};
-      for (const m of res.months) inputs[m.monthKey] = { filingDate: todayStr(), dueDate: suggestDueDate(m.periodEnd) };
-      setMonthInputs(inputs);
-      setExpandedMonthKey(null);
-      if (!quiet && res.months.every((m) => !m.paycheckCount)) setError(`No imported paychecks fall within ${periodStart} to ${periodEnd}.`);
-    } catch (err) {
-      if (!quiet) setError(err instanceof ApiError ? err.message : "Could not load this period.");
-    } finally {
-      setReviewing(false);
-    }
-  }
-
-  // The month table loads on its own whenever the period (or the imported data under it) changes —
-  // no separate "Review" click needed.
-  useEffect(() => {
-    if (!periodStart || !periodEnd || periodStart > periodEnd) return;
-    handleReview(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, periodStart, periodEnd, importedPaychecks, importedSnapshots]);
-
-  function applyPreset(preset: (typeof PERIOD_PRESETS)[number]) {
-    const s = preset.start(), e = preset.end();
-    setPeriodStart(s);
-    setPeriodEnd(e);
-  }
-
-  async function handleMarkFiled(month: EftpsMonthReview, notify: boolean) {
-    if (!month.computation) return;
-    const inputs = monthInputs[month.monthKey];
-    if (!inputs?.filingDate || !inputs?.dueDate) { setError("Filing date and due date are required."); return; }
-    setError(null);
-    const busyKey = `${month.monthKey}:${notify ? "send" : "close"}`;
-    setFilingBusy(busyKey);
-    try {
-      const res = await api.post<{ depositId: string }>("/eftps-deposits/mark-filed", {
-        clientId, periodStart: month.periodStart, periodEnd: month.periodEnd,
-        dueDate: inputs.dueDate, filingDate: inputs.filingDate, notify, periodLabel: month.label,
-      });
-      toast(notify ? "Filed and report sent to the client." : "Filed.");
-      setMonths((prev) => prev?.map((m) => m.monthKey !== month.monthKey ? m : {
-        ...m,
-        existingDeposit: {
-          deposit_id: res.depositId, period_start: month.periodStart, period_end: month.periodEnd,
-          due_date: inputs.dueDate, filing_date: inputs.filingDate, payment_date: null,
-          total_amount: month.computation!.totalAmount, status: notify ? "Sent" : "Filed",
-          reconciliation_status: month.computation!.reconciliationStatus, acknowledged_at: null,
-        },
-      }) ?? null);
-      loadHistory();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not file this deposit.");
-    } finally {
-      setFilingBusy(null);
-    }
-  }
-
-  /** Deletes this month's imported paychecks directly from the review row — a
-   * shortcut for the same thing the "Imported Data" section's per-row/Clear
-   * All actions already do, scoped to just this one month's date range. */
-  async function handleDeleteMonthPaychecks(month: EftpsMonthReview) {
-    const ok = await confirmDialog({
-      title: "Delete this month's imported paychecks?",
-      message: `Deletes all ${month.paycheckCount} imported paycheck(s) for ${month.label}. This does not affect any already-filed EFTPS deposit — only the raw imported data used to compute a new one.`,
-      confirmLabel: "Delete",
-    });
-    if (!ok) return;
-    setError(null);
-    const busyKey = `${month.monthKey}:delete`;
-    setFilingBusy(busyKey);
-    try {
-      await api.post("/eftps-deposits/paycheck-import/clear", { clientId, periodStart: month.periodStart, periodEnd: month.periodEnd });
-      toast("Deleted.");
-      setMonths((prev) => prev?.map((m) => m.monthKey !== month.monthKey ? m : { ...m, paycheckCount: 0, computation: null }) ?? null);
-      loadImportedData();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not delete these paychecks.");
-    } finally {
-      setFilingBusy(null);
-    }
-  }
-
-  /** The Review & File month rows keep their own copy of `existingDeposit`
-   * (fetched once when "Review This Period" ran) — a History-only refresh
-   * left that copy stale, so a Review row kept showing "Record Payment"
-   * (and the wrong PAID/status) even after the action had already succeeded
-   * (confirmed live: History showed the real state correctly, the Review
-   * row above it didn't). Patches both in lockstep instead of just one. */
-  function patchMonthDeposit(depositId: string, patch: Partial<EftpsDepositHistoryRow> | null) {
-    setMonths((prev) => prev?.map((m) => m.existingDeposit?.deposit_id !== depositId ? m : {
-      ...m,
-      existingDeposit: patch === null ? null : { ...m.existingDeposit!, ...patch },
-    }) ?? null);
-  }
-
-  async function handleRecordPayment(depositId: string) {
-    if (!payingDate) return;
-    setError(null);
-    setRowBusy(`${depositId}:pay`);
-    try {
-      await api.post(`/eftps-deposits/${depositId}/record-payment`, { paymentDate: payingDate });
-      toast("Payment recorded.");
-      setPayingDepositId(null);
-      patchMonthDeposit(depositId, { payment_date: payingDate });
-      loadHistory();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not record this payment.");
-    } finally {
-      setRowBusy(null);
-    }
-  }
-
-  async function handleSend(depositId: string) {
-    setError(null);
-    setRowBusy(`${depositId}:send`);
-    try {
-      const res = await api.post<{ sent: boolean }>(`/eftps-deposits/${depositId}/send`, {});
-      toast(res.sent ? "Report sent to the client." : "Client has no email on file — nothing was sent.");
-      if (res.sent) patchMonthDeposit(depositId, { status: "Sent" });
-      loadHistory();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not send this report.");
-    } finally {
-      setRowBusy(null);
-    }
-  }
-
-  async function handleUndo(row: EftpsDepositHistoryRow) {
-    const ok = await confirmDialog({ title: "Delete this EFTPS deposit", message: `Removes the record for ${fmtDate(row.period_start)} – ${fmtDate(row.period_end)} entirely — the period can be filed again from scratch afterward.`, confirmLabel: "Delete", danger: true });
-    if (!ok) return;
-    setError(null);
-    setRowBusy(`${row.deposit_id}:undo`);
-    try {
-      await api.post(`/eftps-deposits/${row.deposit_id}/unmark`, {});
-      toast("Deleted.");
-      patchMonthDeposit(row.deposit_id, null);
-      loadHistory();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not delete this deposit.");
-    } finally {
-      setRowBusy(null);
-    }
-  }
-
-  function startEdit(row: EftpsDepositHistoryRow) {
-    setEditingDepositId(row.deposit_id);
-    setEditForm({
-      filingDate: row.filing_date ? row.filing_date.slice(0, 10) : "",
-      paymentDate: row.payment_date ? row.payment_date.slice(0, 10) : "",
-      totalAmount: String(row.total_amount),
-    });
-  }
-
-  /** Corrects an already-filed deposit's filing date / payment date / total amount — for when the real number EFTPS actually processed ends up different from what this app computed from stored paychecks. */
-  async function handleSaveEdit(row: EftpsDepositHistoryRow) {
-    if (!editForm.filingDate || editForm.totalAmount === "") return;
-    setRowBusy(`${row.deposit_id}:edit`);
-    try {
-      await api.post(`/eftps-deposits/${row.deposit_id}/edit`, {
-        filingDate: editForm.filingDate, paymentDate: editForm.paymentDate || undefined, totalAmount: Number(editForm.totalAmount),
-      });
-      toast("Deposit corrected.");
-      setEditingDepositId(null);
-      patchMonthDeposit(row.deposit_id, {
-        filing_date: editForm.filingDate, payment_date: editForm.paymentDate || null, total_amount: Number(editForm.totalAmount),
-      });
-      loadHistory();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not save this correction.");
-    } finally {
-      setRowBusy(null);
-    }
-  }
-
-  async function handlePreview(depositId: string) {
-    try { await viewFile(`/eftps-deposits/${depositId}/pdf`); } catch (err) { toast(err instanceof ApiError ? err.message : "Could not open this PDF."); }
-  }
-  async function handlePrint(depositId: string) {
-    try { await printFile(`/eftps-deposits/${depositId}/pdf`); } catch (err) { toast(err instanceof ApiError ? err.message : "Could not print this PDF."); }
-  }
-  async function handleDownload(depositId: string, row: EftpsDepositHistoryRow) {
-    try { await downloadFile(`/eftps-deposits/${depositId}/pdf`, buildFilename(["EFTPS", fmtDate(row.period_start), fmtDate(row.period_end)], "pdf")); }
-    catch (err) { toast(err instanceof ApiError ? err.message : "Could not download this PDF."); }
-  }
-
   // --- Totals + duplicate/overlap checks shown under the tables ---
   const sumCents = (vals: unknown[]) => Math.round(vals.reduce<number>((a, v) => a + (Number(v) || 0) * 100, 0)) / 100;
   const visiblePaychecks = (importedPaychecks || []).filter((r) => {
@@ -541,99 +268,6 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
     const diff = Math.round((Number(r.total_941) - expected) * 100) / 100;
     return { count: inRange.length, expected, diff, ok: inRange.length > 0 && Math.abs(diff) <= 2 };
   };
-  const visibleHistory = (history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo));
-
-  /** An amount staff will type into the EFTPS website — click it to copy the plain number (no $ or commas). */
-  function copyAmount(v: number | null | undefined) {
-    if (v === null || v === undefined || !Number.isFinite(Number(v))) return <span className="muted">—</span>;
-    const plain = Number(v).toFixed(2);
-    return (
-      <button type="button" title="Click to copy" onClick={(e) => {
-        e.stopPropagation();
-        navigator.clipboard?.writeText(plain).then(() => toast(`Copied ${plain}`)).catch(() => toast("Could not copy — select the number instead."));
-      }} style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "copy", fontWeight: "inherit" }}>
-        {money(v)}
-      </button>
-    );
-  }
-
-  /** One deposit's action row, exactly as History always has — reused both for
-   * History's own table and for an already-filed month bucket in Review & File,
-   * so Preview/Print/Download/Record Payment/Send/Undo behave identically in
-   * both places with zero duplicated JSX. */
-  function renderDepositRow(d: EftpsDepositHistoryRow) {
-    return (
-      <Fragment key={d.deposit_id}>
-        <tr>
-          <td>{fmtDate(d.period_start)} – {fmtDate(d.period_end)}</td>
-          <td>{fmtDate(d.due_date)}</td>
-          <td>{fmtDate(d.filing_date)}</td>
-          <td>{d.payment_date ? (d.payment_date.slice(0, 10) <= new Date().toISOString().slice(0, 10)
-            ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span>
-            : <span style={{ color: "var(--amber)", fontWeight: 600 }}>Scheduled {fmtDate(d.payment_date)}</span>)
-          : <span className="muted">Pending</span>}</td>
-          {showClientColumn && <td>{d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
-          <td style={{ textAlign: "right" }}>{money(d.total_amount)}</td>
-          <td>{d.status}{d.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
-          <td>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              {!d.payment_date && (
-                <button className="btn btn-sm" onClick={() => { setPayingDepositId(d.deposit_id); setPayingDate(todayStr()); }}>Record Payment</button>
-              )}
-              {d.status !== "Sent" && (
-                <button className="btn btn-sm" disabled={rowBusy === `${d.deposit_id}:send`} onClick={() => handleSend(d.deposit_id)}>{rowBusy === `${d.deposit_id}:send` ? "…" : "Send"}</button>
-              )}
-              <button className="btn btn-sm" onClick={() => handlePreview(d.deposit_id)}>Preview</button>
-              <button className="btn btn-sm" onClick={() => handlePrint(d.deposit_id)}>Print</button>
-              <button className="btn btn-sm" onClick={() => handleDownload(d.deposit_id, d)}>Download</button>
-              <button className="btn btn-sm" onClick={() => startEdit(d)}>Edit</button>
-              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${d.deposit_id}:undo`} onClick={() => handleUndo(d)}>{rowBusy === `${d.deposit_id}:undo` ? "…" : "Delete"}</button>
-            </div>
-          </td>
-        </tr>
-        {editingDepositId === d.deposit_id && (
-          <tr>
-            <td colSpan={showClientColumn ? 8 : 7} style={{ background: "var(--surface-2, #f8fafb)" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0", flexWrap: "wrap" }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="eftps-edit-filed">Filing Date</label>
-                  <input id="eftps-edit-filed" type="date" value={editForm.filingDate} onChange={(e) => setEditForm((s) => ({ ...s, filingDate: e.target.value }))} />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="eftps-edit-paid">Payment Date <span className="muted">(optional)</span></label>
-                  <input id="eftps-edit-paid" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((s) => ({ ...s, paymentDate: e.target.value }))} />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="eftps-edit-amount">Total Amount</label>
-                  <input id="eftps-edit-amount" type="number" step="0.01" min="0" value={editForm.totalAmount} onChange={(e) => setEditForm((s) => ({ ...s, totalAmount: e.target.value }))} style={{ maxWidth: 120 }} />
-                </div>
-                <button className="btn btn-primary btn-sm" disabled={rowBusy === `${d.deposit_id}:edit` || !editForm.filingDate || editForm.totalAmount === ""} onClick={() => handleSaveEdit(d)}>
-                  {rowBusy === `${d.deposit_id}:edit` ? "Saving…" : "Save"}
-                </button>
-                <button className="btn btn-sm" onClick={() => setEditingDepositId(null)}>Cancel</button>
-              </div>
-            </td>
-          </tr>
-        )}
-        {payingDepositId === d.deposit_id && (
-          <tr>
-            <td colSpan={showClientColumn ? 8 : 7} style={{ background: "var(--surface-2, #f8fafb)" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0" }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="eftps-pay-date">Payment Date</label>
-                  <input id="eftps-pay-date" type="date" value={payingDate} onChange={(e) => setPayingDate(e.target.value)} />
-                </div>
-                <button className="btn btn-primary btn-sm" disabled={rowBusy === `${d.deposit_id}:pay`} onClick={() => handleRecordPayment(d.deposit_id)}>
-                  {rowBusy === `${d.deposit_id}:pay` ? "Saving…" : "Record Payment"}
-                </button>
-                <button className="btn btn-sm" onClick={() => setPayingDepositId(null)}>Cancel</button>
-              </div>
-            </td>
-          </tr>
-        )}
-      </Fragment>
-    );
-  }
 
   return (
     <div>
@@ -828,7 +462,9 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
                           const c = snapshotCheck(r);
                           if (!c.count) return <span className="muted">No paychecks imported in this range</span>;
                           return c.ok
-                            ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>✓ Matches the {c.count} paycheck{c.count === 1 ? "" : "s"} ({money(c.expected)})</span>
+                            ? <span style={{ color: "var(--teal)", fontWeight: 600 }} title="Drake rounds each tax on the period's total wages; adding up each paycheck's withholding can land a few cents away.">
+                                ✓ Matches the {c.count} paycheck{c.count === 1 ? "" : "s"} ({money(c.expected)}){Math.abs(c.diff) > 0.004 ? ` — ${money(Math.abs(c.diff))} rounding` : ""}
+                              </span>
                             : <span style={{ color: "var(--red)", fontWeight: 600 }} title="Drake's total and the imported paychecks disagree — one of them may be for the wrong client or period.">✗ Paychecks add up to {money(c.expected)} ({money(Math.abs(c.diff))} {c.diff > 0 ? "less" : "more"})</span>;
                         })()}
                       </td>
@@ -867,232 +503,8 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
         </div>
       )}
 
-      <h3 style={stepTitle}>Step 3 — Review & File</h3>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-          {PERIOD_PRESETS.map((p) => (
-            <button key={p.label} type="button" className="btn btn-sm" onClick={() => applyPreset(p)}>{p.label}</button>
-          ))}
-          {!!importedPaychecks?.length && (
-            <button type="button" className="btn btn-sm" title="Every month that has imported paychecks" onClick={() => {
-              const dates = importedPaychecks.map((r) => r.pay_date.slice(0, 10)).sort();
-              setPeriodStart(dates[0].slice(0, 7) + "-01");
-              const last = new Date(`${dates[dates.length - 1].slice(0, 7)}-01T00:00:00Z`);
-              last.setUTCMonth(last.getUTCMonth() + 1, 0);
-              setPeriodEnd(last.toISOString().slice(0, 10));
-            }}>All imported months</button>
-          )}
-        </div>
-        <div className="form-grid">
-          <div className="field"><label htmlFor="eftps-period-start">Period Start</label><input id="eftps-period-start" type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /></div>
-          <div className="field"><label htmlFor="eftps-period-end">Period End</label><input id="eftps-period-end" type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></div>
-        </div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-          {reviewing ? "Loading…" : "Each month gets its own row with the Federal, Social Security and Medicare amounts and the total to enter on EFTPS — click any amount to copy it. Click a row to review and file that month."}
-        </div>
-      </div>
-
-      {months && (
-        <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
-          <div className="table-scroll">
-            <table>
-              <thead><tr><th>Month</th><th style={{ textAlign: "right" }}>Paychecks</th><th style={{ textAlign: "right" }}>Federal Income Tax</th><th style={{ textAlign: "right" }}>Social Security</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>Total Deposit</th><th>Status</th><th></th></tr></thead>
-              <tbody>
-                {months.map((m) => {
-                  const isExpanded = expandedMonthKey === m.monthKey;
-                  const statusLabel = !m.paycheckCount ? "No paychecks" : m.existingDeposit ? m.existingDeposit.status : "Not filed";
-                  const filedTotal = m.existingDeposit ? Number(m.existingDeposit.total_amount) : null;
-                  const depositTotal = filedTotal ?? m.computation?.totalAmount ?? null;
-                  const totalDiffers = filedTotal !== null && m.computation !== null && Math.abs(filedTotal - m.computation.totalAmount) > 0.005;
-                  return (
-                    <Fragment key={m.monthKey}>
-                      <tr
-                        onClick={() => setExpandedMonthKey(isExpanded ? null : m.monthKey)}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <td>{m.label}</td>
-                        <td style={{ textAlign: "right" }}>{m.paycheckCount}</td>
-                        <td style={{ textAlign: "right" }}>{copyAmount(m.computation?.federalIncomeTaxTotal)}</td>
-                        <td style={{ textAlign: "right" }}>{copyAmount(m.computation?.socialSecurityTotal)}</td>
-                        <td style={{ textAlign: "right" }}>{copyAmount(m.computation?.medicareTotal)}</td>
-                        <td style={{ textAlign: "right", fontWeight: 700 }}>
-                          {copyAmount(depositTotal)}
-                          {totalDiffers && <div className="muted" style={{ fontSize: 11, fontWeight: 400 }} title="The filed deposit amount was edited after it was computed.">computed {money(m.computation!.totalAmount)}</div>}
-                        </td>
-                        <td>{statusLabel}{m.existingDeposit?.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
-                        <td style={{ textAlign: "right" }}>{isExpanded ? "▲" : "▼"}</td>
-                      </tr>
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)", padding: 16 }}>
-                            {!m.paycheckCount ? (
-                              <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>No imported paychecks fall within this month.</p>
-                            ) : m.existingDeposit ? (
-                              <div className="table-scroll">
-                                <table>
-                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
-                                  <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
-                                </table>
-                              </div>
-                            ) : (
-                              <>
-                                {!m.hasReconciliationReference ? (
-                                  <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                                    No Tax Liability snapshot has been imported for this exact date range — the breakdown below is computed directly from imported paychecks.
-                                  </p>
-                                ) : m.computation!.reconciliationStatus === "Mismatch" ? (
-                                  <div className="card" style={{ borderColor: "var(--red)", marginBottom: 12, padding: 10 }}>
-                                    <strong style={{ color: "var(--red)" }}>Reconciliation mismatch</strong>
-                                    <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                                      Computed total {money(m.computation!.totalAmount)} vs. Drake's own 941 Total {money(m.computation!.drakeTotal941)}
-                                      {m.computation!.reconciliationDifference !== null && ` (difference: ${money(Math.abs(m.computation!.reconciliationDifference))})`}.
-                                      Please review before filing.
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                                    Reconciled against Drake's own 941 Total ({money(m.computation!.drakeTotal941)}) — within normal rounding tolerance.
-                                  </div>
-                                )}
-
-                                <table style={{ width: "100%", marginBottom: 16 }}>
-                                  <tbody>
-                                    <tr><td className="muted">Federal Income Tax</td><td style={{ textAlign: "right" }}>{money(m.computation!.federalIncomeTaxTotal)}</td></tr>
-                                    <tr><td className="muted">Social Security</td><td style={{ textAlign: "right" }}>{money(m.computation!.socialSecurityTotal)}</td></tr>
-                                    <tr><td className="muted">Medicare</td><td style={{ textAlign: "right" }}>{money(m.computation!.medicareTotal)}</td></tr>
-                                    <tr><td style={{ fontWeight: 700 }}>Total Federal Deposit</td><td style={{ textAlign: "right", fontWeight: 700 }}>{money(m.computation!.totalAmount)}</td></tr>
-                                  </tbody>
-                                </table>
-
-                                <div className="table-scroll" style={{ marginBottom: 16 }}>
-                                  <table>
-                                    <thead><tr><th>Employee</th><th style={{ textAlign: "right" }}>Federal Income Tax</th><th style={{ textAlign: "right" }}>Social Security</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
-                                    <tbody>
-                                      {m.computation!.employees.map((e, i) => (
-                                        <tr key={i}>
-                                          <td>{e.employeeName}</td>
-                                          <td style={{ textAlign: "right" }}>{money(e.federalIncomeTax)}</td>
-                                          <td style={{ textAlign: "right" }}>{money(e.socialSecurity)}</td>
-                                          <td style={{ textAlign: "right" }}>{money(e.medicare)}</td>
-                                          <td style={{ textAlign: "right", fontWeight: 600 }}>{money(e.subtotal)}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                    <tfoot>
-                                      <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
-                                        <td>Total</td>
-                                        <td style={{ textAlign: "right" }}>{money(m.computation!.federalIncomeTaxTotal)}</td>
-                                        <td style={{ textAlign: "right" }}>{money(m.computation!.socialSecurityTotal)}</td>
-                                        <td style={{ textAlign: "right" }}>{money(m.computation!.medicareTotal)}</td>
-                                        <td style={{ textAlign: "right" }}>{money(m.computation!.totalAmount)}</td>
-                                      </tr>
-                                    </tfoot>
-                                  </table>
-                                </div>
-
-                                <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                                  Pay this amount on EFTPS's website. Once you've actually filed it, record the filing date below — you can
-                                  record the payment date separately afterward, once it's confirmed.
-                                </p>
-                                <div className="form-grid">
-                                  <div className="field">
-                                    <label htmlFor={`eftps-filed-${m.monthKey}`}>Filing Date</label>
-                                    <input id={`eftps-filed-${m.monthKey}`} type="date" value={monthInputs[m.monthKey]?.filingDate || ""}
-                                      onChange={(e) => setMonthInputs((p) => ({ ...p, [m.monthKey]: { ...p[m.monthKey], filingDate: e.target.value } }))} />
-                                  </div>
-                                  <div className="field">
-                                    <label htmlFor={`eftps-due-${m.monthKey}`}>Due Date</label>
-                                    <input id={`eftps-due-${m.monthKey}`} type="date" value={monthInputs[m.monthKey]?.dueDate || ""}
-                                      onChange={(e) => setMonthInputs((p) => ({ ...p, [m.monthKey]: { ...p[m.monthKey], dueDate: e.target.value } }))} />
-                                  </div>
-                                </div>
-                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                                  <button className="btn" onClick={() => handleMarkFiled(m, false)} disabled={filingBusy !== null}>
-                                    {filingBusy === `${m.monthKey}:close` ? "Filing…" : "Mark Filed"}
-                                  </button>
-                                  <button className="btn btn-primary" onClick={() => handleMarkFiled(m, true)} disabled={filingBusy !== null}>
-                                    {filingBusy === `${m.monthKey}:send` ? "Filing…" : "Mark Filed and Send"}
-                                  </button>
-                                  <button className="btn btn-danger" onClick={() => handleDeleteMonthPaychecks(m)} disabled={filingBusy !== null}>
-                                    {filingBusy === `${m.monthKey}:delete` ? "Deleting…" : "Delete"}
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
-                  <td>Total ({months.length} month{months.length === 1 ? "" : "s"})</td>
-                  <td style={{ textAlign: "right" }}>{months.reduce((a, m) => a + (m.paycheckCount || 0), 0)}</td>
-                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.computation?.federalIncomeTaxTotal ?? 0)))}</td>
-                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.computation?.socialSecurityTotal ?? 0)))}</td>
-                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.computation?.medicareTotal ?? 0)))}</td>
-                  <td style={{ textAlign: "right" }}>{money(sumCents(months.map((m) => m.existingDeposit ? m.existingDeposit.total_amount : m.computation ? m.computation.totalAmount : 0)))}</td>
-                  <td></td><td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={() => setShowHistory((v) => !v)}
-        style={{ ...stepTitle, background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", gap: 8 }}
-      >
-        <span aria-hidden="true" style={{ fontSize: 11 }}>{showHistory ? "▼" : "▶"}</span>
-        Filed deposits <span className="muted" style={{ fontWeight: 400, fontSize: 12.5 }}>({(history || []).length})</span>
-      </button>
-      {showHistory && (
-        <>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
-              <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
-              Show Client column
-            </label>
-            <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
-            <span className="muted">to</span>
-            <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
-            {(historyDateFrom || historyDateTo) && (
-              <button type="button" className="ghost-button" onClick={() => { setHistoryDateFrom(""); setHistoryDateTo(""); }}>All time</button>
-            )}
-          </div>
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div className="table-scroll">
-              <table>
-                <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
-                <tbody>
-                  {visibleHistory.map((d) => renderDepositRow(d))}
-                  {history && !history.length && (
-                    <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
-                  )}
-                  {history && !!history.length && !visibleHistory.length && (
-                    <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
-                  )}
-                </tbody>
-                {visibleHistory.length > 0 && (
-                  <tfoot>
-                    <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border, #d0d7de)" }}>
-                      <td>Total ({visibleHistory.length} deposit{visibleHistory.length === 1 ? "" : "s"})</td>
-                      <td></td><td></td><td></td>
-                      {showClientColumn && <td></td>}
-                      <td style={{ textAlign: "right" }}>{money(sumCents(visibleHistory.map((d) => d.total_amount)))}</td>
-                      <td></td><td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
-          </div>
-        </>
-      )}
+      <h3 style={stepTitle}>Step 3 — File the deposits</h3>
+      <ObligationPeriodsSection clientId={clientId} kind="eftps" refreshKey={importTick} />
     </div>
   );
 }
