@@ -591,3 +591,9 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
     fees,
   };
 }
+
+/** Equipment that is not a food-contact or refrigeration appliance — it needs no NSF cut sheet. Used by the Equipment Schedule and the submission checklist. */
+export const HACCP_NO_CUT_SHEET_KEYS: readonly string[] = [
+  "shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer",
+  "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink",
+];

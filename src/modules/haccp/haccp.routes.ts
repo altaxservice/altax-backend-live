@@ -172,7 +172,7 @@ haccpRouter.get("/plans", requireAuth, requireRole("admin", "staff"), asyncHandl
   res.json({ plans });
 }));
 
-async function loadPlanForUser(req: AuthedRequest, planId: string) {
+export async function loadPlanForUser(req: AuthedRequest, planId: string) {
   const plan = await queryOne<any>(`SELECT * FROM altax.v3_haccp_plans WHERE plan_id = $1`, [planId]);
   if (!plan) return null;
   if (plan.client_id && !(await canAccessClient(req.user!, plan.client_id))) return "forbidden";
@@ -655,6 +655,12 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
   if (components.includes("plan_review")) {
     docs.push({ label: `${baseName} - ${isCounty ? "Plans Review Guide" : "Plan Review Application"}.pdf`,
       bytes: isCounty ? await generateCountyPlansReviewGuidePdf(toLicensePdfInput(plan)) : await generatePlanReviewApplicationPdf(toLicensePdfInput(plan)), mimeType: "application/pdf" });
+  }
+  // The whole submission as one print-ready PDF (cover sheet, application, lists, cut sheets, approvals).
+  if (components.includes("license_application") || components.includes("menu_equipment") || components.includes("haccp_plan")) {
+    const { buildPacket, listAttachments } = await import("./haccpPackage");
+    const packet = await buildPacket(plan, await listAttachments(plan.plan_id));
+    docs.push({ label: `${baseName} - Submission Packet.pdf`, bytes: packet.bytes, mimeType: "application/pdf" });
   }
   if (!docs.length) return res.status(400).json({ error: "This plan has no documents to save." });
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiError, viewFile, downloadFile, printFile } from "../api/client";
+import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
@@ -58,6 +59,121 @@ interface HaccpPlanDetail extends HaccpPlanRow {
 }
 
 const JURISDICTIONS = ["Baltimore City", "Baltimore County"];
+
+/** Equipment that is not a food-contact or refrigeration appliance — no NSF cut sheet is needed for it. */
+const NO_CUT_SHEET_KEYS = ["shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer", "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink"];
+
+interface PlanAttachment { attachment_id: string; kind: "cut_sheet" | "occupancy" | "zoning" | "other"; equipment_key: string | null; label: string | null; file_name: string; file_size: number }
+
+/**
+ * Attach each equipment cut sheet and the approvals (certificate of occupancy, zoning use permit) to the saved plan,
+ * then print the whole submission — cover sheet, application, menu and equipment, equipment schedule, cut sheets,
+ * approvals — as one PDF in the order a reviewer expects.
+ */
+function SubmissionPackagePanel({ planId, equipment, baseName }: { planId: string; equipment: EquipmentSelection[]; baseName: string }) {
+  const toast = useToast();
+  const [items, setItems] = useState<PlanAttachment[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ attachments: PlanAttachment[] }>(`/haccp/plans/${planId}/attachments`).then((r) => setItems(r.attachments)).catch(() => setItems([]));
+  }
+  useEffect(load, [planId]);
+
+  async function upload(kind: PlanAttachment["kind"], file: File | undefined, equipmentKey?: string, label?: string) {
+    if (!file) return;
+    setError(null);
+    if (file.size > MAX_UPLOAD_BYTES) { setError("That file is larger than 8MB — save it as a smaller PDF or photo."); return; }
+    const slot = `${kind}:${equipmentKey || label || ""}`;
+    setBusy(slot);
+    try {
+      await api.post(`/haccp/plans/${planId}/attachments`, { kind, equipmentKey, label, fileName: file.name, fileBase64: await fileToBase64(file) });
+      toast("Attached.");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not attach this file.");
+    } finally { setBusy(null); }
+  }
+  async function remove(a: PlanAttachment) {
+    setBusy(a.attachment_id);
+    try { await api.post(`/haccp/plans/${planId}/attachments/${a.attachment_id}/delete`, {}); load(); }
+    catch (err) { setError(err instanceof ApiError ? err.message : "Could not remove this file."); }
+    finally { setBusy(null); }
+  }
+
+  const find = (kind: PlanAttachment["kind"], key?: string) => (items || []).find((a) => a.kind === kind && (kind !== "cut_sheet" || a.equipment_key === key));
+  const needSheets = equipment.filter((e) => !NO_CUT_SHEET_KEYS.includes(e.key));
+  const extras = (items || []).filter((a) => a.kind === "other");
+
+  const slot = (title: string, hint: string, a: PlanAttachment | undefined, onPick: (f: File | undefined) => void, slotKey: string) => (
+    <div key={slotKey} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ minWidth: 260, flex: "1 1 260px" }}>
+        <strong>{title}</strong>
+        <div className="muted" style={{ fontSize: 11.5 }}>{hint}</div>
+      </div>
+      {a ? (
+        <>
+          <span style={{ color: "var(--teal)", fontWeight: 600 }}>✓ {a.file_name}</span>
+          <button type="button" className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${planId}/attachments/${a.attachment_id}/file`, a.file_name)}>View</button>
+          <label className="btn btn-sm" style={{ cursor: "pointer", margin: 0 }}>Replace<input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style={{ display: "none" }} onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = ""; }} /></label>
+          <button type="button" className="btn btn-sm" disabled={busy === a.attachment_id} onClick={() => remove(a)}>Remove</button>
+        </>
+      ) : (
+        <>
+          <span style={{ color: "var(--amber)", fontWeight: 600 }}>Needed</span>
+          <label className="btn btn-sm btn-primary" style={{ cursor: "pointer", margin: 0, opacity: busy === slotKey ? 0.6 : 1 }}>
+            {busy === slotKey ? "Attaching…" : "Attach file"}
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style={{ display: "none" }} onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = ""; }} />
+          </label>
+        </>
+      )}
+    </div>
+  );
+
+  const docButtons = (label: string, path: string, name: string) => (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <span style={{ fontWeight: 600, fontSize: 12.5, minWidth: 190 }}>{label}</span>
+      <button type="button" className="btn btn-sm" onClick={() => viewFile(path, `${name}.pdf`)}>View</button>
+      <button type="button" className="btn btn-sm" onClick={() => printFile(path)}>Print</button>
+      <button type="button" className="btn btn-sm" onClick={() => downloadFile(path, `${name}.pdf`)}>Download PDF</button>
+    </div>
+  );
+
+  return (
+    <div className="card" style={{ padding: 14, marginBottom: 16 }}>
+      <strong style={{ fontSize: 14 }}>Submission package</strong>
+      <p className="muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>
+        Attach the manufacturer's cut sheet for each piece of equipment and copies of the approvals (a PDF, or a clear photo). Then print everything in one go — a cover sheet lists what is inside and what is still missing. Save the plan first if you just changed the equipment list.
+      </p>
+      {error && <div style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 8 }}>{error}</div>}
+      {needSheets.length === 0 && <p className="muted" style={{ fontSize: 12.5 }}>No equipment on this plan needs a cut sheet.</p>}
+      {needSheets.map((e) => slot(
+        `Cut sheet — ${e.label}${e.quantity > 1 ? ` (x${e.quantity})` : ""}${e.model ? ` — ${e.model}` : ""}`,
+        "Manufacturer spec sheet showing NSF (or equivalent) approval.",
+        find("cut_sheet", e.key), (f) => upload("cut_sheet", f, e.key), `cut_sheet:${e.key}`
+      ))}
+      {slot("Certificate of Occupancy (copy)", "The commercial certificate issued by the County.", find("occupancy"), (f) => upload("occupancy", f), "occupancy:")}
+      {slot("Zoning Use Permit (copy)", "The permit the County zoning office issued.", find("zoning"), (f) => upload("zoning", f), "zoning:")}
+      {extras.map((a) => (
+        <div key={a.attachment_id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+          <span style={{ minWidth: 260 }}><strong>Additional attachment</strong> — {a.file_name}</span>
+          <button type="button" className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${planId}/attachments/${a.attachment_id}/file`, a.file_name)}>View</button>
+          <button type="button" className="btn btn-sm" disabled={busy === a.attachment_id} onClick={() => remove(a)}>Remove</button>
+        </div>
+      ))}
+      <div style={{ margin: "8px 0 12px" }}>
+        <label className="btn btn-sm" style={{ cursor: "pointer", margin: 0 }}>+ Add another attachment
+          <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style={{ display: "none" }} onChange={(e) => { upload("other", e.target.files?.[0], undefined, undefined); e.target.value = ""; }} />
+        </label>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {docButtons("Full submission packet", `/haccp/plans/${planId}/package.pdf`, `${baseName} - Submission Packet`)}
+        {docButtons("Equipment schedule", `/haccp/plans/${planId}/equipment-schedule.pdf`, `${baseName} - Equipment Schedule`)}
+      </div>
+    </div>
+  );
+}
 
 /** A business name made safe for a file name, the same way the Download buttons do it. */
 const fileBase = (name: string) => (name.trim().replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ") || "Business").slice(0, 120);
@@ -693,6 +809,7 @@ export function HaccpGeneratorPage() {
                             { show: pc.has("menu_equipment"), label: "Menu & Equipment List", path: `/haccp/plans/${p.plan_id}/pdf?only=menu_equipment`, name: `${base} - Menu & Equipment List`, docx: `/haccp/plans/${p.plan_id}/docx?only=menu_equipment` },
                             { show: pc.has("license_application"), label: licenseDocName(p.jurisdiction), path: `/haccp/plans/${p.plan_id}/license-pdf`, name: `${base} - ${licenseDocName(p.jurisdiction)}` },
                             { show: pc.has("plan_review"), label: planReviewDocName(p.jurisdiction), path: `/haccp/plans/${p.plan_id}/plan-review-pdf`, name: `${base} - ${planReviewDocName(p.jurisdiction)}` },
+                            { show: pc.has("license_application") || pc.has("menu_equipment") || pc.has("haccp_plan"), label: "Submission Packet (everything, in order)", path: `/haccp/plans/${p.plan_id}/package.pdf`, name: `${base} - Submission Packet` },
                           ];
                           return (
                             <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 380 }}>
@@ -1204,6 +1321,10 @@ export function HaccpGeneratorPage() {
             </>
           )}
           </>
+          )}
+
+          {savedPlanId && (
+            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} />
           )}
 
           {wantsLicenseOrReview && submissionChecklist.length > 0 && (
