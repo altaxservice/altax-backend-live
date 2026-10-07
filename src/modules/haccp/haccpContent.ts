@@ -68,7 +68,7 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
       system: "Cold hold-serve: refrigerated and frozen storage and display of packaged items. No cooking, reheating or hot-holding.",
       population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
     },
-    priorityReason: "LOW — the store sells only commercially packaged foods. A facility selling only commercially packaged potentially hazardous foods does not need a HACCP plan (COMAR 10.15.03.34A). Becomes Moderate if staff heat, cut or assemble food for customers.",
+    priorityReason: "LOW — the store sells only commercially packaged foods. Maryland's HACCP guidelines exempt a facility selling only commercially packaged potentially hazardous foods from a HACCP plan (COMAR 10.15.03.34). Becomes Moderate if staff heat, cut or assemble food for customers.",
   },
   {
     key: "grocery_deli_cold_only",
@@ -498,6 +498,8 @@ export interface DocumentRequirements {
   attachments: string[];
   /** Other approvals outside the health department that commonly come with this kind of store. */
   relatedApprovals: string[];
+  /** Plain-language reminders about how the process works. */
+  notes: string[];
   /** The documents to pre-select in the generator. */
   defaultComponents: HaccpPlanComponentKey[];
   fees: string[];
@@ -518,7 +520,7 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
 
   documents.push(low
     ? { component: "haccp_plan", label: "HACCP Plan", status: "not_required",
-        why: "Not required — a store that sells only commercially packaged foods is exempt (COMAR 10.15.03.34A). Don't submit one: it adds statements the health department may question." }
+        why: "Not required — Maryland's HACCP guidelines exempt a store that sells only commercially packaged potentially hazardous foods (see COMAR 10.15.03.34 and the Office of Food Protection guidelines). Don't submit one: it adds statements the health department may question." }
     : { component: "haccp_plan", label: "HACCP Plan", status: "required",
         why: `Required for ${type.riskPriority} priority facilities (COMAR 10.15.03.34A); it must be re-approved every 5 years and before a new process is started.` });
 
@@ -540,7 +542,7 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
         why: "Required for every new, renovated or change-of-ownership food facility. Fees: $75 plan review + $150 plan review inspection." }
     : buildingPermit === "no"
     ? { component: "plan_review", label: "Equipment review — Baltimore County Department of Health", status: "required",
-        why: `No building permit is needed (per the County), so this is an equipment-only review. Send the menu and equipment cut sheets${low ? "" : " and the HACCP plan"} to Baltimore County Department of Health, Division of Environmental Health Services, 6401 York Road, Third Floor, Baltimore, MD 21212 (ehs@baltimorecountymd.gov).` }
+        why: `No building permit is needed (per the County), so this is an equipment-only review. Send the menu and equipment cut sheets${low ? "" : " and the HACCP plan"} to Baltimore County Department of Health, Division of Environmental Health Services, 6401 York Road, Third Floor, Baltimore, MD 21212 (ehs@baltimorecountymd.gov). If this is only a change of ownership of an existing store with no changes to the space or equipment, the County may need just the application, the fee and a pre-opening inspection — confirm with them.` }
     : buildingPermit === "yes"
     ? { component: "plan_review", label: "Plans review with a building permit — Baltimore County", status: "required",
         why: `Construction or remodeling: submit the building permit application, fees and plans (architectural, plumbing, mechanical, electrical, finish schedule, air balance schedule, scaled fixture layout), the menu${low ? "" : ", the HACCP plan"} and equipment cut sheets to Baltimore County Department of Permits, Approvals and Inspections, Building Inspections, 111 W. Chesapeake Avenue, Room 100, Towson, MD 21204.` }
@@ -576,6 +578,10 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
     priorityAssessment: type.priorityAssessment,
     documents,
     attachments,
+    notes: [
+      "Plan approval is not the permit: the permit is issued after the County's pre-opening inspection.",
+      "The health department assigns the final priority — confirm the Low/Moderate/High rating with them before you file.",
+    ],
     relatedApprovals: [
       "Use and Occupancy certificate and fire department permit for the address",
       "Baltimore trader's license (Clerk of the Circuit Court)",

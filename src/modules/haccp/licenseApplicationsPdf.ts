@@ -301,7 +301,10 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
     "Catering ID": county.cateringId || "",
     "Facility Classification": county.facilityClassification || "",
     "Type of Facility": app.facilityTypeOverride || data.businessTypeLabel,
-    "Number of Seats Provided": county.numberOfSeats || "",
+    // A Low priority store with no seating prints 0 / N/A rather than blanks that look unfinished.
+    "Mobile Area of Operation": "N/A",
+    "Nonsmoking Area": "N/A",
+    "Number of Seats Provided": county.numberOfSeats || (data.riskPriority === "Low" ? "0" : ""),
     "Water Service": county.waterService || "",
     "Sewage Disposal": county.sewageDisposal || "",
     "Days of Operation": tidyHoursText(county.daysOfOperation),

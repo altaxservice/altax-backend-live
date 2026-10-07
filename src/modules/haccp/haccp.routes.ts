@@ -511,7 +511,9 @@ export function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData
     menuGroups: groupMenuItems(plan.selected_menu_items || []),
     equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
     createdAt: plan.created_at,
-    priorityAssessment: businessType?.priorityAssessment ?? null,
+    priorityAssessment: businessType?.priorityAssessment
+      ? { ...businessType.priorityAssessment, foods: businessType.priorityAssessment.foods + (businessType.riskPriority === "Low" && (plan.selected_menu_items || []).includes("ice_cream") ? " Ice cream is sold prepackaged only — no scooping." : "") }
+      : null,
     priorityReason: businessType?.priorityReason ?? null,
     components,
   };

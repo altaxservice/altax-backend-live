@@ -13,7 +13,7 @@ interface RiskSignals { hotMenu: string[]; preparedColdMenu: string[]; cookingEq
 interface DocumentRequirement { component?: HaccpPlanComponent; label: string; status: "required" | "not_required" | "if_applicable"; why: string }
 interface DocumentRequirements {
   riskPriority: "High" | "Moderate" | "Low"; priorityReason: string; documents: DocumentRequirement[];
-  attachments: string[]; relatedApprovals: string[]; defaultComponents: HaccpPlanComponent[]; fees: string[];
+  attachments: string[]; relatedApprovals: string[]; notes?: string[]; defaultComponents: HaccpPlanComponent[]; fees: string[];
 }
 interface ChecklistItem { key: string; label: string }
 interface ChecklistCategory { category: string; items: ChecklistItem[] }
@@ -433,6 +433,33 @@ export function HaccpGeneratorPage() {
       if (blank(licenseForm.ownerHomeStreet)) items.push({ level: "todo", text: "Owner's address" });
       else if (norm(licenseForm.ownerHomeStreet) === norm(form.street)) items.push({ level: "check", text: "Owner's address is the store's address", detail: "Confirm this is where the owner lives, not just the shop." });
     }
+    // --- Things a reviewer reads between the lines of the menu and equipment lists ---
+    if (equipKeys.has("coffee_machine")) {
+      items.push({ level: "check", text: "Coffee machine", detail: "The priority assessment says nothing is prepared on site. If it brews coffee for customers (especially with creamer or milk), tell the County: a reviewer then expects a hand sink, a way to wash the pots and parts, and backflow prevention if it is plumbed, and the rating may change. If it is a sealed single-serve unit or staff-only, say that in the notes — or remove it from the list." });
+    }
+    const DAIRY = ["butter", "cheese", "eggs", "milk", "yogurt"];
+    const PERISHABLE_UNITS = ["reach_in_cooler", "walk_in_cooler", "deli_case", "sandwich_prep_table"];
+    if (DAIRY.some((k) => selectedMenu.has(k)) && !PERISHABLE_UNITS.some((k) => equipKeys.has(k))) {
+      items.push({ level: "check", text: "Refrigeration for dairy and eggs", detail: "Only beverage coolers are listed. Many are rated for packaged drinks, not for food. The cut sheets must show a unit that holds food at 41°F or below — or add a reach-in cooler." });
+    }
+    if (selectedMenu.has("frozen_food") && !equipKeys.has("walk_in_freezer")) {
+      items.push({ level: "check", text: "Where frozen food is kept", detail: equipKeys.has("ice_cream_freezer") ? "Only the ice-cream freezer is listed. Say frozen items are stored in it, or add a freezer." : "Frozen food is on the menu but no freezer is listed." });
+    }
+    if (selectedMenu.has("ice_cream") && type?.riskPriority === "Low") {
+      items.push({ level: "check", text: "Ice cream is prepackaged only", detail: "The priority assessment now says so. Scooped or hand-dipped ice cream changes the rating, so confirm no scooping." });
+    }
+    const entity = String(clientProfile?.entity_type || "");
+    if (/corp/i.test(entity) && wants("license_application") && isCounty) {
+      const title = String(clientProfile?.company_contact_title || "").trim();
+      items.push({ level: "check", text: "Owner box on a corporation", detail: `The Owner is typed as an individual (${form.contactPerson || "the contact"}). For a corporation the County may want the company and officer, for example “${form.businessName} — ${form.contactPerson || "Owner"}${title ? `, ${title}` : ""}”. Ask which they prefer.` });
+    }
+    const hoursMatch = String(county.hoursOfOperation || "").match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:-|–|—|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+    if (hoursMatch && Number(String(county.numberOfEmployees || "").trim()) <= 1 && String(county.numberOfEmployees || "").trim() !== "") {
+      const toMin = (h: string, m: string | undefined, ap: string) => ((Number(h) % 12) + (ap.toLowerCase() === "pm" ? 12 : 0)) * 60 + Number(m || 0);
+      let span = toMin(hoursMatch[4], hoursMatch[5], hoursMatch[6]) - toMin(hoursMatch[1], hoursMatch[2], hoursMatch[3]);
+      if (span <= 0) span += 24 * 60;
+      if (span / 60 > 12) items.push({ level: "check", text: "Staffing for the hours", detail: `One employee for about ${Math.round(span / 60)} hours a day, ${String(county.daysOfOperation || "every day")}. The County may ask who covers the shifts — count the owner if he works too.` });
+    }
     if (selectedEquipment.some((e) => REFRIGERATION.includes(e.key)) && !equipKeys.has("refrigerator_thermometers")) {
       items.push({ level: "check", text: "Thermometers in the coolers and freezers", detail: "Every refrigeration unit needs one. Add “Thermometer in each refrigerator / freezer / cooler” to the equipment list once the owner confirms." });
     }
@@ -813,6 +840,7 @@ export function HaccpGeneratorPage() {
                   </select>
                 </div>
               )}
+              {(requirements.notes || []).map((n) => <p key={n} className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>{n}</p>)}
               <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Also needed outside the health department: {requirements.relatedApprovals.join("; ")}.</p>
               <div style={{ marginTop: 10 }}>
                 <button type="button" className="btn btn-sm" onClick={() => setComponents(new Set(requirements.defaultComponents))}>Select the required documents</button>
