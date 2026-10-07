@@ -87,6 +87,11 @@ export default defineConfig({
           // excludes both of these — this was the one place that didn't.
           /^\/public\/md-filing\/[^/]+\/pdf(\?.*)?$/,
           /^\/public\/form941\/[^/]+\/pdf(\?.*)?$/,
+          // A signed view link (POST /auth/view-link) opens a file straight in a browser tab so the PDF viewer saves it
+          // under its real name. It is a real navigation (request.mode 'navigate'), so without this the service worker
+          // answers it with the cached app shell and the View buttons on the Health Permits page "go to another page".
+          // The pattern tests pathname + search, so it matches the `vt=` token wherever it sits in the query.
+          /[?&]vt=/,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
         // "/index.html" (directoryIndex, default 'index.html') — that alias is a direct
