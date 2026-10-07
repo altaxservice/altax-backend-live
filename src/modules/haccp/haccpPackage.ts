@@ -243,7 +243,10 @@ async function buildPacket(plan: any, attachments: AttachmentMeta[]): Promise<{ 
   if (components.includes("haccp_plan") || components.includes("menu_equipment")) {
     const only = components.includes("haccp_plan") ? undefined : "menu_equipment";
     const bytes = await generateHaccpPdf(toHaccpPdfInput(plan, only));
-    sections.push({ title: components.includes("haccp_plan") ? "HACCP Plan, Menu and Equipment List" : "Menu and Equipment List (with priority assessment)", doc: await pdfFromBytes(bytes) });
+    const menuDoc = await pdfFromBytes(bytes);
+    // A stand-alone Menu & Equipment List has its own cover sheet; the packet already has one, so don't repeat it.
+    if (only === "menu_equipment" && menuDoc.getPageCount() > 1) menuDoc.removePage(0);
+    sections.push({ title: components.includes("haccp_plan") ? "HACCP Plan, Menu and Equipment List" : "Menu and Equipment List (with priority assessment)", doc: menuDoc });
   }
   if (equipment.length > 0 && (components.includes("menu_equipment") || components.includes("plan_review"))) {
     sections.push({ title: "Equipment Schedule", doc: await pdfFromBytes(await generateEquipmentSchedulePdf(plan, attachments)) });
@@ -261,7 +264,8 @@ async function buildPacket(plan: any, attachments: AttachmentMeta[]): Promise<{ 
   // Baltimore City: workers' compensation certificate, waste hauler contract (when the form says one applies), floor plan.
   const named = (label: string) => attachments.find((a) => a.kind === "other" && a.label === label);
   const city = !isCounty;
-  const wantsFloorPlan = components.includes("plan_review") && (city || plan.license_application_data?.county?.buildingPermit === "yes");
+  // The County's own materials list (Plans Review Guide) asks for a scaled, labeled fixture layout up front; the City's plan review fee is for the floor plan.
+  const wantsFloorPlan = components.includes("plan_review");
   const namedSlots: { label: string; needed: boolean }[] = [
     { label: WORKERS_COMP_LABEL, needed: city },
     { label: WASTE_HAULER_LABEL, needed: city && plan.license_application_data?.wasteHaulerOption === "contract" },

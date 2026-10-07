@@ -74,7 +74,7 @@ interface PlanAttachment { attachment_id: string; kind: "cut_sheet" | "occupancy
  * then print the whole submission — cover sheet, application, menu and equipment, equipment schedule, cut sheets,
  * approvals — as one PDF in the order a reviewer expects.
  */
-function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange, noCutSheetKeys, jurisdiction, wasteOption, wantsPlanReview, buildingPermit }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void; noCutSheetKeys: Set<string>; jurisdiction: string; wasteOption?: string; wantsPlanReview: boolean; buildingPermit?: string }) {
+function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange, noCutSheetKeys, jurisdiction, wasteOption, wantsPlanReview }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void; noCutSheetKeys: Set<string>; jurisdiction: string; wasteOption?: string; wantsPlanReview: boolean }) {
   const toast = useToast();
   const [items, setItems] = useState<PlanAttachment[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -221,7 +221,7 @@ function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange
       {slot("Certificate of Occupancy (copy)", "The commercial certificate issued by the County.", find("occupancy"), (f) => upload("occupancy", f), "occupancy:")}
       {isCity && slot("Workers' Compensation Certificate of Compliance", "Required with the City application (or write the policy / binder number on it).", findNamed(NAMED[0]), (f) => upload("other", f, undefined, NAMED[0]), `other:${NAMED[0]}`)}
       {isCity && wasteOption === "contract" && slot("Waste Hauler Contract (copy)", "The form says to attach it when the business puts out more than three 32-gallon receptacles a week.", findNamed(NAMED[1]), (f) => upload("other", f, undefined, NAMED[1]), `other:${NAMED[1]}`)}
-      {wantsPlanReview && (isCity || buildingPermit === "yes") && slot("Floor Plan / Layout", "A scaled, labeled floor plan with the fixture layout, for plan review.", findNamed(NAMED[2]), (f) => upload("other", f, undefined, NAMED[2]), `other:${NAMED[2]}`)}
+      {wantsPlanReview && slot("Floor Plan / Fixture Layout", "A scaled, labeled layout showing every cooler, freezer, sink, shelving run, the register and the restroom — numbered to match the Equipment Schedule.", findNamed(NAMED[2]), (f) => upload("other", f, undefined, NAMED[2]), `other:${NAMED[2]}`)}
       {slot("Zoning Use Permit (copy)", "The permit the County zoning office issued.", find("zoning"), (f) => upload("zoning", f), "zoning:")}
       {extras.map((a) => (
         <div key={a.attachment_id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
@@ -640,8 +640,13 @@ export function HaccpGeneratorPage() {
         if (!String(licenseForm.tobaccoLicenseNumber || "").trim()) items.push({ level: "check", text: "Maryland tobacco license number", detail: "Add it to the form (or write “applied for” if it is pending)." });
       }
     }
-    if (wants("plan_review") && (!isCounty || county.buildingPermit === "yes")) {
-      items.push({ level: "todo", text: "Scaled floor plan / fixture layout", detail: isCounty ? "Required with the building permit work." : "The City's plan review fee is for review of the floor plan. Attach it in the Submission package." });
+    if (wants("plan_review")) {
+      items.push({
+        level: "todo", text: "Scaled, labeled floor plan / fixture layout",
+        detail: isCounty
+          ? "The County's plans review materials list asks for it up front. With no building permit, a simple scaled sketch showing the coolers, freezer, sinks, shelving, register and restroom is the usual form — ask Environmental Health Services whether they want more. Attach it in the Submission package."
+          : "The City's plan review fee is for review of the floor plan. Attach it in the Submission package.",
+      });
     }
     if (equipKeys.has("coffee_machine")) {
       items.push({ level: "check", text: "Coffee machine", detail: "The priority assessment says nothing is prepared on site. If it brews coffee for customers (especially with creamer or milk), tell the County: a reviewer then expects a hand sink, a way to wash the pots and parts, and backflow prevention if it is plumbed, and the rating may change. If it is a sealed single-serve unit or staff-only, say that in the notes — or remove it from the list." });
@@ -1451,7 +1456,7 @@ export function HaccpGeneratorPage() {
           )}
 
           {savedPlanId && (
-            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} noCutSheetKeys={noCutSheetKeys} jurisdiction={form.jurisdiction} wasteOption={licenseForm.wasteHaulerOption} wantsPlanReview={components.has("plan_review")} buildingPermit={licenseForm.county?.buildingPermit} />
+            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} noCutSheetKeys={noCutSheetKeys} jurisdiction={form.jurisdiction} wasteOption={licenseForm.wasteHaulerOption} wantsPlanReview={components.has("plan_review")} />
           )}
 
           {wantsLicenseOrReview && submissionChecklist.length > 0 && (
