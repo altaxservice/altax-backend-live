@@ -564,13 +564,13 @@ export function HaccpGeneratorPage() {
    * must supply it, CHECK = look at it (it may be wrong), DONE = nothing to do.
    */
   const submissionChecklist = useMemo(() => {
-    type Item = { level: "todo" | "check" | "done"; text: string; detail?: string };
+    type Item = { level: "todo" | "check" | "done"; text: string; detail?: string; action?: { label: string; run: () => void } };
     const items: Item[] = [];
     const type = options?.businessTypes.find((t) => t.key === form.businessTypeKey) || null;
     const isCounty = form.jurisdiction === "Baltimore County";
     const county = licenseForm.county || {};
     const equipKeys = new Set(selectedEquipment.map((e) => e.key));
-    const REFRIGERATION = ["beverage_cooler_1door", "beverage_cooler_2door", "beverage_cooler_4door", "ice_cream_freezer", "walk_in_cooler", "walk_in_freezer", "reach_in_cooler", "deli_case", "sandwich_prep_table"];
+    const REFRIGERATION = ["beverage_cooler_1door", "beverage_cooler_2door", "beverage_cooler_4door", "ice_cream_freezer", "walk_in_cooler", "walk_in_freezer", "reach_in_cooler", "dairy_case", "reach_in_freezer", "deli_case", "sandwich_prep_table"];
     const NO_CUT_SHEET = ["shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer", "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink"];
     const norm = (v: unknown) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const blank = (v: unknown) => !String(v ?? "").trim();
@@ -618,12 +618,20 @@ export function HaccpGeneratorPage() {
       items.push({ level: "check", text: "Coffee machine", detail: "The priority assessment says nothing is prepared on site. If it brews coffee for customers (especially with creamer or milk), tell the County: a reviewer then expects a hand sink, a way to wash the pots and parts, and backflow prevention if it is plumbed, and the rating may change. If it is a sealed single-serve unit or staff-only, say that in the notes — or remove it from the list." });
     }
     const DAIRY = ["butter", "cheese", "eggs", "milk", "yogurt"];
-    const PERISHABLE_UNITS = ["reach_in_cooler", "walk_in_cooler", "deli_case", "sandwich_prep_table"];
+    const PERISHABLE_UNITS = ["reach_in_cooler", "walk_in_cooler", "dairy_case", "deli_case", "sandwich_prep_table"];
     if (DAIRY.some((k) => selectedMenu.has(k)) && !PERISHABLE_UNITS.some((k) => equipKeys.has(k))) {
-      items.push({ level: "check", text: "Refrigeration for dairy and eggs", detail: "Only beverage coolers are listed. Many are rated for packaged drinks, not for food. The cut sheets must show a unit that holds food at 41°F or below — or add a reach-in cooler." });
+      items.push({
+        level: "check", text: "Refrigeration for dairy and eggs",
+        detail: "Only beverage coolers are listed. Those are for drinks, and many aren't rated for food. Milk, cheese, eggs, butter and yogurt need a food-rated unit that holds 41°F or below — a Reach-In Cooler, Walk-In Cooler or Dairy Case from the equipment list.",
+        action: { label: "Add a Reach-In Cooler", run: () => toggleEquipment("reach_in_cooler", "Reach-In Cooler") },
+      });
     }
-    if (selectedMenu.has("frozen_food") && !equipKeys.has("walk_in_freezer")) {
-      items.push({ level: "check", text: "Where frozen food is kept", detail: equipKeys.has("ice_cream_freezer") ? "Only the ice-cream freezer is listed. Say frozen items are stored in it, or add a freezer." : "Frozen food is on the menu but no freezer is listed." });
+    if (selectedMenu.has("frozen_food") && !equipKeys.has("walk_in_freezer") && !equipKeys.has("reach_in_freezer")) {
+      items.push({
+        level: "check", text: "Where frozen food is kept",
+        detail: equipKeys.has("ice_cream_freezer") ? "Only the ice-cream freezer is listed. Say frozen items are kept in it, or add a freezer." : "Frozen food is on the menu but no freezer is listed.",
+        action: { label: "Add a Reach-In / Chest Freezer", run: () => toggleEquipment("reach_in_freezer", "Reach-In / Chest Freezer") },
+      });
     }
     if (selectedMenu.has("ice_cream") && type?.riskPriority === "Low") {
       items.push({ level: "check", text: "Ice cream is prepackaged only", detail: "The priority assessment now says so. Scooped or hand-dipped ice cream changes the rating, so confirm no scooping." });
@@ -1402,7 +1410,10 @@ export function HaccpGeneratorPage() {
                       background: i.level === "todo" ? "rgba(220,38,38,.12)" : i.level === "check" ? "rgba(217,119,6,.15)" : "rgba(11,107,107,.12)",
                       color: i.level === "todo" ? "var(--red)" : i.level === "check" ? "var(--amber)" : "var(--teal)",
                     }}>{i.level === "todo" ? "TO SUPPLY" : i.level === "check" ? "CHECK" : "DONE"}</span>
-                    <span><strong>{i.text}</strong>{i.detail && <> — <span className="muted">{i.detail}</span></>}</span>
+                    <span>
+                      <strong>{i.text}</strong>{i.detail && <> — <span className="muted">{i.detail}</span></>}
+                      {i.action && <button type="button" className="btn btn-sm" style={{ marginLeft: 8 }} onClick={i.action.run}>{i.action.label}</button>}
+                    </span>
                   </div>
                 ))}
               </div>

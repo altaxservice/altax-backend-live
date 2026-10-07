@@ -260,6 +260,8 @@ export const HACCP_EQUIPMENT_ITEMS: ChecklistItem[] = [
   { key: "walk_in_cooler", label: "Walk-In Cooler" },
   { key: "walk_in_freezer", label: "Walk-In Freezer" },
   { key: "reach_in_cooler", label: "Reach-In Cooler" },
+  { key: "dairy_case", label: "Dairy / Multi-Deck Refrigerated Display Case" },
+  { key: "reach_in_freezer", label: "Reach-In / Chest Freezer" },
   { key: "food_prep_counter", label: "Food Prep Counter" },
   { key: "sandwich_prep_table", label: "Sandwich Prep Table (Cold Well)" },
   { key: "deli_case", label: "Deli Case" },
