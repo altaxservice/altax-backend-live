@@ -26,6 +26,10 @@ const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_PLAN = 40;
 const KINDS = ["cut_sheet", "occupancy", "zoning", "other"] as const;
 type Kind = (typeof KINDS)[number];
+/** Attachments the Baltimore City submission asks for, stored as "other" files with these labels. */
+export const WORKERS_COMP_LABEL = "Workers' Compensation Certificate of Compliance";
+export const WASTE_HAULER_LABEL = "Waste Hauler Contract";
+export const FLOOR_PLAN_LABEL = "Floor Plan / Layout";
 const KIND_LABEL: Record<Kind, string> = { cut_sheet: "Equipment cut sheet", occupancy: "Certificate of Occupancy", zoning: "Zoning Use Permit", other: "Additional attachment" };
 
 const TEAL = rgb(0.043, 0.42, 0.42);
@@ -254,8 +258,26 @@ async function buildPacket(plan: any, attachments: AttachmentMeta[]): Promise<{ 
     const loaded = await loadAttachmentBytes(plan.plan_id, a.attachment_id);
     if (loaded) sections.push({ title: `Cut sheet — ${e.label}${e.model ? ` (${e.model})` : ""}`, doc: loaded.meta.mime_type === "application/pdf" ? await pdfFromBytes(loaded.bytes) : await pdfFromImage(loaded.bytes, loaded.meta.mime_type) });
   }
+  // Baltimore City: workers' compensation certificate, waste hauler contract (when the form says one applies), floor plan.
+  const named = (label: string) => attachments.find((a) => a.kind === "other" && a.label === label);
+  const city = !isCounty;
+  const wantsFloorPlan = components.includes("plan_review") && (city || plan.license_application_data?.county?.buildingPermit === "yes");
+  const namedSlots: { label: string; needed: boolean }[] = [
+    { label: WORKERS_COMP_LABEL, needed: city },
+    { label: WASTE_HAULER_LABEL, needed: city && plan.license_application_data?.wasteHaulerOption === "contract" },
+    { label: FLOOR_PLAN_LABEL, needed: wantsFloorPlan },
+  ];
+  for (const slot of namedSlots) {
+    const a = named(slot.label);
+    if (a) {
+      const loaded = await loadAttachmentBytes(plan.plan_id, a.attachment_id);
+      if (loaded) sections.push({ title: slot.label, doc: loaded.meta.mime_type === "application/pdf" ? await pdfFromBytes(loaded.bytes) : await pdfFromImage(loaded.bytes, loaded.meta.mime_type) });
+    } else if (slot.needed) {
+      pending.push(slot.label === WORKERS_COMP_LABEL ? "Workers' compensation Certificate of Compliance (or the policy / binder number on the application)" : slot.label === WASTE_HAULER_LABEL ? "Copy of the waste hauler contract" : "Scaled floor plan / fixture layout");
+    }
+  }
   for (const kind of ["occupancy", "zoning", "other"] as Kind[]) {
-    const list = attachments.filter((a) => a.kind === kind || (kind === "other" && a.kind === "cut_sheet" && !equipment.some((e) => e.key === a.equipment_key)));
+    const list = attachments.filter((a) => (a.kind === kind && !(kind === "other" && [WORKERS_COMP_LABEL, WASTE_HAULER_LABEL, FLOOR_PLAN_LABEL].includes(a.label || ""))) || (kind === "other" && a.kind === "cut_sheet" && !equipment.some((e) => e.key === a.equipment_key)));
     if (list.length === 0 && kind !== "other") { pending.push(`Copy of the ${KIND_LABEL[kind]}`); continue; }
     for (const a of list) {
       const loaded = await loadAttachmentBytes(plan.plan_id, a.attachment_id);
@@ -264,6 +286,8 @@ async function buildPacket(plan: any, attachments: AttachmentMeta[]): Promise<{ 
   }
   if (components.includes("plan_review") && !isCounty) {
     sections.push({ title: "Plan Review Application", doc: await pdfFromBytes(await generatePlanReviewApplicationPdf(toLicensePdfInput(plan))), note: "Owner signs and dates" });
+    pending.push("Owner's signature and date on the Plan Review Application");
+    pending.push("Plan review fees: $75 floor plan review + $150 plan review inspection (confirm current amounts)");
   }
 
   // ---- cover sheet (page numbers are known now that every section's length is) ----
@@ -352,19 +376,21 @@ haccpPackageRouter.post("/plans/:planId/attachments", requireAuth, requireRole("
   const scan = await scanFileForMalware(buf, fileName);
   if (scan.scanned && !scan.clean) return res.status(400).json({ error: "That file did not pass the virus scan." });
 
+  const label = String(body.label || "").trim().slice(0, 255) || null;
   const existing = await listAttachments(plan.plan_id);
-  if (kind !== "other" && existing.some((a) => a.kind === kind && (kind !== "cut_sheet" || a.equipment_key === equipmentKey))) {
-    // One cut sheet per piece of equipment, one certificate, one zoning permit: a new upload replaces the old one.
-    await query(`DELETE FROM altax.v3_haccp_plan_attachments WHERE plan_id = $1 AND kind = $2 AND COALESCE(equipment_key,'') = COALESCE($3,'')`, [plan.plan_id, kind, equipmentKey]);
-  } else if (existing.length >= MAX_ATTACHMENTS_PER_PLAN) {
-    return res.status(400).json({ error: `A plan can hold up to ${MAX_ATTACHMENTS_PER_PLAN} attachments.` });
-  }
+  // One cut sheet per piece of equipment, one certificate, one zoning permit, one file per named slot (workers' comp,
+  // floor plan, …): a new upload replaces the old one. Unnamed "other" files simply accumulate.
+  const dup = existing.find((a) => kind === "cut_sheet" ? a.kind === kind && a.equipment_key === equipmentKey
+    : kind === "other" ? Boolean(label) && a.kind === "other" && a.label === label
+    : a.kind === kind);
+  if (dup) await query(`DELETE FROM altax.v3_haccp_plan_attachments WHERE attachment_id = $1`, [dup.attachment_id]);
+  else if (existing.length >= MAX_ATTACHMENTS_PER_PLAN) return res.status(400).json({ error: `A plan can hold up to ${MAX_ATTACHMENTS_PER_PLAN} attachments.` });
   const attachmentId = `HPA-${idSuffix()}`;
   const { fileData, blobBackend } = await writeUploadBlob(attachmentId, buf.toString("base64"));
   await query(
     `INSERT INTO altax.v3_haccp_plan_attachments (attachment_id, plan_id, kind, equipment_key, label, file_name, mime_type, file_size, file_data, blob_backend, uploaded_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [attachmentId, plan.plan_id, kind, equipmentKey, String(body.label || "").trim().slice(0, 255) || null, fileName, type.mime, buf.length, fileData, blobBackend, req.user!.email]
+    [attachmentId, plan.plan_id, kind, equipmentKey, label, fileName, type.mime, buf.length, fileData, blobBackend, req.user!.email]
   );
   await logAudit("Haccp", "PLAN_ATTACHMENT_ADDED", plan.plan_id, kind, "", fileName, `${KIND_LABEL[kind]} attached to ${plan.business_name} by ${req.user!.email}.`, req.user!.email);
   res.status(201).json({ ok: true, attachmentId });

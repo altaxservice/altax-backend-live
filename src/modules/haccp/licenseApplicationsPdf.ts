@@ -142,18 +142,18 @@ export async function generateFoodLicenseApplicationPdf(data: LicensePdfInput): 
   const ownerName = data.officerOwnerName || data.contactPerson || "";
 
   const c1 = new Cursor(p1, font, bold, PAGE_H);
-  const cityStateZip = [data.city, data.state].filter(Boolean).join(", ");
+  const cityStateZip = [squishText(data.city), data.state].filter(Boolean).join(", ");
   c1.text(150, 220, data.businessName, { size: 10 });
   c1.text(175, 247, ownerName, { size: 10 });
   c1.text(378, 247, app.officerTitle || "", { size: 10 });
   c1.text(122, 274, app.tradeName || "", { size: 10 });
-  c1.text(150, 301, [data.streetAddress, cityStateZip].filter(Boolean).join(", "), { size: 10 });
+  c1.text(150, 301, [squishText(data.streetAddress), cityStateZip].filter(Boolean).join(", "), { size: 10 });
   c1.text(504, 301, data.zipCode || "", { size: 10 });
   c1.text(165, 328, data.phone || "", { size: 10 });
   c1.text(418, 328, app.ownerHomePhone || "", { size: 10 });
-  c1.text(187, 355, [app.ownerHomeStreet, app.ownerHomeCity].filter(Boolean).join(", "), { size: 10 });
+  c1.text(187, 355, [squishText(app.ownerHomeStreet), squishText(app.ownerHomeCity)].filter(Boolean).join(", "), { size: 10 });
   c1.text(504, 355, app.ownerHomeZip || "", { size: 10 });
-  c1.text(310, 382, app.mailingAddress || "", { size: 10 });
+  c1.text(310, 382, squishText(app.mailingAddress), { size: 10 });
   c1.text(135, 409, data.email || "", { size: 10 });
 
   // Highlight (annotate, don't redraw) the fee-table row matching riskPriority.
@@ -205,9 +205,9 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
   const ownerName = data.officerOwnerName || data.contactPerson || "";
   const c = new Cursor(p1, font, bold, PAGE_H);
 
-  const cityStateZip = [data.city, data.state].filter(Boolean).join(", ");
+  const cityStateZip = [squishText(data.city), data.state].filter(Boolean).join(", ");
   c.text(125, 172, data.businessName, { size: 10 });
-  c.text(138, 194, [data.streetAddress, cityStateZip].filter(Boolean).join(", "), { size: 10 });
+  c.text(138, 194, [squishText(data.streetAddress), cityStateZip].filter(Boolean).join(", "), { size: 10 });
   c.text(520, 194, data.zipCode || "", { size: 10 });
   c.text(118, 216, app.facilityTypeOverride || data.businessTypeLabel, { size: 10 });
   c.text(466, 216, data.phone || "", { size: 10 });
@@ -218,8 +218,8 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
     c.text(entityCheckboxCenters[app.ownerEntityType], 258, "X", { size: 9, bold: true, color: TEAL, align: "center" });
   }
   c.text(84, 277, ownerName, { size: 10 });
-  c.text(97, 299, app.ownerHomeStreet || "", { size: 10 });
-  c.text(385, 299, app.ownerHomeCity || "", { size: 10 });
+  c.text(97, 299, squishText(app.ownerHomeStreet), { size: 10 });
+  c.text(385, 299, squishText(app.ownerHomeCity), { size: 10 });
   c.text(523, 299, app.ownerHomeZip || "", { size: 10 });
   c.text(132, 321, app.ownerHomePhone || "", { size: 10 });
 

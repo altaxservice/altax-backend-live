@@ -74,7 +74,7 @@ interface PlanAttachment { attachment_id: string; kind: "cut_sheet" | "occupancy
  * then print the whole submission — cover sheet, application, menu and equipment, equipment schedule, cut sheets,
  * approvals — as one PDF in the order a reviewer expects.
  */
-function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange, noCutSheetKeys }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void; noCutSheetKeys: Set<string> }) {
+function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange, noCutSheetKeys, jurisdiction, wasteOption, wantsPlanReview, buildingPermit }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void; noCutSheetKeys: Set<string>; jurisdiction: string; wasteOption?: string; wantsPlanReview: boolean; buildingPermit?: string }) {
   const toast = useToast();
   const [items, setItems] = useState<PlanAttachment[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -125,7 +125,10 @@ function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange
 
   const find = (kind: PlanAttachment["kind"], key?: string) => (items || []).find((a) => a.kind === kind && (kind !== "cut_sheet" || a.equipment_key === key));
   const needSheets = equipment.filter((e) => !noCutSheetKeys.has(e.key));
-  const extras = (items || []).filter((a) => a.kind === "other");
+  const isCity = jurisdiction !== "Baltimore County";
+  const NAMED = ["Workers' Compensation Certificate of Compliance", "Waste Hauler Contract", "Floor Plan / Layout"];
+  const findNamed = (label: string) => (items || []).find((a) => a.kind === "other" && a.label === label);
+  const extras = (items || []).filter((a) => a.kind === "other" && !NAMED.includes(a.label || ""));
 
   const slot = (title: string, hint: string, a: PlanAttachment | undefined, onPick: (f: File | undefined) => void, slotKey: string) => (
     <div key={slotKey} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
@@ -216,6 +219,9 @@ function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange
         </div>
       ))}
       {slot("Certificate of Occupancy (copy)", "The commercial certificate issued by the County.", find("occupancy"), (f) => upload("occupancy", f), "occupancy:")}
+      {isCity && slot("Workers' Compensation Certificate of Compliance", "Required with the City application (or write the policy / binder number on it).", findNamed(NAMED[0]), (f) => upload("other", f, undefined, NAMED[0]), `other:${NAMED[0]}`)}
+      {isCity && wasteOption === "contract" && slot("Waste Hauler Contract (copy)", "The form says to attach it when the business puts out more than three 32-gallon receptacles a week.", findNamed(NAMED[1]), (f) => upload("other", f, undefined, NAMED[1]), `other:${NAMED[1]}`)}
+      {wantsPlanReview && (isCity || buildingPermit === "yes") && slot("Floor Plan / Layout", "A scaled, labeled floor plan with the fixture layout, for plan review.", findNamed(NAMED[2]), (f) => upload("other", f, undefined, NAMED[2]), `other:${NAMED[2]}`)}
       {slot("Zoning Use Permit (copy)", "The permit the County zoning office issued.", find("zoning"), (f) => upload("zoning", f), "zoning:")}
       {extras.map((a) => (
         <div key={a.attachment_id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
@@ -622,6 +628,21 @@ export function HaccpGeneratorPage() {
       else if (norm(licenseForm.ownerHomeStreet) === norm(form.street)) items.push({ level: "check", text: "Owner's address is the store's address", detail: "Confirm this is where the owner lives, not just the shop." });
     }
     // --- Things a reviewer reads between the lines of the menu and equipment lists ---
+    // --- Baltimore City submission extras (from the City application itself) ---
+    if (!isCounty && wants("license_application")) {
+      items.push({ level: "todo", text: "Workers' compensation Certificate of Compliance", detail: "The City won't issue the license without it (or the policy / binder number). Attach it in the Submission package." });
+      if (licenseForm.wasteHaulerOption === "contract") items.push({ level: "todo", text: "Waste hauler contract", detail: "Attach a copy — you chose the option for more than three 32-gallon receptacles a week." });
+      if (licenseForm.wasteHaulerOption === "smallHauler" && !String(licenseForm.smallHaulerLicenseNumber || "").trim()) items.push({ level: "todo", text: "Small hauler license number", detail: "Enter it on the form — you chose the small hauler option." });
+      const tobaccoOnMenu = selectedMenu.has("cigarettes") || selectedMenu.has("cigars");
+      if (tobaccoOnMenu && !licenseForm.sellsTobacco) items.push({ level: "check", text: "Tobacco is on the menu", detail: "Tick “sells tobacco” in the Statement of Tobacco Licensee so the State license number prints, and have the owner initial each line on page 2." });
+      if (licenseForm.sellsTobacco) {
+        items.push({ level: "todo", text: "Initial the tobacco statements", detail: "The owner initials each of the four lines in the Statement of Tobacco Licensee on page 2 of the application." });
+        if (!String(licenseForm.tobaccoLicenseNumber || "").trim()) items.push({ level: "check", text: "Maryland tobacco license number", detail: "Add it to the form (or write “applied for” if it is pending)." });
+      }
+    }
+    if (wants("plan_review") && (!isCounty || county.buildingPermit === "yes")) {
+      items.push({ level: "todo", text: "Scaled floor plan / fixture layout", detail: isCounty ? "Required with the building permit work." : "The City's plan review fee is for review of the floor plan. Attach it in the Submission package." });
+    }
     if (equipKeys.has("coffee_machine")) {
       items.push({ level: "check", text: "Coffee machine", detail: "The priority assessment says nothing is prepared on site. If it brews coffee for customers (especially with creamer or milk), tell the County: a reviewer then expects a hand sink, a way to wash the pots and parts, and backflow prevention if it is plumbed, and the rating may change. If it is a sealed single-serve unit or staff-only, say that in the notes — or remove it from the list." });
     }
@@ -732,6 +753,8 @@ export function HaccpGeneratorPage() {
       ownerHomeCity: lf.ownerHomeCity || text(c.company_contact_city),
       ownerHomeZip: lf.ownerHomeZip || text(c.company_contact_zip_code),
       ownerHomePhone: lf.ownerHomePhone || text(c.company_contact_phone) || text(c.phone) || form.phone,
+      tobaccoLicenseNumber: lf.tobaccoLicenseNumber || text(c.tobacco_license_number),
+      sellsTobacco: lf.sellsTobacco || Boolean(text(c.tobacco_license_number)),
       useAndOccupancyNumber: lf.useAndOccupancyNumber || text(c.use_and_occupancy_number),
       fireDeptPermitNumber: lf.fireDeptPermitNumber || text(c.fire_dept_permit_number),
       county: { ...lf.county, numberOfEmployees: lf.county?.numberOfEmployees || (c.estimated_employee_count ? String(c.estimated_employee_count) : "") },
@@ -1428,7 +1451,7 @@ export function HaccpGeneratorPage() {
           )}
 
           {savedPlanId && (
-            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} noCutSheetKeys={noCutSheetKeys} />
+            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} noCutSheetKeys={noCutSheetKeys} jurisdiction={form.jurisdiction} wasteOption={licenseForm.wasteHaulerOption} wantsPlanReview={components.has("plan_review")} buildingPermit={licenseForm.county?.buildingPermit} />
           )}
 
           {wantsLicenseOrReview && submissionChecklist.length > 0 && (
