@@ -57,6 +57,8 @@ class Cursor {
 /** Fields specific to Baltimore County's own Food Service Facility Permit Application and Fee Statement — no equivalent on the Baltimore City form. */
 export interface CountyPermitData {
   facilityId?: string;
+  /** "New", "Renewal" or "Change of Ownership" — printed on the permit's Type of Application line. */
+  applicationType?: string;
   cateringServiceProvided?: boolean;
   cateringId?: string;
   facilityClassification?: string;
@@ -113,6 +115,8 @@ export interface LicensePdfInput {
    * PDF doesn't suddenly render blank; new plans should always set it.
    */
   officerOwnerName?: string | null;
+  /** The health permit number already on file — its presence means this is a renewal. */
+  licenseNumber?: string | null;
   applicationData: LicenseApplicationData;
 }
 
@@ -253,6 +257,11 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
  * Days→Hours rows above it, i.e. the (otherwise-unlabeled-in-the-AcroForm)
  * "No. of Employees" blank.
  */
+/** Single spaces only — "131 1/2  BACK RIVER NECK RD" must not print with a double gap. */
+function squishText(v: unknown): string {
+  return String(v ?? "").replace(/\s+/g, " ").trim();
+}
+
 export async function generateCountyFoodServicePermitApplicationPdf(data: LicensePdfInput): Promise<Uint8Array> {
   const app = data.applicationData || {};
   const county = app.county || {};
@@ -262,9 +271,11 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
   const ownerName = data.officerOwnerName || data.contactPerson || "";
 
   const values: Record<string, string> = {
+    "Priority Rating": "",
+    "Type of Application": county.applicationType || (data.licenseNumber ? "Renewal" : "New"),
     "Trade Name": data.businessName,
     "Facility ID": county.facilityId || "",
-    "Address": data.streetAddress || "",
+    "Address": squishText(data.streetAddress),
     "City": data.city || "",
     "State": cityStateZip,
     "Zip Code": data.zipCode || "",
@@ -282,8 +293,10 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
     "Text1": county.numberOfEmployees || "",
     "Owner": ownerName,
     "Zip Code_2": app.ownerHomeZip || "",
-    "Address_2": [app.ownerHomeStreet, app.ownerHomeCity].filter(Boolean).join(", "),
+    "Address_2": [squishText(app.ownerHomeStreet), squishText(app.ownerHomeCity)].filter(Boolean).join(", "),
     "Telephone_2": app.ownerHomePhone || "",
+    // The owner is the contact person on these applications, so the business email is also the owner's.
+    "Owner Email": data.email || "",
     "Resident Agent": county.residentAgentName || "",
     "Telephone_3": county.residentAgentPhone || "",
     "Applicants Name": ownerName,

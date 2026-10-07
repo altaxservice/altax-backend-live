@@ -28,7 +28,7 @@ interface HaccpPlanRow {
 interface EquipmentSelection { key: string; label: string; quantity: number }
 interface CertifiedFoodManager { name: string; idNumber: string; expirationDate: string }
 interface CountyPermitData {
-  facilityId?: string; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
+  facilityId?: string; applicationType?: string; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
   numberOfSeats?: string; waterService?: string; sewageDisposal?: string; majorMenuChanges?: boolean;
   certifiedFoodManagers?: CertifiedFoodManager[];
   daysOfOperation?: string; hoursOfOperation?: string; numberOfEmployees?: string;
@@ -900,6 +900,15 @@ export function HaccpGeneratorPage() {
           {form.jurisdiction === "Baltimore County" && (
             <>
               <div className="form-grid-3">
+                <div className="field">
+                  <label htmlFor="hp-app-type">Type of Application</label>
+                  <select id="hp-app-type" value={licenseForm.county?.applicationType || ""} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, applicationType: e.target.value } }))}>
+                    <option value="">{form.licenseNumber ? "Renewal (permit # on file)" : "New (no permit # yet)"}</option>
+                    <option value="New">New</option>
+                    <option value="Renewal">Renewal</option>
+                    <option value="Change of Ownership">Change of Ownership</option>
+                  </select>
+                </div>
                 <div className="field"><label htmlFor="hp-facility-class">Facility Classification</label><input id="hp-facility-class" value={licenseForm.county?.facilityClassification} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, facilityClassification: e.target.value } }))} placeholder="e.g. Retail Food Store" /></div>
                 <div className="field"><label htmlFor="hp-seats">Number of Seats Provided</label><input id="hp-seats" value={licenseForm.county?.numberOfSeats} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, numberOfSeats: e.target.value } }))} placeholder="0 if none" /></div>
                 <div className="field"><label htmlFor="hp-employees">No. of Employees</label><input id="hp-employees" value={licenseForm.county?.numberOfEmployees} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, numberOfEmployees: e.target.value } }))} /></div>

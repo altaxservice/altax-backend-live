@@ -261,6 +261,7 @@ function parseCountyPermitData(raw: unknown): LicenseApplicationData["county"] {
     : undefined;
   return {
     facilityId: String(d.facilityId || "").trim() || undefined,
+    applicationType: ["New", "Renewal", "Change of Ownership"].includes(String(d.applicationType)) ? String(d.applicationType) : undefined,
     cateringServiceProvided: Boolean(d.cateringServiceProvided),
     cateringId: String(d.cateringId || "").trim() || undefined,
     facilityClassification: String(d.facilityClassification || "").trim() || undefined,
@@ -485,7 +486,7 @@ haccpRouter.post("/plans/:planId/delete", requireAuth, requireRole("admin"), asy
  * never selected) — see the `?only=` query param on the /pdf and /docx
  * routes below.
  */
-function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData {
+export function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData {
   const businessType = HACCP_BUSINESS_TYPES.find((t) => t.key === plan.business_type_key);
   const allComponents: string[] = plan.components || ["haccp_plan", "menu_equipment"];
   const components = onlyComponent && allComponents.includes(onlyComponent) ? [onlyComponent] : allComponents;
@@ -538,7 +539,7 @@ haccpRouter.get("/plans/:planId/docx", requireAuth, requireRole("admin", "staff"
   res.send(buffer);
 }));
 
-function toLicensePdfInput(plan: any) {
+export function toLicensePdfInput(plan: any) {
   const businessType = HACCP_BUSINESS_TYPES.find((t) => t.key === plan.business_type_key);
   return {
     planId: plan.plan_id,
@@ -546,7 +547,7 @@ function toLicensePdfInput(plan: any) {
     businessTypeLabel: HACCP_BUSINESS_TYPE_LABEL[plan.business_type_key] || plan.business_type_key,
     riskPriority: businessType?.riskPriority || ("Moderate" as const),
     streetAddress: plan.street_address, city: plan.city, state: plan.state, zipCode: plan.zip_code,
-    phone: plan.phone, email: plan.email, contactPerson: plan.contact_person, officerOwnerName: plan.officer_owner_name,
+    phone: plan.phone, email: plan.email, contactPerson: plan.contact_person, officerOwnerName: plan.officer_owner_name, licenseNumber: plan.license_number,
     applicationData: (plan.license_application_data || {}) as LicenseApplicationData,
   };
 }

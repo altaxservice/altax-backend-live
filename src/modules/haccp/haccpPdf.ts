@@ -16,6 +16,7 @@
  * Final section: Equipment List, on its own fresh page — matches the Word
  * doc's document order (Cover → Menu → Body → Equipment List).
  */
+import { tidyAddress } from "../govForms/billOfSale";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, degrees } from "pdf-lib";
 import { pdfSafeText } from "../../common/pdfText";
 
@@ -35,11 +36,20 @@ const CCP_COLUMN_LABELS = ["CCP Procedures & Equipment", "Monitoring", "Correcti
 // the two formats read the same way instead of the PDF being the plainer one.
 const LEAD_IN_RE = /^(\d+\.\s*)?([A-Z][A-Za-z0-9 &/'-]{2,50}[.:])\s+(.+)$/;
 
+/** The firm works in Eastern time — a plan built at 9 PM on Oct 6 is dated 10/6, not the UTC date 10/7. */
 function fmtDate(v: unknown): string {
-  if (!v) return new Date().toLocaleDateString(undefined, { timeZone: "UTC" });
-  const d = new Date(v as string);
+  const d = v ? new Date(v as string) : new Date();
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+  return d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" });
+}
+
+/** "131 1/2 Back River Neck Rd — Essex, MD 21221": normal case, single spaces, "ST ZIP" together. */
+function addressLine(data: { streetAddress?: string | null; city?: string | null; state?: string | null; zipCode?: string | null }): string {
+  const squish = (v?: string | null) => String(v || "").replace(/\s+/g, " ").trim();
+  const street = tidyAddress(squish(data.streetAddress)) || "";
+  const city = tidyAddress(squish(data.city)) || "";
+  const stateZip = [squish(data.state), squish(data.zipCode)].filter(Boolean).join(" ");
+  return [street, [city, stateZip].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
 }
 
 export interface HaccpMenuGroup { category: string; items: string[] }
@@ -65,6 +75,17 @@ export interface HaccpPdfData {
   createdAt: string | null;
   /** Which sections this document actually wants — see haccp.routes.ts's HACCP_PLAN_COMPONENTS. */
   components: string[];
+}
+
+/**
+ * Text width the way pdf-lib actually DRAWS it. widthOfTextAtSize() subtracts kerning, but drawText()
+ * doesn't apply it, so a label measured that way ("CROSS-CONTAMINATION:") is drawn wider than measured
+ * and the next piece of text lands on top of it. Summing single characters has no kerning to subtract.
+ */
+function drawnWidth(font: PDFFont, text: string, size: number): number {
+  let w = 0;
+  for (const ch of pdfSafeText(text)) w += font.widthOfTextAtSize(ch, size);
+  return w;
 }
 
 class Cursor {
@@ -119,9 +140,10 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
  * lifting the page in the first place.
  */
 function drawWatermark(page: PDFPage, font: PDFFont, businessName: string) {
-  page.drawText(pdfSafeText(`PREPARED FOR ${businessName.toUpperCase()}`), {
-    x: 60, y: 330, size: 26, font, color: rgb(0.88, 0.88, 0.88), rotate: degrees(35),
-  });
+  const text = pdfSafeText(`PREPARED FOR ${businessName.toUpperCase()}`);
+  // Shrink a long name so the whole thing fits along the diagonal instead of running off the page.
+  const size = Math.max(11, Math.min(26, 560 / Math.max(font.widthOfTextAtSize(text, 1), 1)));
+  page.drawText(text, { x: 60, y: 330, size, font, color: rgb(0.88, 0.88, 0.88), rotate: degrees(35) });
 }
 
 function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont, businessName: string): { page: PDFPage; c: Cursor } {
@@ -186,8 +208,8 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   leftY += 18;
   c.text(L, leftY, data.businessTypeLabel, { size: 10, color: TEAL, bold: true });
   leftY += 16;
-  const addressParts = [data.streetAddress, [data.city, data.state, data.zipCode].filter(Boolean).join(", ")].filter(Boolean);
-  if (addressParts.length) { c.text(L, leftY, addressParts.join(" — "), { size: 9.5 }); leftY += 14; }
+  const coverAddress = addressLine(data);
+  if (coverAddress) { c.text(L, leftY, coverAddress, { size: 9.5 }); leftY += 14; }
   if (data.licenseNumber) { c.text(L, leftY, `License/Permit #: ${data.licenseNumber}`, { size: 9.5 }); leftY += 14; }
 
   // Left-aligned at a fixed X (not right-aligned) — right-aligning each line
@@ -215,6 +237,9 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   // nothing but a title and an address reads as unfinished; a quick count of
   // what's actually in the plan gives the reader something real to look at
   // before flipping to the detail pages.
+  // How many CCP processes the plan really contains — one per "Process:" heading in its body (this used to print a fixed 3).
+  const bodyLines = (data.renderedBody || "").split("\n").map((l) => l.trim());
+  const ccpProcessCount = bodyLines.filter((l) => /^Process\b/i.test(l)).length || bodyLines.filter((l) => /^CCP & EQUIPMENT:/.test(l)).length;
   const totalMenuItems = data.menuGroups.reduce((n, g) => n + g.items.length, 0);
   const panelH = 92;
   c.rect(L, y, R - L, panelH, TEAL_TINT);
@@ -223,7 +248,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     ["Menu categories covered", String(data.menuGroups.length)],
     ["Menu items on file", String(totalMenuItems)],
     ["Equipment on file", String(data.equipment.length)],
-    ...(hasHaccpPlan ? ([["Critical control processes", "3"]] as [string, string][]) : []),
+    ...(hasHaccpPlan ? ([["Critical control processes", String(ccpProcessCount)]] as [string, string][]) : []),
   ];
   const colGap = (R - L - 32) / 2;
   stats.forEach(([label, value], i) => {
@@ -242,8 +267,8 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   function coverContactLine(label: string, value?: string | null) {
     if (!value) return;
     const labelText = `${label}: `;
-    const labelW = font.widthOfTextAtSize(labelText, 9.5);
-    const valueW = bold.widthOfTextAtSize(value, 9.5);
+    const labelW = drawnWidth(font, labelText, 9.5);
+    const valueW = drawnWidth(bold, value, 9.5);
     const startX = PAGE_W / 2 - (labelW + valueW) / 2;
     c.text(startX, y, labelText, { size: 9.5, color: MUTED });
     c.text(startX + labelW, y, value, { size: 9.5, bold: true });
@@ -281,7 +306,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   c.rect(L, y, R - L, 40, TEAL_TINT);
   c.text(L + 12, y + 17, data.businessName, { size: 12.5, bold: true });
   c.text(L + 12, y + 32, data.businessTypeLabel, { size: 9, color: TEAL, bold: true });
-  const bannerAddr = [data.streetAddress, [data.city, data.state, data.zipCode].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  const bannerAddr = addressLine(data);
   if (bannerAddr) c.text(R - 12, y + 17, bannerAddr, { size: 8.5, align: "right" });
   c.text(R - 12, y + 32, data.jurisdiction, { size: 8.5, color: MUTED, align: "right" });
   y += 56;
@@ -409,7 +434,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
 
     const isSectionHeader = /^[A-Z][A-Z0-9 &().,/'-]{3,}$/.test(line) && line === line.toUpperCase();
     if (isSectionHeader) {
-      ensurePdfSpace(30);
+      ensurePdfSpace(76); // heading + at least the first few lines of its text on the same page
       y += 6;
       c.text(L, y, line, { size: 11.5, bold: true, color: TEAL });
       y += 8;
@@ -429,11 +454,11 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     const leadMatch = line.match(LEAD_IN_RE);
     if (leadMatch) {
       const [, numPrefix, lead, rest] = leadMatch;
-      const prefixText = `${numPrefix || ""}${lead} `;
-      const prefixW = bold.widthOfTextAtSize(pdfSafeText(prefixText), 9.5);
+      const numW = drawnWidth(font, numPrefix || "", 9.5);
+      const prefixW = numW + drawnWidth(bold, `${lead} `, 9.5);
       ensurePdfSpace(16);
       c.text(L, y, numPrefix || "", { size: 9.5 });
-      c.text(L + bold.widthOfTextAtSize(pdfSafeText(numPrefix || ""), 9.5), y, `${lead} `, { size: 9.5, bold: true, color: TEAL });
+      c.text(L + numW, y, `${lead} `, { size: 9.5, bold: true, color: TEAL });
       const wrapped = wrapText(rest, font, 9.5, maxWidth - prefixW);
       wrapped.forEach((wline, i) => {
         if (i > 0) ensurePdfSpace(13);
