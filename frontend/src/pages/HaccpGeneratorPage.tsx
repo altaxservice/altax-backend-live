@@ -314,6 +314,30 @@ export function HaccpGeneratorPage() {
   // record; it never overwrites a field staff already typed (e.g. re-linking
   // an existing saved plan to a different client shouldn't wipe a
   // deliberately-edited phone number).
+  /**
+   * Fills blank License & Permit fields from what's already on this form: the contact person is the
+   * owner's name, the business phone is the fallback owner phone, and the business type decides the
+   * facility type (and "0" seats for a no-cook, no-seating store). Never overwrites anything typed.
+   */
+  function applyBusinessInfoDefaults(typeKey: string = form.businessTypeKey) {
+    const bt = options?.businessTypes.find((t) => t.key === typeKey) || null;
+    const previousLabel = options?.businessTypes.find((t) => t.key === form.businessTypeKey)?.label || "";
+    setForm((f) => ({ ...f, officerOwnerName: f.officerOwnerName || f.contactPerson }));
+    setLicenseForm((lf) => ({
+      ...lf,
+      ownerHomePhone: lf.ownerHomePhone || form.phone,
+      // Follows the business type until someone types their own wording.
+      facilityTypeOverride: !lf.facilityTypeOverride || lf.facilityTypeOverride === previousLabel ? (bt?.label || "") : lf.facilityTypeOverride,
+      county: { ...lf.county, numberOfSeats: lf.county?.numberOfSeats || (bt && !bt.hasCookStep && !bt.hasHotHolding ? "0" : "") },
+    }));
+  }
+
+  async function fillBlanks() {
+    if (form.clientId) await prefillFromClient(form.clientId);
+    applyBusinessInfoDefaults();
+    toast(form.clientId ? "Filled the blank fields from the client's profile and the business info above." : "Filled the blank fields from the business info above.");
+  }
+
   async function prefillFromClient(clientId: string) {
     const listed = clients.find((cl) => cl.client_id === clientId);
     if (!listed) { setForm((f) => ({ ...f, clientId })); return; }
@@ -341,7 +365,7 @@ export function HaccpGeneratorPage() {
       email: f.email || c.email || "",
       contactPerson: f.contactPerson || c.company_contact_name || "",
       // The owner's legal name is the client's responsible party; the license number is the one already on the profile.
-      officerOwnerName: f.officerOwnerName || text(c.company_contact_name),
+      officerOwnerName: f.officerOwnerName || text(c.company_contact_name) || f.contactPerson,
       licenseNumber: f.licenseNumber || text(c.health_permit_license_number),
     }));
     setLicenseForm((lf) => ({
@@ -352,7 +376,7 @@ export function HaccpGeneratorPage() {
       ownerHomeStreet: lf.ownerHomeStreet || text(c.company_contact_street_address),
       ownerHomeCity: lf.ownerHomeCity || text(c.company_contact_city),
       ownerHomeZip: lf.ownerHomeZip || text(c.company_contact_zip_code),
-      ownerHomePhone: lf.ownerHomePhone || text(c.company_contact_phone) || text(c.phone),
+      ownerHomePhone: lf.ownerHomePhone || text(c.company_contact_phone) || text(c.phone) || form.phone,
       useAndOccupancyNumber: lf.useAndOccupancyNumber || text(c.use_and_occupancy_number),
       fireDeptPermitNumber: lf.fireDeptPermitNumber || text(c.fire_dept_permit_number),
       county: { ...lf.county, numberOfEmployees: lf.county?.numberOfEmployees || (c.estimated_employee_count ? String(c.estimated_employee_count) : "") },
@@ -580,7 +604,7 @@ export function HaccpGeneratorPage() {
             <div className="field"><label htmlFor="hp-name">Business Name</label><input id="hp-name" required value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} /></div>
             <div className="field">
               <label htmlFor="hp-type">Business Type{!wantsHaccpPlan && " (optional — for reference)"}</label>
-              <select id="hp-type" required={wantsHaccpPlan} value={form.businessTypeKey} onChange={(e) => setForm((f) => ({ ...f, businessTypeKey: e.target.value }))}>
+              <select id="hp-type" required={wantsHaccpPlan} value={form.businessTypeKey} onChange={(e) => { setForm((f) => ({ ...f, businessTypeKey: e.target.value })); applyBusinessInfoDefaults(e.target.value); }}>
                 <option value="">Select…</option>
                 {options?.businessTypes.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
@@ -774,12 +798,10 @@ export function HaccpGeneratorPage() {
           <>
           <div className="form-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span>License &amp; Permit Applications</span>
-            {form.clientId && (
-              <button type="button" className="btn btn-sm" onClick={() => { prefillFromClient(form.clientId); toast("Filled the blank fields from the client's profile."); }}
-                title="Fills only the fields that are still empty — owner name, DBA, owner's home address and phone, permit numbers, employee count — from this client's profile.">
-                ↻ Fill blanks from client profile
-              </button>
-            )}
+            <button type="button" className="btn btn-sm" onClick={() => { void fillBlanks(); }}
+              title="Fills only the fields that are still empty — owner name, DBA, owner's home address and phone, permit numbers, employee count, facility type — from this client's profile and the business info above.">
+              ↻ Fill blanks from business info
+            </button>
           </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
             {form.jurisdiction === "Baltimore County"
