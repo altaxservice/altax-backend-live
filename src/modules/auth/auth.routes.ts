@@ -449,6 +449,25 @@ authRouter.post("/login/verify-totp", codeLimiter, asyncHandler(async (req: Requ
  * secret + QR code but does NOT enable 2FA yet — confirm requires proving
  * the authenticator app actually works before locking the account to it.
  */
+/**
+ * Mints a short-lived link for opening one file in a new browser tab under its real name. The caller must be
+ * signed in; the link is bound to that user, that exact GET path and a filename, and expires in 2 minutes
+ * (see requireAuth's `vt` handling). It cannot be used as a login token.
+ */
+authRouter.post("/view-link", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const path = String(req.body?.path || "");
+  const filename = String(req.body?.filename || "").trim().slice(0, 180);
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("..") || path.startsWith("/auth") || path.length > 500) {
+    return res.status(400).json({ error: "That file can't be opened this way." });
+  }
+  const u = req.user!;
+  const token = jwt.sign(
+    { sub: u.sub, role: u.role, email: u.email, clientId: u.clientId, employeeId: u.employeeId, tv: u.tv, purpose: "view-link", p: path, fn: filename || undefined },
+    process.env.JWT_SECRET as string, { expiresIn: 120 }
+  );
+  res.json({ url: `${path}${path.includes("?") ? "&" : "?"}vt=${token}` });
+}));
+
 authRouter.post("/2fa/setup", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const client = await pool.connect();
   try {

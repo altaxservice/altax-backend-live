@@ -143,15 +143,27 @@ export async function downloadFile(path: string, filename: string): Promise<void
 }
 
 /**
- * Opens a file (PDF, etc.) that requires auth in a new tab for viewing/printing,
+ * Opens a file (PDF, etc.) that requires auth in a new tab for viewing/printing (pass `filename` so saving it from
+ * the viewer uses that name),
  * rather than forcing a download. The tab is opened synchronously, before the
  * `await` below, so it's still attached to the click's user gesture — opening
  * it after the fetch resolves gets silently blocked as a popup by Safari and
  * Chrome, since by then the browser no longer considers it user-initiated.
  */
-export async function viewFile(path: string): Promise<void> {
+export async function viewFile(path: string, filename?: string): Promise<void> {
   const win = window.open("", "_blank");
   try {
+    // With a filename, open the file straight from the server through a short-lived signed link: the PDF viewer
+    // then saves it under that name instead of the random id a blob: address gets.
+    if (filename) {
+      try {
+        const link = await request<{ url: string }>("POST", "/auth/view-link", { path, filename });
+        const target = `${API_BASE_URL}${link.url}`;
+        if (win) win.location.href = target;
+        else window.open(target, "_blank");
+        return;
+      } catch { /* fall back to the blob below */ }
+    }
     const blob = await fetchAuthedBlob(path);
     const url = URL.createObjectURL(blob);
     if (win) win.location.href = url;

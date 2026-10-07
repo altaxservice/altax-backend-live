@@ -46,9 +46,41 @@ async function getAuthState(userId: string): Promise<{ active: boolean; tokenVer
   return state;
 }
 
+/** Removes the `vt` query parameter so the rest of the URL can be compared with the path a view link was minted for. */
+function withoutViewToken(url: string): string {
+  return url.replace(/([?&])vt=[^&]*&?/, "$1").replace(/[?&]$/, "");
+}
+
 export function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  let token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  let viewLink: { p: string; fn?: string } | null = null;
+
+  // A "view link" (POST /auth/view-link) lets a browser tab open a file straight from the server, so the PDF
+  // viewer saves it under its real name instead of a random blob id. It is signed, expires in ~2 minutes, only
+  // works for GET/HEAD on exactly the path it was minted for, and can never act as a normal session token.
+  if (!token && typeof req.query.vt === "string" && req.query.vt) {
+    if (req.method !== "GET" && req.method !== "HEAD") return res.status(401).json({ error: "Missing authentication token." });
+    try {
+      const v = jwt.verify(req.query.vt, process.env.JWT_SECRET as string) as AuthedRequest["user"] & { purpose?: string; p?: string; fn?: string };
+      if (v.purpose !== "view-link" || !v.p || !withoutViewToken(req.originalUrl).endsWith(v.p)) {
+        return res.status(401).json({ error: "Invalid or expired link." });
+      }
+      viewLink = { p: v.p, fn: v.fn };
+      token = jwt.sign({ sub: v.sub, role: v.role, email: v.email, clientId: v.clientId, employeeId: v.employeeId, tv: v.tv }, process.env.JWT_SECRET as string, { expiresIn: 60 });
+    } catch {
+      return res.status(401).json({ error: "Invalid or expired link." });
+    }
+    if (viewLink.fn) {
+      // Name the file the way the link was minted: the routes set generic ids-based names.
+      const safe = viewLink.fn.replace(/[\\/:*?"<>|\r\n]/g, "-");
+      const original = res.setHeader.bind(res);
+      res.setHeader = ((name: string, value: any) =>
+        String(name).toLowerCase() === "content-disposition"
+          ? original(name, `inline; filename="${safe.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(safe)}`)
+          : original(name, value)) as typeof res.setHeader;
+    }
+  }
   if (!token) return res.status(401).json({ error: "Missing authentication token." });
 
   let payload: (AuthedRequest["user"] & { purpose?: string }) | undefined;
