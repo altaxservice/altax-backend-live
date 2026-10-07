@@ -32,7 +32,8 @@ interface HaccpPlanRow {
   jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
   created_at: string; updated_at: string; components: HaccpPlanComponent[];
 }
-interface EquipmentSelection { key: string; label: string; quantity: number; model?: string }
+interface EquipmentSpec { nsfListed?: "yes" | "no"; nsfStandard?: string; dimensions?: string; electrical?: string; refrigerant?: string; tempRange?: string; capacity?: string; location?: string; serial?: string; notes?: string }
+interface EquipmentSelection { key: string; label: string; quantity: number; model?: string; spec?: EquipmentSpec }
 interface CertifiedFoodManager { name: string; idNumber: string; expirationDate: string }
 interface CountyPermitData {
   facilityId?: string; applicationType?: string; buildingPermit?: "yes" | "no"; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
@@ -70,11 +71,28 @@ interface PlanAttachment { attachment_id: string; kind: "cut_sheet" | "occupancy
  * then print the whole submission — cover sheet, application, menu and equipment, equipment schedule, cut sheets,
  * approvals — as one PDF in the order a reviewer expects.
  */
-function SubmissionPackagePanel({ planId, equipment, baseName }: { planId: string; equipment: EquipmentSelection[]; baseName: string }) {
+function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void }) {
   const toast = useToast();
   const [items, setItems] = useState<PlanAttachment[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openDetails, setOpenDetails] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { model: string; spec: EquipmentSpec }>>({});
+  const draftFor = (e: EquipmentSelection) => drafts[e.key] || { model: e.model || "", spec: e.spec || {} };
+  const setDraft = (e: EquipmentSelection, patch: { model?: string; spec?: Partial<EquipmentSpec> }) =>
+    setDrafts((d) => { const cur = d[e.key] || { model: e.model || "", spec: e.spec || {} }; return { ...d, [e.key]: { model: patch.model ?? cur.model, spec: { ...cur.spec, ...(patch.spec || {}) } } }; });
+  async function saveDetails(e: EquipmentSelection) {
+    const d = draftFor(e);
+    setBusy(`details:${e.key}`); setError(null);
+    try {
+      const r = await api.put<{ equipment: EquipmentSelection[] }>(`/haccp/plans/${planId}/equipment/${encodeURIComponent(e.key)}`, { model: d.model, spec: d.spec });
+      onEquipmentChange(r.equipment);
+      setDrafts((cur) => { const { [e.key]: _drop, ...rest } = cur; return rest; });
+      toast("Equipment details saved.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save these details.");
+    } finally { setBusy(null); }
+  }
 
   function load() {
     api.get<{ attachments: PlanAttachment[] }>(`/haccp/plans/${planId}/attachments`).then((r) => setItems(r.attachments)).catch(() => setItems([]));
@@ -148,10 +166,51 @@ function SubmissionPackagePanel({ planId, equipment, baseName }: { planId: strin
       </p>
       {error && <div style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 8 }}>{error}</div>}
       {needSheets.length === 0 && <p className="muted" style={{ fontSize: 12.5 }}>No equipment on this plan needs a cut sheet.</p>}
-      {needSheets.map((e) => slot(
-        `Cut sheet — ${e.label}${e.quantity > 1 ? ` (x${e.quantity})` : ""}${e.model ? ` — ${e.model}` : ""}`,
-        "Manufacturer spec sheet showing NSF (or equivalent) approval.",
-        find("cut_sheet", e.key), (f) => upload("cut_sheet", f, e.key), `cut_sheet:${e.key}`
+      {needSheets.map((e) => (
+        <div key={e.key}>
+          {slot(
+            `Cut sheet — ${e.label}${e.quantity > 1 ? ` (x${e.quantity})` : ""}${e.model ? ` — ${e.model}` : ""}`,
+            e.spec && Object.keys(e.spec).length ? "Equipment details are filled in (printed as a data sheet). Attach the manufacturer's PDF as well when you have it." : "Manufacturer spec sheet showing NSF (or equivalent) approval — or fill in the details below.",
+            find("cut_sheet", e.key), (f) => upload("cut_sheet", f, e.key), `cut_sheet:${e.key}`
+          )}
+          <div style={{ padding: "4px 0 8px" }}>
+            <button type="button" className="btn btn-sm" onClick={() => setOpenDetails(openDetails === e.key ? null : e.key)}>
+              {openDetails === e.key ? "Hide details" : e.spec && Object.keys(e.spec).length ? "Edit equipment details" : "Fill in equipment details"}
+            </button>
+            {openDetails === e.key && (() => {
+              const d = draftFor(e);
+              const input = (label: string, value: string, onChange: (v: string) => void, placeholder?: string) => (
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 11.5 }}>{label}</label>
+                  <input value={value} onChange={(ev) => onChange(ev.target.value)} placeholder={placeholder} style={{ padding: "4px 6px" }} />
+                </div>
+              );
+              return (
+                <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 8 }}>
+                  {input("Make / model", d.model, (v) => setDraft(e, { model: v }), "e.g. True GDM-49")}
+                  {input("Serial number", d.spec.serial || "", (v) => setDraft(e, { spec: { serial: v } }))}
+                  <div className="field" style={{ margin: 0 }}>
+                    <label style={{ fontSize: 11.5 }}>NSF / ANSI listed?</label>
+                    <select value={d.spec.nsfListed || ""} onChange={(ev) => setDraft(e, { spec: { nsfListed: (ev.target.value || undefined) as "yes" | "no" | undefined } })} style={{ padding: "4px 6px" }}>
+                      <option value="">—</option><option value="yes">Yes</option><option value="no">No</option>
+                    </select>
+                  </div>
+                  {input("Standard / listing no.", d.spec.nsfStandard || "", (v) => setDraft(e, { spec: { nsfStandard: v } }), "e.g. NSF/ANSI 7")}
+                  {input("Size (W x D x H)", d.spec.dimensions || "", (v) => setDraft(e, { spec: { dimensions: v } }), "e.g. 54 x 31 x 83 in")}
+                  {input("Capacity", d.spec.capacity || "", (v) => setDraft(e, { spec: { capacity: v } }), "e.g. 49 cu ft")}
+                  {input("Electrical (volts / amps / HP)", d.spec.electrical || "", (v) => setDraft(e, { spec: { electrical: v } }), "e.g. 115 V / 7.1 A / 1/3 HP")}
+                  {input("Refrigerant", d.spec.refrigerant || "", (v) => setDraft(e, { spec: { refrigerant: v } }), "e.g. R-290")}
+                  {input("Operating temperature", d.spec.tempRange || "", (v) => setDraft(e, { spec: { tempRange: v } }), "e.g. 33-38 F")}
+                  {input("Location in the store", d.spec.location || "", (v) => setDraft(e, { spec: { location: v } }), "e.g. back wall, cold drinks")}
+                  <div style={{ gridColumn: "1 / -1" }}>{input("Notes", d.spec.notes || "", (v) => setDraft(e, { spec: { notes: v } }))}</div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <button type="button" className="btn btn-sm btn-primary" disabled={busy === `details:${e.key}`} onClick={() => saveDetails(e)}>{busy === `details:${e.key}` ? "Saving…" : "Save details"}</button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
       ))}
       {slot("Certificate of Occupancy (copy)", "The commercial certificate issued by the County.", find("occupancy"), (f) => upload("occupancy", f), "occupancy:")}
       {slot("Zoning Use Permit (copy)", "The permit the County zoning office issued.", find("zoning"), (f) => upload("zoning", f), "zoning:")}
@@ -1324,7 +1383,7 @@ export function HaccpGeneratorPage() {
           )}
 
           {savedPlanId && (
-            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} />
+            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} />
           )}
 
           {wantsLicenseOrReview && submissionChecklist.length > 0 && (

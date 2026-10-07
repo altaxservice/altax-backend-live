@@ -17,7 +17,7 @@ import { generateHaccpPdf } from "./haccpPdf";
 import {
   generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf, generateCountyFoodServicePermitApplicationPdf,
 } from "./licenseApplicationsPdf";
-import { loadPlanForUser, toHaccpPdfInput, toLicensePdfInput, type EquipmentSelection } from "./haccp.routes";
+import { loadPlanForUser, toHaccpPdfInput, toLicensePdfInput, sanitizeEquipmentSpec, type EquipmentSelection } from "./haccp.routes";
 import { HACCP_NO_CUT_SHEET_KEYS } from "./haccpContent";
 
 export const haccpPackageRouter = Router();
@@ -80,6 +80,56 @@ async function loadAttachmentBytes(planId: string, attachmentId: string): Promis
   return { bytes: Buffer.from(base64, "base64"), meta: row };
 }
 
+/** True when the owner typed at least one detail for this piece (beyond its make/model). */
+function hasSpec(e: EquipmentSelection): boolean {
+  return Boolean(e.spec && Object.values(e.spec).some(Boolean));
+}
+
+// ---------------------------------------------------------------------------
+// Equipment Data Sheet — one page of typed details for a piece of equipment
+// ---------------------------------------------------------------------------
+export async function generateEquipmentDataSheetPdf(plan: any, e: EquipmentSelection, cutSheetAttached: boolean): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([PAGE_W, PAGE_H]);
+  const L = 56, R = PAGE_W - 56;
+  const text = (x: number, yy: number, str: string, size = 10, f: PDFFont = font, color = INK) => page.drawText(pdfSafeText(str), { x, y: PAGE_H - yy, size, font: f, color });
+  page.drawRectangle({ x: 0, y: PAGE_H - 6, width: PAGE_W, height: 6, color: TEAL });
+  let y = 70;
+  text(L, y, "EQUIPMENT DATA SHEET", 16, bold, TEAL); y += 24;
+  text(L, y, plan.business_name, 12.5, bold); y += 15;
+  text(L, y, [plan.street_address, [plan.city, [plan.state, plan.zip_code].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean).join(" - "), 9.5, font, MUTED); y += 24;
+  page.drawLine({ start: { x: L, y: PAGE_H - y }, end: { x: R, y: PAGE_H - y }, thickness: 0.75, color: LINE }); y += 22;
+  text(L, y, e.label + (e.quantity > 1 ? `  (quantity ${e.quantity})` : ""), 14, bold); y += 26;
+  const s = e.spec || {};
+  const rows: [string, string][] = [
+    ["Make / model", e.model || ""],
+    ["Serial number", s.serial || ""],
+    ["NSF / ANSI listed", s.nsfListed === "yes" ? "Yes" : s.nsfListed === "no" ? "No" : ""],
+    ["Standard / listing no.", s.nsfStandard || ""],
+    ["Size (W x D x H)", s.dimensions || ""],
+    ["Capacity", s.capacity || ""],
+    ["Electrical (volts / amps / HP)", s.electrical || ""],
+    ["Refrigerant", s.refrigerant || ""],
+    ["Operating temperature", s.tempRange || ""],
+    ["Location in the store", s.location || ""],
+    ["Notes", s.notes || ""],
+  ];
+  for (const [label, value] of rows) {
+    const lines = wrap(font, value || "-", 10.5, R - L - 190);
+    const h = lines.length * 14 + 14;
+    text(L, y + 10, label, 9.5, bold, MUTED);
+    lines.forEach((l, i) => text(L + 190, y + 10 + i * 14, l, 10.5, font, value ? INK : MUTED));
+    y += h;
+    page.drawLine({ start: { x: L, y: PAGE_H - y + 6 }, end: { x: R, y: PAGE_H - y + 6 }, thickness: 0.5, color: LINE });
+  }
+  y += 18;
+  for (const l of wrap(font, cutSheetAttached ? "The manufacturer's cut sheet for this equipment follows this page." : "Prepared from the owner's equipment information. The manufacturer's cut sheet will be provided on request.", 9, R - L)) { text(L, y, l, 9, font, MUTED); y += 12; }
+  text(L, PAGE_H - 40, `${plan.business_name} - Equipment Data Sheet - prepared ${etDate()}`, 7.5, font, MUTED);
+  return doc.save();
+}
+
 function equipmentNeedingCutSheets(equipment: EquipmentSelection[]): EquipmentSelection[] {
   return equipment.filter((e) => !HACCP_NO_CUT_SHEET_KEYS.includes(e.key));
 }
@@ -140,12 +190,13 @@ export async function generateEquipmentSchedulePdf(plan: any, attachments: Attac
     text(cols.qty, y + 10, String(e.quantity || 1), 9.5);
     modelLines.forEach((l, li) => text(cols.model, y + 10 + li * 12, l, 9.5));
     if (!e.model && needs) text(cols.model, y + 10, "(model needed)", 9, font, rgb(0.7, 0.35, 0.05));
-    text(cols.sheet, y + 10, !needs ? "Not required" : attached ? "Attached" : "Needed", 9.5, attached ? bold : font, !needs ? MUTED : attached ? TEAL : rgb(0.7, 0.35, 0.05));
+    const typed = hasSpec(e);
+    text(cols.sheet, y + 10, !needs ? "Not required" : attached ? "Attached" : typed ? "Data sheet" : "Needed", 9.5, attached || typed ? bold : font, !needs ? MUTED : attached ? TEAL : typed ? rgb(0.25, 0.45, 0.2) : rgb(0.7, 0.35, 0.05));
     y += rowH;
     page.drawLine({ start: { x: L, y: PAGE_H - y + 2 }, end: { x: R, y: PAGE_H - y + 2 }, thickness: 0.5, color: LINE });
   });
   y += 14;
-  const missing = equipmentNeedingCutSheets(equipment).filter((e) => !attachments.some((a) => a.kind === "cut_sheet" && a.equipment_key === e.key)).length;
+  const missing = equipmentNeedingCutSheets(equipment).filter((e) => !attachments.some((a) => a.kind === "cut_sheet" && a.equipment_key === e.key) && !hasSpec(e)).length;
   if (y + 30 < PAGE_H - 60) text(L, y, missing ? `${missing} cut sheet${missing === 1 ? "" : "s"} still to attach.` : "All required cut sheets are attached behind this page.", 9, font, MUTED);
   footer();
   return doc.save();
@@ -197,7 +248,9 @@ async function buildPacket(plan: any, attachments: AttachmentMeta[]): Promise<{ 
   const needed = equipmentNeedingCutSheets(equipment);
   for (const e of needed) {
     const a = attachments.find((x) => x.kind === "cut_sheet" && x.equipment_key === e.key);
-    if (!a) { pending.push(`Cut sheet for ${e.label}${e.model ? ` (${e.model})` : ""}`); continue; }
+    const name = `${e.label}${e.model ? ` (${e.model})` : ""}`;
+    if (hasSpec(e)) sections.push({ title: `Equipment data sheet — ${name}`, doc: await pdfFromBytes(await generateEquipmentDataSheetPdf(plan, e, Boolean(a))) });
+    if (!a) { pending.push(hasSpec(e) ? `Manufacturer cut sheet for ${name} — a typed data sheet is included for now` : `Cut sheet for ${name} (or fill in its equipment details)`); continue; }
     const loaded = await loadAttachmentBytes(plan.plan_id, a.attachment_id);
     if (loaded) sections.push({ title: `Cut sheet — ${e.label}${e.model ? ` (${e.model})` : ""}`, doc: loaded.meta.mime_type === "application/pdf" ? await pdfFromBytes(loaded.bytes) : await pdfFromImage(loaded.bytes, loaded.meta.mime_type) });
   }
@@ -323,6 +376,24 @@ haccpPackageRouter.post("/plans/:planId/attachments/:attachmentId/delete", requi
   if (!r.length) return res.status(404).json({ error: "Attachment not found." });
   await logAudit("Haccp", "PLAN_ATTACHMENT_REMOVED", plan.plan_id, r[0].kind, r[0].file_name, "", `Attachment removed from ${plan.business_name} by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
+}));
+
+/** Saves the make/model and typed details for one piece of equipment straight onto the saved plan. */
+haccpPackageRouter.put("/plans/:planId/equipment/:key", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const plan = await planOr404(req, res); if (!plan) return;
+  const list: EquipmentSelection[] = plan.selected_equipment || [];
+  const idx = list.findIndex((e) => e.key === req.params.key);
+  if (idx < 0) return res.status(404).json({ error: "That equipment isn't on the saved plan — save the plan first." });
+  const model = String(req.body?.model ?? list[idx].model ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const spec = sanitizeEquipmentSpec(req.body?.spec);
+  const next = list.map((e, i) => {
+    if (i !== idx) return e;
+    const { model: _m, spec: _s, ...rest } = e;
+    return { ...rest, ...(model ? { model } : {}), ...(spec ? { spec } : {}) };
+  });
+  await query(`UPDATE altax.v3_haccp_plans SET selected_equipment = $2, updated_at = now() WHERE plan_id = $1`, [plan.plan_id, JSON.stringify(next)]);
+  await logAudit("Haccp", "PLAN_EQUIPMENT_DETAILS", plan.plan_id, list[idx].label, "", model, `Equipment details for ${list[idx].label} saved by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, equipment: next });
 }));
 
 haccpPackageRouter.get("/plans/:planId/attachments/:attachmentId/file", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

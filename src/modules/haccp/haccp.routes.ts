@@ -197,8 +197,25 @@ haccpRouter.get("/plans/:planId", requireAuth, requireRole("admin", "staff"), as
  * master list's wording changes later — same immutable-snapshot reasoning as
  * rendered_body itself.
  */
+/** The details a reviewer reads off a cut sheet, typed in by hand — printed as an Equipment Data Sheet when the manufacturer's PDF isn't attached yet. */
+export interface EquipmentSpec {
+  nsfListed?: "yes" | "no"; nsfStandard?: string; dimensions?: string; electrical?: string; refrigerant?: string;
+  tempRange?: string; capacity?: string; location?: string; serial?: string; notes?: string;
+}
+const SPEC_TEXT_FIELDS = ["nsfStandard", "dimensions", "electrical", "refrigerant", "tempRange", "capacity", "location", "serial", "notes"] as const;
+export function sanitizeEquipmentSpec(raw: any): EquipmentSpec | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: EquipmentSpec = {};
+  if (raw.nsfListed === "yes" || raw.nsfListed === "no") out.nsfListed = raw.nsfListed;
+  for (const f of SPEC_TEXT_FIELDS) {
+    const v = String(raw[f] ?? "").replace(/\s+/g, " ").trim().slice(0, f === "notes" ? 300 : 120);
+    if (v) out[f] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** `model` is the manufacturer and model number — what the equipment cut sheets are matched against. */
-export interface EquipmentSelection { key: string; label: string; quantity: number; model?: string }
+export interface EquipmentSelection { key: string; label: string; quantity: number; model?: string; spec?: EquipmentSpec }
 
 function parseEquipmentSelection(raw: unknown): EquipmentSelection[] {
   if (!Array.isArray(raw)) return [];
@@ -207,7 +224,8 @@ function parseEquipmentSelection(raw: unknown): EquipmentSelection[] {
     const label = String(item?.label || "").trim();
     const quantity = Number(item?.quantity);
     const model = String(item?.model || "").replace(/\s+/g, " ").trim().slice(0, 80);
-    return { key, label, quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1, ...(model ? { model } : {}) };
+    const spec = sanitizeEquipmentSpec(item?.spec);
+    return { key, label, quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1, ...(model ? { model } : {}), ...(spec ? { spec } : {}) };
   }).filter((item) => item.label);
 }
 
