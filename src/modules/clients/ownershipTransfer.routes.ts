@@ -736,8 +736,11 @@ async function loadBillOfSaleInputs(clientId: string, transferId: string) {
   ]);
   if (!client || !transfer) return null;
 
-  const businessAddress = [client.street_address, client.city, client.state, client.zip_code].filter((v) => String(v || "").trim()).join(", ");
-  const buyerAddress = [transfer.buyer_street_address, transfer.buyer_city, transfer.buyer_state, transfer.buyer_zip_code].filter((v) => String(v || "").trim()).join(", ");
+  // "Street, City, ST 12345" — state and ZIP share one part rather than being comma-separated.
+  const joinAddress = (street: unknown, city: unknown, state: unknown, zip: unknown) =>
+    [street, city, [state, zip].filter((v) => String(v || "").trim()).join(" ")].filter((v) => String(v || "").trim()).join(", ");
+  const businessAddress = joinAddress(client.street_address, client.city, client.state, client.zip_code);
+  const buyerAddress = joinAddress(transfer.buyer_street_address, transfer.buyer_city, transfer.buyer_state, transfer.buyer_zip_code);
 
   return {
     client,

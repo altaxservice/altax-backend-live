@@ -14,7 +14,7 @@ import {
   TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
 import { getFirmProfile } from "../../common/firmProfile";
-import { classForCategory, entityKindFor, billOfSaleParties, describeSellers, describeBuyers, llcClosingSentence, joinNames, type BillOfSaleData, type EntityKind } from "./billOfSale";
+import { classForCategory, entityKindFor, billOfSaleParties, tidyAddress, legalState, stateClause, stateCaption, describeSellers, describeBuyers, llcClosingSentence, joinNames, type BillOfSaleData, type EntityKind } from "./billOfSale";
 
 export type { EntityKind };
 
@@ -33,12 +33,15 @@ const FONT = "Calibri";
 
 function heading(text: string): Paragraph {
   return new Paragraph({
+    keepNext: true,
     spacing: { before: 240, after: 80 },
     children: [new TextRun({ text, bold: true, font: FONT, size: 21, color: "0B6B6B" })],
   });
 }
-function body(text: string, opts: { bold?: boolean } = {}): Paragraph {
+function body(text: string, opts: { bold?: boolean; keepNext?: boolean } = {}): Paragraph {
   return new Paragraph({
+    keepNext: opts.keepNext,
+    keepLines: true,
     spacing: { after: 160 },
     alignment: AlignmentType.JUSTIFIED,
     children: [new TextRun({ text, font: FONT, size: 21, bold: opts.bold })],
@@ -53,6 +56,7 @@ function centered(text: string, opts: { bold?: boolean; size?: number } = {}): P
 }
 function signatureLine(): Paragraph {
   return new Paragraph({
+    keepNext: true,
     spacing: { before: 320, after: 40 },
     border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "222222", space: 1 } },
     children: [new TextRun({ text: " ", font: FONT, size: 21 })],
@@ -60,6 +64,7 @@ function signatureLine(): Paragraph {
 }
 function labelLine(label: string, value: string): Paragraph {
   return new Paragraph({
+    keepNext: true,
     spacing: { after: 60 },
     tabStops: [{ type: TabStopType.LEFT, position: 1600 }],
     children: [
@@ -146,11 +151,11 @@ function notaryBlock(signerNames: string, state: string): Paragraph[] {
   const signers = signerNames || "____________________";
   return [
     new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: "Acknowledgment", bold: true, font: FONT, size: 21 })] }),
-    body(`STATE OF ${state.toUpperCase()}`),
+    body(stateCaption(state)),
     body("CITY/COUNTY OF ______________________, to wit:"),
     body(
       `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-      `of the State of ${state}, personally appeared ${signers}, known to me (or satisfactorily proven) to be the ` +
+      `of ${stateClause(state)}, personally appeared ${signers}, known to me (or satisfactorily proven) to be the ` +
       `persons whose names are subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
     ),
     body("WITNESS my hand and Notarial Seal."),
@@ -161,10 +166,11 @@ function notaryBlock(signerNames: string, state: string): Paragraph[] {
   ];
 }
 
-export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buffer> {
+export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buffer> {
+  const data: BillOfSaleData = { ...input, businessAddress: tidyAddress(input.businessAddress) };
   const profile = await getFirmProfile();
   const kind = entityKindFor(data.entityType);
-  const state = data.state || "Maryland";
+  const state = legalState(data.state);
   const businessLabel = kind === "LLC"
     ? `${data.businessName}, a ${state} limited liability company`
     : kind === "Corp"
@@ -274,7 +280,7 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buff
   ));
 
   children.push(heading(`${n++}. GOVERNING LAW`));
-  children.push(body(`This Bill of Sale shall be governed by and construed in accordance with the laws of the State of ${state}.`));
+  children.push(body(`This Bill of Sale shall be governed by and construed in accordance with the laws of ${stateClause(state)}.`));
 
   children.push(heading(`${n++}. BINDING EFFECT`));
   children.push(body(
@@ -282,7 +288,7 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buff
     "successors, and assigns. Nothing in this document constitutes legal, tax, or accounting advice to either party."
   ));
 
-  children.push(body("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above."));
+  children.push(body("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above.", { keepNext: true }));
 
   // Signature blocks — every seller and every buyer signs.
   parties.sellers.forEach((p, i) => {

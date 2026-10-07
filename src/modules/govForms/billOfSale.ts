@@ -21,6 +21,7 @@
  * since an itemized schedule can run well past one page.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
+import { stateDisplayName } from "../../common/stateNames";
 import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
 import { pdfSafeText } from "../../common/pdfText";
@@ -151,6 +152,45 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
 }
 
 // ---------------------------------------------------------------------------
+// Wording helpers
+// ---------------------------------------------------------------------------
+const STATE_CODES = new Set(["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","NW","SW","SE"]);
+const KEEP_UPPER = new Set(["CEO", "CFO", "COO", "LLC", "LLP", "PO", "II", "III", "IV"]);
+
+/** A value typed in ALL CAPS ("OWNER", "610 N EUTAW APT B") reads like a form fill-in on a legal document; make it normal case. Mixed-case input is left exactly as typed. */
+export function tidyCaps(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  const t = String(v).trim();
+  if (!t) return null;
+  if (t !== t.toUpperCase()) return t;
+  return t.toLowerCase()
+    .replace(/(^|[^a-z0-9'])([a-z])/g, (_m, a, b) => a + b.toUpperCase())
+    .replace(/\b([A-Za-z]{2,4})\b/g, (w) => (KEEP_UPPER.has(w.toUpperCase()) || STATE_CODES.has(w.toUpperCase()) ? w.toUpperCase() : w))
+    .replace(/(\d)(St|Nd|Rd|Th)\b/g, (_m, d, suf) => d + suf.toLowerCase());
+}
+
+/** A street address in normal case with "City, ST 12345" punctuation ("BALTIMORE, MD, 21201" -> "Baltimore, MD 21201"). */
+export function tidyAddress(v: string | null | undefined): string | null {
+  if (v === null || v === undefined || !String(v).trim()) return null;
+  const joined = String(v).split(",").map((seg) => tidyCaps(seg) || "").filter(Boolean).join(", ");
+  return joined.replace(/,\s*([A-Z]{2}),\s*(\d{5}(?:-\d{4})?)\b/g, ", $1 $2");
+}
+
+/** "Maryland" for "MD"; a full name stays as is. */
+export function legalState(state: string | null | undefined): string {
+  const raw = String(state || "").trim();
+  return stateDisplayName(raw) ?? (raw || "Maryland");
+}
+/** "the State of Maryland" / "the District of Columbia". */
+export function stateClause(state: string): string {
+  return state === "District of Columbia" ? "the District of Columbia" : `the State of ${state}`;
+}
+/** "STATE OF MARYLAND" caption above a notary acknowledgment. */
+export function stateCaption(state: string): string {
+  return state === "District of Columbia" ? "DISTRICT OF COLUMBIA" : `STATE OF ${state.toUpperCase()}`;
+}
+
+// ---------------------------------------------------------------------------
 // Several sellers and/or buyers — shared by the PDF and Word versions so both
 // say the same thing. "Seller" and "Buyer" stay the defined terms; with more
 // than one person each means all of them, individually and together.
@@ -158,8 +198,8 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
 export function billOfSaleParties(data: BillOfSaleData): { sellers: BillOfSaleParty[]; buyers: BillOfSaleParty[] } {
   const clean = (list?: BillOfSaleParty[] | null) => (list || []).filter((p) => p && String(p.name || "").trim());
   return {
-    sellers: [{ name: data.sellerName, title: data.sellerTitle }, ...clean(data.additionalSellers)],
-    buyers: [{ name: data.buyerName, title: data.buyerTitle, address: data.buyerAddress }, ...clean(data.additionalBuyers)],
+    sellers: [{ name: data.sellerName, title: data.sellerTitle }, ...clean(data.additionalSellers)].map((p) => ({ ...p, title: tidyCaps(p.title) })),
+    buyers: [{ name: data.buyerName, title: data.buyerTitle, address: data.buyerAddress }, ...clean(data.additionalBuyers)].map((p) => ({ ...p, title: tidyCaps(p.title), address: tidyAddress(p.address) })),
   };
 }
 
@@ -186,7 +226,9 @@ export function describeSellers(data: BillOfSaleData, kind: string, businessLabe
     return `${joinList(items)}, on behalf of ${businessLabel} ("Seller")`;
   }
   const items = sellers.map((p) => `${p.name}${p.title ? `, ${p.title}` : ""}`);
-  return `${joinList(items)} ("Seller"${plural ? COLLECTIVE : ""})${kind === "LLC" ? `, ${plural ? "owners" : "owner"} of ${businessLabel}` : ""}`;
+  // A title that already says "Owner"/"Member" makes a trailing ", owner of …" redundant.
+  const titled = sellers.every((p) => /owner|member/i.test(p.title || ""));
+  return `${joinList(items)} ("Seller"${plural ? COLLECTIVE : ""})${kind === "LLC" && !titled ? `, ${plural ? "owners" : "owner"} of ${businessLabel}` : ""}`;
 }
 
 export function describeBuyers(data: BillOfSaleData): string {
@@ -203,7 +245,8 @@ export function llcClosingSentence(data: BillOfSaleData): string {
     : "Buyer shall be the sole member of the Company"}, and ${sellers.length > 1 ? "each person named as Seller withdraws as a member" : "Seller withdraws as a member"}.`;
 }
 
-export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8Array> {
+export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint8Array> {
+  const data: BillOfSaleData = { ...input, businessAddress: tidyAddress(input.businessAddress) };
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -248,7 +291,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   c.text(R, y, "BILL OF SALE", { size: 16, bold: true, align: "right" });
   y += 15;
   const kind = entityKindFor(data.entityType);
-  const state = data.state || "Maryland";
+  const state = legalState(data.state);
   const businessLabel = kind === "LLC"
     ? `${data.businessName}, a ${state} limited liability company`
     : kind === "Corp"
@@ -266,8 +309,17 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   c.text(R - 12, y + 33, `Purchase Price: ${fmtMoney(data.salePrice)}`, { size: 9.5, bold: true, color: TEAL, align: "right" });
   y += 62;
 
+  // A heading is drawn together with the first paragraph under it, so it can never end a page on its own.
+  let pendingHeading: string | null = null;
   const paragraph = (text: string, size = 9.5) => {
     const rawLines = text.split("\n");
+    if (pendingHeading !== null) {
+      const first = wrapText(rawLines[0], font, size, maxWidth);
+      ensureSpace(16 + first.length * 13 + 8);
+      c.text(L, y, pendingHeading, { size: 10.5, bold: true, color: TEAL });
+      y += 16;
+      pendingHeading = null;
+    }
     for (const rawLine of rawLines) {
       const wrapped = wrapText(rawLine, font, size, maxWidth);
       ensureSpace(wrapped.length * 13 + 8);
@@ -279,9 +331,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
     y += 8;
   };
   const heading = (text: string) => {
-    ensureSpace(20);
-    c.text(L, y, text, { size: 10.5, bold: true, color: TEAL });
-    y += 16;
+    pendingHeading = text;
   };
 
   const parties = billOfSaleParties(data);
@@ -404,7 +454,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   );
 
   heading(`${n++}. GOVERNING LAW`);
-  paragraph(`This Bill of Sale shall be governed by and construed in accordance with the laws of the State of ${state}.`);
+  paragraph(`This Bill of Sale shall be governed by and construed in accordance with the laws of ${stateClause(state)}.`);
 
   heading(`${n++}. BINDING EFFECT`);
   paragraph(
@@ -412,6 +462,8 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
     "successors, and assigns. Nothing in this document constitutes legal, tax, or accounting advice to either party."
   );
 
+  // The closing sentence travels with the first signature block instead of ending a page on its own.
+  ensureSpace(240);
   paragraph("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above.");
 
   // Signature block — every seller and every buyer signs; keep each party's block whole and push to a new page rather than split.
@@ -436,14 +488,14 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
 
   // One notary acknowledgment covering both signers together, not a separate
   // notarization per party — same convention as billOfSaleDocx.ts's notaryBlock.
-  ensureSpace(170);
+  ensureSpace(290); // the whole acknowledgment, notary lines included, stays on one page
   y += 30;
   heading("Acknowledgment");
-  paragraph(`STATE OF ${state.toUpperCase()}`);
+  paragraph(stateCaption(state));
   paragraph("CITY/COUNTY OF ______________________, to wit:");
   paragraph(
     `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-    `of the State of ${state}, personally appeared ${joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)) || "____________________"}, known to me (or satisfactorily proven) to be the persons whose names are ` +
+    `of ${stateClause(state)}, personally appeared ${joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)) || "____________________"}, known to me (or satisfactorily proven) to be the persons whose names are ` +
     `subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
   );
   paragraph("WITNESS my hand and Notarial Seal.");
