@@ -68,6 +68,9 @@ export function classForCategory(category: string): string {
   return ASSET_ALLOCATION_CLASS[category] || "—";
 }
 
+/** A co-seller or co-buyer beyond the first (the first are `sellerName` / `buyerName`). */
+export interface BillOfSaleParty { name: string; title?: string | null; address?: string | null }
+
 export interface BillOfSaleData {
   clientId: string;
   businessName: string;
@@ -78,6 +81,9 @@ export interface BillOfSaleData {
   buyerName: string;
   buyerTitle?: string | null;
   buyerAddress?: string | null;
+  /** Additional sellers/buyers on the same sale — the Bill of Sale lists and gets signed by all of them. */
+  additionalSellers?: BillOfSaleParty[] | null;
+  additionalBuyers?: BillOfSaleParty[] | null;
   effectiveDate?: string | null;
   salePrice?: number | null;
   assetsIncluded?: string | null;
@@ -142,6 +148,59 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   }
   if (current) lines.push(current);
   return lines.length ? lines : [""];
+}
+
+// ---------------------------------------------------------------------------
+// Several sellers and/or buyers — shared by the PDF and Word versions so both
+// say the same thing. "Seller" and "Buyer" stay the defined terms; with more
+// than one person each means all of them, individually and together.
+// ---------------------------------------------------------------------------
+export function billOfSaleParties(data: BillOfSaleData): { sellers: BillOfSaleParty[]; buyers: BillOfSaleParty[] } {
+  const clean = (list?: BillOfSaleParty[] | null) => (list || []).filter((p) => p && String(p.name || "").trim());
+  return {
+    sellers: [{ name: data.sellerName, title: data.sellerTitle }, ...clean(data.additionalSellers)],
+    buyers: [{ name: data.buyerName, title: data.buyerTitle, address: data.buyerAddress }, ...clean(data.additionalBuyers)],
+  };
+}
+
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]}; and ${items[1]}`;
+  return `${items.slice(0, -1).join("; ")}; and ${items[items.length - 1]}`;
+}
+
+/** "A, B and C" — for the notary acknowledgment. */
+export function joinNames(names: string[]): string {
+  const n = names.map((x) => String(x || "").trim()).filter(Boolean);
+  if (n.length <= 1) return n[0] || "";
+  return `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
+}
+
+const COLLECTIVE = ", which term means each of them individually and all of them together";
+
+export function describeSellers(data: BillOfSaleData, kind: string, businessLabel: string): string {
+  const { sellers } = billOfSaleParties(data);
+  const plural = sellers.length > 1;
+  if (kind === "Corp") {
+    const items = sellers.map((p) => `${p.name}${p.title ? `, its ${p.title}` : ", its authorized officer"}`);
+    return `${joinList(items)}, on behalf of ${businessLabel} ("Seller")`;
+  }
+  const items = sellers.map((p) => `${p.name}${p.title ? `, ${p.title}` : ""}`);
+  return `${joinList(items)} ("Seller"${plural ? COLLECTIVE : ""})${kind === "LLC" ? `, ${plural ? "owners" : "owner"} of ${businessLabel}` : ""}`;
+}
+
+export function describeBuyers(data: BillOfSaleData): string {
+  const { buyers } = billOfSaleParties(data);
+  const items = buyers.map((p) => `${p.name}${p.title ? `, ${p.title}` : ""}${p.address ? `, of ${p.address}` : ""}`);
+  return `${joinList(items)} ("Buyer"${buyers.length > 1 ? COLLECTIVE : ""})`;
+}
+
+/** Closing sentence of the LLC membership-interest section. */
+export function llcClosingSentence(data: BillOfSaleData): string {
+  const { sellers, buyers } = billOfSaleParties(data);
+  return `Upon execution of this Bill of Sale, ${buyers.length > 1
+    ? "the persons named as Buyer shall together be the sole members of the Company, holding the membership interest in the proportions they have agreed among themselves"
+    : "Buyer shall be the sole member of the Company"}, and ${sellers.length > 1 ? "each person named as Seller withdraws as a member" : "Seller withdraws as a member"}.`;
 }
 
 export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8Array> {
@@ -225,13 +284,12 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
     y += 16;
   };
 
-  const sellerDesc = kind === "Corp"
-    ? `${data.sellerName}${data.sellerTitle ? `, its ${data.sellerTitle}` : ", its authorized officer"}, on behalf of ${businessLabel} ("Seller")`
-    : `${data.sellerName}${data.sellerTitle ? `, ${data.sellerTitle}` : ""} ("Seller")${kind === "LLC" ? `, owner of ${businessLabel}` : ""}`;
-  const buyerDesc = `${data.buyerName}${data.buyerTitle ? `, ${data.buyerTitle}` : ""}${data.buyerAddress ? `, of ${data.buyerAddress}` : ""} ("Buyer")`;
+  const parties = billOfSaleParties(data);
+  const sellerDesc = describeSellers(data, kind, businessLabel);
+  const buyerDesc = describeBuyers(data);
   paragraph(`This Bill of Sale is made and entered into as of ${fmtDate(data.effectiveDate)}, by and between:`);
-  paragraph(`SELLER: ${sellerDesc}; and`);
-  paragraph(`BUYER: ${buyerDesc}.`);
+  paragraph(`${parties.sellers.length > 1 ? "SELLERS" : "SELLER"}: ${sellerDesc}; and`);
+  paragraph(`${parties.buyers.length > 1 ? "BUYERS" : "BUYER"}: ${buyerDesc}.`);
 
   let n = 1;
   heading(`${n++}. PARTIES AND BUSINESS`);
@@ -246,8 +304,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
       `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
       `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
       `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
-      `Company, together with all of the assets of the Business described in Section 3 below. Upon execution of this Bill of ` +
-      `Sale, Buyer shall be the sole member of the Company, and Seller withdraws as a member.`
+      `Company, together with all of the assets of the Business described in Section 3 below. ${llcClosingSentence(data)}`
     );
   } else if (kind === "Corp") {
     heading(`${n++}. SALE OF BUSINESS ASSETS`);
@@ -357,33 +414,25 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
 
   paragraph("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above.");
 
-  // Signature block — keep both parties together, push to a new page rather than split.
+  // Signature block — every seller and every buyer signs; keep each party's block whole and push to a new page rather than split.
   ensureSpace(190);
   y += 12;
   c.line(L, y, R, y, INK, 1);
   y += 22;
-  if (kind === "Corp") {
-    c.text(L, y, `SELLER: ${data.businessName}`, { size: 9, bold: true, color: MUTED });
+  const signers: { role: "SELLER" | "BUYER"; party: BillOfSaleParty; label: string }[] = [
+    ...parties.sellers.map((party, i) => ({ role: "SELLER" as const, party, label: parties.sellers.length > 1 ? `SELLER ${i + 1}` : "SELLER" })),
+    ...parties.buyers.map((party, i) => ({ role: "BUYER" as const, party, label: parties.buyers.length > 1 ? `BUYER ${i + 1}` : "BUYER" })),
+  ];
+  signers.forEach((sg, idx) => {
+    if (idx > 0) { ensureSpace(90); y += 36; }
+    const corpSeller = kind === "Corp" && sg.role === "SELLER";
+    c.text(L, y, corpSeller ? `${sg.label}: ${data.businessName}` : sg.label, { size: 9, bold: true, color: MUTED });
     y += 20;
     c.text(L, y, "Signature: __________________________________", { size: 10 });
     c.text(R, y, "Date: ______________", { size: 10, align: "right" });
     y += 22;
-    c.text(L, y, `By: ${data.sellerName}, ${data.sellerTitle || "Authorized Officer"}`, { size: 10 });
-  } else {
-    c.text(L, y, "SELLER", { size: 9, bold: true, color: MUTED });
-    y += 20;
-    c.text(L, y, "Signature: __________________________________", { size: 10 });
-    c.text(R, y, "Date: ______________", { size: 10, align: "right" });
-    y += 22;
-    c.text(L, y, `Print Name: ${data.sellerName}`, { size: 10 });
-  }
-  y += 36;
-  c.text(L, y, "BUYER", { size: 9, bold: true, color: MUTED });
-  y += 20;
-  c.text(L, y, "Signature: __________________________________", { size: 10 });
-  c.text(R, y, "Date: ______________", { size: 10, align: "right" });
-  y += 22;
-  c.text(L, y, `Print Name: ${data.buyerName}`, { size: 10 });
+    c.text(L, y, corpSeller ? `By: ${sg.party.name}, ${sg.party.title || "Authorized Officer"}` : `Print Name: ${sg.party.name}`, { size: 10 });
+  });
 
   // One notary acknowledgment covering both signers together, not a separate
   // notarization per party — same convention as billOfSaleDocx.ts's notaryBlock.
@@ -394,8 +443,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   paragraph("CITY/COUNTY OF ______________________, to wit:");
   paragraph(
     `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-    `of the State of ${state}, personally appeared ${data.sellerName || "____________________"} and ` +
-    `${data.buyerName || "____________________"}, known to me (or satisfactorily proven) to be the persons whose names are ` +
+    `of the State of ${state}, personally appeared ${joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)) || "____________________"}, known to me (or satisfactorily proven) to be the persons whose names are ` +
     `subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
   );
   paragraph("WITNESS my hand and Notarial Seal.");

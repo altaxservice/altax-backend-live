@@ -14,7 +14,7 @@ import {
   TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
 import { getFirmProfile } from "../../common/firmProfile";
-import { classForCategory, entityKindFor, type BillOfSaleData, type EntityKind } from "./billOfSale";
+import { classForCategory, entityKindFor, billOfSaleParties, describeSellers, describeBuyers, llcClosingSentence, joinNames, type BillOfSaleData, type EntityKind } from "./billOfSale";
 
 export type { EntityKind };
 
@@ -142,16 +142,15 @@ function buildFooter(businessName: string): Footer {
 }
 
 /** One acknowledgment covering both signers — both parties appear before the same notary together, not two separate notarizations. */
-function notaryBlock(sellerName: string, buyerName: string, state: string): Paragraph[] {
-  const seller = sellerName || "____________________";
-  const buyer = buyerName || "____________________";
+function notaryBlock(signerNames: string, state: string): Paragraph[] {
+  const signers = signerNames || "____________________";
   return [
     new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: "Acknowledgment", bold: true, font: FONT, size: 21 })] }),
     body(`STATE OF ${state.toUpperCase()}`),
     body("CITY/COUNTY OF ______________________, to wit:"),
     body(
       `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-      `of the State of ${state}, personally appeared ${seller} and ${buyer}, known to me (or satisfactorily proven) to be the ` +
+      `of the State of ${state}, personally appeared ${signers}, known to me (or satisfactorily proven) to be the ` +
       `persons whose names are subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
     ),
     body("WITNESS my hand and Notarial Seal."),
@@ -185,13 +184,12 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buff
     )
   );
 
-  const sellerDesc = kind === "Corp"
-    ? `${data.sellerName}${data.sellerTitle ? `, its ${data.sellerTitle}` : ", its authorized officer"}, on behalf of ${businessLabel} ("Seller")`
-    : `${data.sellerName}${data.sellerTitle ? `, ${data.sellerTitle}` : ""} ("Seller")${kind === "LLC" ? `, owner of ${businessLabel}` : ""}`;
-  const buyerDesc = `${data.buyerName}${data.buyerTitle ? `, ${data.buyerTitle}` : ""}${data.buyerAddress ? `, of ${data.buyerAddress}` : ""} ("Buyer")`;
+  const parties = billOfSaleParties(data);
+  const sellerDesc = describeSellers(data, kind, businessLabel);
+  const buyerDesc = describeBuyers(data);
 
-  children.push(body(`SELLER: ${sellerDesc}; and`));
-  children.push(body(`BUYER: ${buyerDesc}.`));
+  children.push(body(`${parties.sellers.length > 1 ? "SELLERS" : "SELLER"}: ${sellerDesc}; and`));
+  children.push(body(`${parties.buyers.length > 1 ? "BUYERS" : "BUYER"}: ${buyerDesc}.`));
 
   let n = 1;
 
@@ -207,8 +205,7 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buff
       `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
       `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
       `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
-      `Company, together with all of the assets of the Business described in Section 3 below. Upon execution of this Bill of ` +
-      `Sale, Buyer shall be the sole member of the Company, and Seller withdraws as a member.`
+      `Company, together with all of the assets of the Business described in Section 3 below. ${llcClosingSentence(data)}`
     ));
   } else {
     children.push(heading(`${n++}. SALE OF BUSINESS ASSETS`));
@@ -287,20 +284,24 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buff
 
   children.push(body("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above."));
 
-  // Signature blocks
-  children.push(signatureLine());
-  children.push(body(kind === "Corp" ? `SELLER: ${data.businessName}` : "SELLER — Signature", { bold: true }));
-  if (kind === "Corp") children.push(labelLine("By", `${data.sellerName}, ${data.sellerTitle || "Authorized Officer"}`));
-  else children.push(labelLine("Printed Name", data.sellerName));
-  children.push(dateBlankLine());
-
-  children.push(signatureLine());
-  children.push(body("BUYER — Signature", { bold: true }));
-  children.push(labelLine("Printed Name", data.buyerName));
-  children.push(dateBlankLine());
+  // Signature blocks — every seller and every buyer signs.
+  parties.sellers.forEach((p, i) => {
+    const label = parties.sellers.length > 1 ? `SELLER ${i + 1}` : "SELLER";
+    children.push(signatureLine());
+    children.push(body(kind === "Corp" ? `${label}: ${data.businessName}` : `${label} — Signature`, { bold: true }));
+    if (kind === "Corp") children.push(labelLine("By", `${p.name}, ${p.title || "Authorized Officer"}`));
+    else children.push(labelLine("Printed Name", p.name));
+    children.push(dateBlankLine());
+  });
+  parties.buyers.forEach((p, i) => {
+    children.push(signatureLine());
+    children.push(body(`${parties.buyers.length > 1 ? `BUYER ${i + 1}` : "BUYER"} — Signature`, { bold: true }));
+    children.push(labelLine("Printed Name", p.name));
+    children.push(dateBlankLine());
+  });
 
   // One notary acknowledgment covering both signers together, not a separate notarization per party.
-  children.push(...notaryBlock(data.sellerName, data.buyerName, state));
+  children.push(...notaryBlock(joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)), state));
 
   const doc = new Document({
     sections: [

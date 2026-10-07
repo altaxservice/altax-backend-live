@@ -141,6 +141,28 @@ function parseAssetAllocations(raw: unknown): AssetAllocationLine[] {
   return lines;
 }
 
+interface ExtraParty { name: string; title: string | null; email: string | null; phone: string | null; address: string | null }
+
+/** Co-sellers / co-buyers beyond the first. A row with no name is dropped; at most 10 per side. */
+function parseExtraParties(raw: unknown, side: "seller" | "buyer"): ExtraParty[] {
+  if (!Array.isArray(raw)) return [];
+  const clean = (v: unknown) => String(v ?? "").trim() || null;
+  const out: ExtraParty[] = [];
+  for (const item of raw) {
+    const name = String(item?.name || "").trim();
+    if (!name) continue;
+    out.push({ name, title: clean(item?.title), email: clean(item?.email), phone: clean(item?.phone), address: clean(item?.address) });
+  }
+  if (out.length > 9) throw new Error(`A transfer can list up to 10 ${side}s.`);
+  return out;
+}
+
+/** "A, B and C" for audit lines and task notes. */
+function namesList(first: string, extra: ExtraParty[]): string {
+  const all = [first, ...extra.map((p) => p.name)];
+  return all.length <= 1 ? all[0] : `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]}`;
+}
+
 function sumAllocations(lines: AssetAllocationLine[]): number {
   return Math.round(lines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100;
 }
@@ -152,6 +174,7 @@ ownershipTransferRouter.get("/:clientId/ownership-transfers", requireAuth, requi
     `SELECT transfer_id, client_id, seller_name, seller_title, buyer_name, buyer_title, buyer_ssn, buyer_email, buyer_phone,
             buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
             assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations,
+            additional_sellers, additional_buyers,
             gov_form_8822b_filing_id, gov_form_cra_filing_id, md_amendment_task_id,
             gov_form_amendment_filing_id, gov_form_dissolution_filing_id, created_by, created_at,
             applied_to_profile_at, applied_by
@@ -173,6 +196,13 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   const buyerName = String(body.buyerName || "").trim();
   if (!sellerName) return res.status(400).json({ error: "Seller name is required." });
   if (!buyerName) return res.status(400).json({ error: "Buyer name is required." });
+  let additionalSellers: ExtraParty[], additionalBuyers: ExtraParty[];
+  try {
+    additionalSellers = parseExtraParties(body.additionalSellers, "seller");
+    additionalBuyers = parseExtraParties(body.additionalBuyers, "buyer");
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
 
   const client = await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, dba_name, street_address, city, state, zip_code,
@@ -233,8 +263,9 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
     `INSERT INTO altax.v3_ownership_transfers
        (transfer_id, client_id, seller_name, seller_title, buyer_name, buyer_title, buyer_ssn, buyer_email, buyer_phone,
         buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
-        assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+        assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations, created_by,
+        additional_sellers, additional_buyers)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
     [
       transferId, clientId, sellerName, String(body.sellerTitle || "").trim() || null,
       buyerName, String(body.buyerTitle || "").trim() || null,
@@ -246,6 +277,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       String(body.assetsIncluded || "").trim() || null, String(body.liabilitiesIncluded || "").trim() || null,
       String(body.additionalTerms || "").trim() || null, includeBillOfSale,
       assetAllocations.length > 0 ? JSON.stringify(assetAllocations) : null, req.user!.email,
+      additionalSellers.length ? JSON.stringify(additionalSellers) : null, additionalBuyers.length ? JSON.stringify(additionalBuyers) : null,
     ]
   );
 
@@ -448,7 +480,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
            VALUES ($1,$2,$3,'Compliance','File MD Amendment (Articles of Amendment) with SDAT','Ownership Transfer','Not Started',$4,$5,'Ownership Transfer',$6)`,
           [
             taskId, clientId, client.client_name, client.assigned_to || req.user!.email,
-            `Business ownership transferred from ${sellerName} to ${buyerName}` +
+            `Business ownership transferred from ${namesList(sellerName, additionalSellers)} to ${namesList(buyerName, additionalBuyers)}` +
               (body.effectiveDate ? ` effective ${body.effectiveDate}` : "") +
               `. File Maryland Articles of Amendment reflecting the new principal/resident agent as needed — no MD SDAT Amendment generator applies to this client's entity type ("${client.entity_type || "not set"}"), so this is tracked as a manual task instead (see transfer ${transferId}).`,
             transferId,
@@ -539,7 +571,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   }
 
   await logAudit("Clients", "OWNERSHIP_TRANSFER_CREATED", transferId, "buyer_name", "", buyerName,
-    `Ownership transfer package started for ${client.client_name}: ${sellerName} -> ${buyerName}, by ${req.user!.email}.`, req.user!.email);
+    `Ownership transfer package started for ${client.client_name}: ${namesList(sellerName, additionalSellers)} -> ${namesList(buyerName, additionalBuyers)}, by ${req.user!.email}.`, req.user!.email);
 
   res.status(201).json({ ok: true, transferId, created, skippedReasons, createdFilingIds });
 }));
@@ -575,6 +607,13 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
   const buyerName = String(body.buyerName || "").trim();
   if (!sellerName) return res.status(400).json({ error: "Seller name is required." });
   if (!buyerName) return res.status(400).json({ error: "Buyer name is required." });
+  let additionalSellers: ExtraParty[], additionalBuyers: ExtraParty[];
+  try {
+    additionalSellers = parseExtraParties(body.additionalSellers, "seller");
+    additionalBuyers = parseExtraParties(body.additionalBuyers, "buyer");
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
 
   const buyerSsnRaw = String(body.buyerSsn || "").trim();
   // The Edit form never pre-fills this field with the real SSN (typing-only,
@@ -603,6 +642,7 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
        seller_name=$3, seller_title=$4, buyer_name=$5, buyer_title=$6, buyer_ssn=$7, buyer_email=$8, buyer_phone=$9,
        buyer_street_address=$10, buyer_city=$11, buyer_state=$12, buyer_zip_code=$13, effective_date=$14, sale_price=$15,
        assets_included=$16, liabilities_included=$17, additional_terms=$18, include_bill_of_sale=$19, asset_allocations=$20,
+       additional_sellers=$21, additional_buyers=$22,
        updated_at=now()
      WHERE transfer_id = $1 AND client_id = $2`,
     [
@@ -616,6 +656,7 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
       String(body.assetsIncluded || "").trim() || null, String(body.liabilitiesIncluded || "").trim() || null,
       String(body.additionalTerms || "").trim() || null, includeBillOfSale,
       assetAllocations.length > 0 ? JSON.stringify(assetAllocations) : null,
+      additionalSellers.length ? JSON.stringify(additionalSellers) : null, additionalBuyers.length ? JSON.stringify(additionalBuyers) : null,
     ]
   );
 
@@ -713,6 +754,8 @@ async function loadBillOfSaleInputs(clientId: string, transferId: string) {
       buyerName: transfer.buyer_name,
       buyerTitle: transfer.buyer_title,
       buyerAddress: buyerAddress || null,
+      additionalSellers: ((transfer.additional_sellers as ExtraParty[] | null) || []).map((p) => ({ name: p.name, title: p.title })),
+      additionalBuyers: ((transfer.additional_buyers as ExtraParty[] | null) || []).map((p) => ({ name: p.name, title: p.title, address: p.address })),
       effectiveDate: transfer.effective_date,
       salePrice: transfer.sale_price !== null ? Number(transfer.sale_price) : null,
       assetsIncluded: transfer.assets_included,

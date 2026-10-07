@@ -14,6 +14,17 @@ interface AssetAllocationLine {
   amount: number;
 }
 
+/** A co-seller or co-buyer beyond the first (the first seller and buyer use the seller_ and buyer_ fields). */
+interface PartyRow { name: string; title: string; email: string; phone: string; address: string }
+const EMPTY_PARTY: PartyRow = { name: "", title: "", email: "", phone: "", address: "" };
+const toPartyRows = (list: Partial<PartyRow>[] | null | undefined): PartyRow[] =>
+  (list || []).map((p) => ({ name: p.name || "", title: p.title || "", email: p.email || "", phone: p.phone || "", address: p.address || "" }));
+/** "A, B and C" */
+function joinNames(names: string[]): string {
+  const n = names.map((x) => x.trim()).filter(Boolean);
+  return n.length <= 1 ? (n[0] || "") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
+}
+
 interface OwnershipTransfer {
   transfer_id: string;
   seller_name: string;
@@ -31,6 +42,8 @@ interface OwnershipTransfer {
   sale_price: number | null;
   assets_included: string | null;
   asset_allocations: AssetAllocationLine[] | null;
+  additional_sellers: PartyRow[] | null;
+  additional_buyers: PartyRow[] | null;
   liabilities_included: string | null;
   additional_terms: string | null;
   include_bill_of_sale: boolean;
@@ -96,6 +109,8 @@ const EMPTY_FORM = {
   includeBillOfSale: true, include8822b: true, includeCra: true,
   includeAmendment: true, isDissolving: false, includeDissolution: false,
   assetAllocations: [] as AllocationRow[],
+  additionalSellers: [] as PartyRow[],
+  additionalBuyers: [] as PartyRow[],
 };
 
 const EMPTY_AMENDMENT = {
@@ -153,6 +168,38 @@ function maskCraNumber(v: string): string {
  * links into it) — this component only owns the transfer intake and the
  * Bill of Sale, since the other four already have a home.
  */
+/**
+ * Co-sellers or co-buyers beyond the first. Everyone listed appears on the Bill of Sale and signs it;
+ * the first buyer stays the one the IRS/state forms and the portal login are built around.
+ */
+function PartyRepeater({ side, rows, onChange, idPrefix }: { side: "Seller" | "Buyer"; rows: PartyRow[]; onChange: (rows: PartyRow[]) => void; idPrefix: string }) {
+  const set = (i: number, patch: Partial<PartyRow>) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  return (
+    <div style={{ margin: "4px 0 12px" }}>
+      {rows.map((r, i) => (
+        <div key={i} style={{ border: "1px solid var(--line, #d0d7de)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <strong style={{ fontSize: 12.5 }}>{side} {i + 2}</strong>
+            <button type="button" className="btn-secondary" onClick={() => onChange(rows.filter((_, idx) => idx !== i))}>Remove</button>
+          </div>
+          <div className="form-grid-3">
+            <div className="field"><label htmlFor={`${idPrefix}-${i}-name`}>{side} {i + 2} Name</label><input id={`${idPrefix}-${i}-name`} value={r.name} onChange={(e) => set(i, { name: e.target.value })} /></div>
+            <div className="field"><label htmlFor={`${idPrefix}-${i}-title`}>Title</label><input id={`${idPrefix}-${i}-title`} value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder={side === "Buyer" ? "e.g. Member" : "e.g. Member, Owner"} /></div>
+            {side === "Buyer" && (
+              <>
+                <div className="field"><label htmlFor={`${idPrefix}-${i}-email`}>Email</label><input id={`${idPrefix}-${i}-email`} type="email" value={r.email} onChange={(e) => set(i, { email: e.target.value })} /></div>
+                <div className="field"><label htmlFor={`${idPrefix}-${i}-phone`}>Phone</label><input id={`${idPrefix}-${i}-phone`} value={r.phone} onChange={(e) => set(i, { phone: e.target.value })} /></div>
+                <div className="field" style={{ gridColumn: "span 2" }}><label htmlFor={`${idPrefix}-${i}-address`}>Address</label><input id={`${idPrefix}-${i}-address`} value={r.address} onChange={(e) => set(i, { address: e.target.value })} placeholder="Street, city, state ZIP" /></div>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+      <button type="button" className="btn-secondary" onClick={() => onChange([...rows, { ...EMPTY_PARTY }])}>+ Add another {side.toLowerCase()}</button>
+    </div>
+  );
+}
+
 export function OwnershipTransferSection({ clientId, clientName, sellerNameDefault, sellerTitleDefault, onFilingsGenerated, onClientUpdated }: {
   clientId: string; clientName: string; sellerNameDefault?: string; sellerTitleDefault?: string;
   /** Called with every filing_id a successful "Generate All" created (8822-B/CRA/Amendment/Dissolution) so the page can scroll to and highlight them in the Government Forms section above — see ClientDetailPage.tsx's wiring of this alongside GovFormsSection's own highlightFilingIds/reloadKey props. */
@@ -368,6 +415,8 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
       includeBillOfSale: t.include_bill_of_sale, include8822b: true, includeCra: true,
       includeAmendment: true, isDissolving: false, includeDissolution: false,
       assetAllocations: (t.asset_allocations || []).map((a) => ({ category: a.category, description: a.description || "", amount: String(a.amount) })),
+      additionalSellers: toPartyRows(t.additional_sellers),
+      additionalBuyers: toPartyRows(t.additional_buyers),
     });
     setSaveError(null);
     setShowWizard(false);
@@ -643,6 +692,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                 </div>
                 <div className="field"><label htmlFor="xfer-seller-title">Seller Title</label><input id="xfer-seller-title" value={form.sellerTitle} onChange={(e) => setForm((f) => ({ ...f, sellerTitle: e.target.value }))} /></div>
               </div>
+              <PartyRepeater side="Seller" rows={form.additionalSellers} onChange={(rows) => setForm((f) => ({ ...f, additionalSellers: rows }))} idPrefix="xfer-seller" />
 
               <div className="form-section-title">Buyer (new owner)</div>
               <div className="form-grid-3">
@@ -670,6 +720,11 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                 </div>
                 <div className="field"><label htmlFor="xfer-buyer-zip">ZIP</label><input id="xfer-buyer-zip" value={form.buyerZipCode} onChange={(e) => setForm((f) => ({ ...f, buyerZipCode: e.target.value }))} /></div>
               </div>
+
+              <p className="muted" style={{ fontSize: 11.5, margin: "0 0 6px" }}>
+                The first buyer is the responsible party on the IRS 8822-B, the officer on the Maryland CRA/Amendment, and gets the portal login. Anyone you add below appears on the Bill of Sale and signs it.
+              </p>
+              <PartyRepeater side="Buyer" rows={form.additionalBuyers} onChange={(rows) => setForm((f) => ({ ...f, additionalBuyers: rows }))} idPrefix="xfer-buyer" />
 
               <div className="form-section-title">Sale Terms</div>
               <div className="form-grid-3">
@@ -959,7 +1014,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                 <>
                   <div className="form-section-title">Ready to Generate</div>
                   <ul style={{ fontSize: 12.5, lineHeight: 1.9, margin: "0 0 14px", paddingLeft: 18 }}>
-                    {form.includeBillOfSale && <li>Bill of Sale (PDF + Word) — for {form.sellerName || "the seller"} → {form.buyerName || "the buyer"}</li>}
+                    {form.includeBillOfSale && <li>Bill of Sale (PDF + Word) — for {joinNames([form.sellerName, ...form.additionalSellers.map((p) => p.name)]) || "the seller"} → {joinNames([form.buyerName, ...form.additionalBuyers.map((p) => p.name)]) || "the buyer"}</li>}
                     {form.include8822b && <li>IRS Form 8822-B — Change of Responsible Party</li>}
                     {form.includeCra && <li>Maryland CRA — {identity?.cra_registration_number ? "Update" : "New Registration"}</li>}
                     {!form.isDissolving && form.includeAmendment && (
@@ -1036,6 +1091,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
             <div className="field"><label htmlFor="xfer-edit-seller-name">Seller Name</label><input id="xfer-edit-seller-name" required value={editForm.sellerName} onChange={(e) => setEditForm((f) => ({ ...f, sellerName: e.target.value }))} /></div>
             <div className="field"><label htmlFor="xfer-edit-seller-title">Seller Title</label><input id="xfer-edit-seller-title" value={editForm.sellerTitle} onChange={(e) => setEditForm((f) => ({ ...f, sellerTitle: e.target.value }))} /></div>
           </div>
+          <PartyRepeater side="Seller" rows={editForm.additionalSellers} onChange={(rows) => setEditForm((f) => ({ ...f, additionalSellers: rows }))} idPrefix="xfer-edit-seller" />
 
           <div className="form-section-title">Buyer (new owner)</div>
           <div className="form-grid-3">
@@ -1060,6 +1116,8 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
             </div>
             <div className="field"><label htmlFor="xfer-edit-buyer-zip">ZIP</label><input id="xfer-edit-buyer-zip" value={editForm.buyerZipCode} onChange={(e) => setEditForm((f) => ({ ...f, buyerZipCode: e.target.value }))} /></div>
           </div>
+
+          <PartyRepeater side="Buyer" rows={editForm.additionalBuyers} onChange={(rows) => setEditForm((f) => ({ ...f, additionalBuyers: rows }))} idPrefix="xfer-edit-buyer" />
 
           <div className="form-section-title">Sale Terms</div>
           <div className="form-grid-3">
@@ -1129,8 +1187,8 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                 const applyReady = blockingReasons.length === 0;
                 return (
                 <tr key={t.transfer_id}>
-                  <td>{t.seller_name}</td>
-                  <td>{t.buyer_name}</td>
+                  <td>{joinNames([t.seller_name, ...(t.additional_sellers || []).map((p) => p.name)])}</td>
+                  <td>{joinNames([t.buyer_name, ...(t.additional_buyers || []).map((p) => p.name)])}</td>
                   <td>{t.effective_date ? fmtDateOnly(t.effective_date) : "—"}</td>
                   <td>{t.sale_price != null ? `$${Number(t.sale_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
                   <td>{fmtDateOnly(t.created_at)}</td>
