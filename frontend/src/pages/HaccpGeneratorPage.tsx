@@ -314,24 +314,48 @@ export function HaccpGeneratorPage() {
   // record; it never overwrites a field staff already typed (e.g. re-linking
   // an existing saved plan to a different client shouldn't wipe a
   // deliberately-edited phone number).
-  function prefillFromClient(clientId: string) {
-    const c = clients.find((cl) => cl.client_id === clientId);
-    if (!c) { setForm((f) => ({ ...f, clientId })); return; }
+  async function prefillFromClient(clientId: string) {
+    const listed = clients.find((cl) => cl.client_id === clientId);
+    if (!listed) { setForm((f) => ({ ...f, clientId })); return; }
+    // The client list is a trimmed-down summary (no DBA, owner's home address, permit numbers, employee
+    // count…), so the full record is read here — otherwise those fields could never be filled in.
+    let c: any = listed;
+    try {
+      const full = await api.get<{ client: any }>(`/clients/${encodeURIComponent(clientId)}`);
+      if (full?.client) c = { ...listed, ...full.client };
+    } catch { /* fall back to the summary row */ }
+
+    const entity = String(c.entity_type || "").trim();
+    const ownerEntityType: LicenseApplicationData["ownerEntityType"] | undefined =
+      !entity ? undefined : entity === "LLC" ? "LLC" : /corp|inc/i.test(entity) ? "Incorporated" : "Other";
+    const text = (v: unknown) => (v === null || v === undefined ? "" : String(v).trim());
+
     setForm((f) => ({
       ...f,
       clientId,
       businessName: f.businessName || c.client_name || "",
-      street: f.street || (c.street_address as string) || "",
-      city: f.city || (c.city as string) || "",
-      zip: f.zip || (c.zip_code as string) || "",
+      street: f.street || text(c.street_address),
+      city: f.city || text(c.city),
+      zip: f.zip || text(c.zip_code),
       phone: f.phone || c.phone || "",
       email: f.email || c.email || "",
       contactPerson: f.contactPerson || c.company_contact_name || "",
+      // The owner's legal name is the client's responsible party; the license number is the one already on the profile.
+      officerOwnerName: f.officerOwnerName || text(c.company_contact_name),
+      licenseNumber: f.licenseNumber || text(c.health_permit_license_number),
     }));
     setLicenseForm((lf) => ({
       ...lf,
-      useAndOccupancyNumber: lf.useAndOccupancyNumber || (c.use_and_occupancy_number as string) || "",
-      fireDeptPermitNumber: lf.fireDeptPermitNumber || (c.fire_dept_permit_number as string) || "",
+      officerTitle: !lf.officerTitle || lf.officerTitle === "Owner" ? (text(c.company_contact_title) || lf.officerTitle) : lf.officerTitle,
+      tradeName: lf.tradeName || text(c.dba_name),
+      ownerEntityType: lf.ownerEntityType === "LLC" && ownerEntityType ? ownerEntityType : lf.ownerEntityType,
+      ownerHomeStreet: lf.ownerHomeStreet || text(c.company_contact_street_address),
+      ownerHomeCity: lf.ownerHomeCity || text(c.company_contact_city),
+      ownerHomeZip: lf.ownerHomeZip || text(c.company_contact_zip_code),
+      ownerHomePhone: lf.ownerHomePhone || text(c.company_contact_phone) || text(c.phone),
+      useAndOccupancyNumber: lf.useAndOccupancyNumber || text(c.use_and_occupancy_number),
+      fireDeptPermitNumber: lf.fireDeptPermitNumber || text(c.fire_dept_permit_number),
+      county: { ...lf.county, numberOfEmployees: lf.county?.numberOfEmployees || (c.estimated_employee_count ? String(c.estimated_employee_count) : "") },
     }));
   }
 
@@ -748,7 +772,15 @@ export function HaccpGeneratorPage() {
 
           {wantsLicenseOrReview && (
           <>
-          <div className="form-section-title">License &amp; Permit Applications</div>
+          <div className="form-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>License &amp; Permit Applications</span>
+            {form.clientId && (
+              <button type="button" className="btn btn-sm" onClick={() => { prefillFromClient(form.clientId); toast("Filled the blank fields from the client's profile."); }}
+                title="Fills only the fields that are still empty — owner name, DBA, owner's home address and phone, permit numbers, employee count — from this client's profile.">
+                ↻ Fill blanks from client profile
+              </button>
+            )}
+          </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
             {form.jurisdiction === "Baltimore County"
               ? "Fills the Baltimore County Food Service Facility Permit Application — together with the HACCP plan above and the Plans Review Submission Guide, this is the whole package. Baltimore County has no separate fillable \"Plan Review Application\"; its real process is to submit this permit application plus the plans/HACCP plan/equipment cut sheets to the office named in the guide."
