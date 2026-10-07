@@ -37,6 +37,15 @@ export interface HaccpBusinessType {
   hasHotHolding: boolean;
   description: string;
   /**
+   * The three facts Maryland's priority assessment asks for (COMAR 10.15.03.33C; the state's HACCP
+   * submission guidelines, Section A): the foods, the food service system, and the population served.
+   * Printed on the Menu & Equipment List when no HACCP plan is required, so a Low priority store still
+   * hands the health department what it needs to classify it.
+   */
+  priorityAssessment: { foods: string; system: string; population: string };
+  /** Why this type lands on its priority level, in plain words, plus when the health department may rate it differently. */
+  priorityReason: string;
+  /**
    * Which of the 3 canonical CCP content bodies (in BUILT_IN_HACCP_TEMPLATES,
    * keyed by convenience_grocery/deli_carryout/restaurant) this type resolves
    * to. Lets many descriptive business-type labels share one already-verified
@@ -54,6 +63,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: false,
     hasHotHolding: false,
     description: "Prepackaged and cold-hold items only — no cooking step on site.",
+    priorityAssessment: {
+      foods: "Commercially packaged foods only — including packaged foods that need refrigeration or freezing (dairy, eggs, ice cream, frozen food) — plus shelf-stable groceries and non-food items. Nothing is opened, cut, assembled or prepared on site.",
+      system: "Cold hold-serve: refrigerated and frozen storage and display of packaged items. No cooking, reheating or hot-holding.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "LOW — the store sells only commercially packaged foods. A facility selling only commercially packaged potentially hazardous foods does not need a HACCP plan (COMAR 10.15.03.34A). Becomes Moderate if staff heat, cut or assemble food for customers.",
   },
   {
     key: "grocery_deli_cold_only",
@@ -62,7 +77,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: false,
     hasHotHolding: false,
     description: "Deli counter serving cold cuts/salads by weight, plus grocery items — no cooking step on site.",
-    ccpProfileKey: "convenience_grocery",
+    priorityAssessment: {
+      foods: "Cold cuts, cheeses and salads that are opened, sliced and portioned to order or sold by weight, plus packaged groceries. Nothing is cooked.",
+      system: "Cold hold-serve: potentially hazardous foods are handled, sliced and served cold. No cooking, reheating or hot-holding.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "MODERATE — potentially hazardous food is opened and sliced on site (not only sold in its original package), but it is never cooked, cooled or reheated. A HACCP plan is required (COMAR 10.15.03.34A).",
   },
   {
     key: "deli_carryout",
@@ -71,6 +91,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: true,
     hasHotHolding: false,
     description: "Made-to-order items prepared and served immediately; no extended hot-holding equipment.",
+    priorityAssessment: {
+      foods: "Cold ready-to-eat deli items plus made-to-order cooked items (breakfast sandwiches, hot subs, eggs cooked to order).",
+      system: "Cook-serve for made-to-order items and cold hold-serve for ready-to-eat items. Cooked items are served immediately; there is no hot-holding equipment.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "HIGH — the plan includes a cooking step and a cooling step, so food can pass through the 41-135°F range more than once. If every item is cooked to order, served immediately and nothing is cooled for later use, the health department may rate it Moderate. A HACCP plan is required either way.",
   },
   {
     key: "convenience_hot_food",
@@ -79,6 +105,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: true,
     hasHotHolding: false,
     description: "Convenience store with a made-to-order hot food counter (grill/fryer); no extended hot-holding equipment.",
+    priorityAssessment: {
+      foods: "Packaged groceries and refrigerated items, plus a made-to-order hot food counter (grill / fryer).",
+      system: "Cook-serve for the hot food counter and cold hold-serve for packaged items. Cooked items are served immediately; there is no hot-holding equipment.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "HIGH — the store cooks food on site (cook step, with cooling of any prepared ingredients). If everything is cooked to order, served immediately and nothing is cooled for later use, the health department may rate it Moderate. A HACCP plan and a Certified Food Manager are required.",
     ccpProfileKey: "deli_carryout",
   },
   {
@@ -88,6 +120,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: true,
     hasHotHolding: false,
     description: "Deli counter with both cold cuts and made-to-order hot food; no extended hot-holding equipment.",
+    priorityAssessment: {
+      foods: "Cold cuts and salads sliced to order, packaged groceries, and made-to-order hot food.",
+      system: "Cold hold-serve for cold cuts and packaged items; cook-serve for hot food. Cooked items are served immediately; there is no hot-holding equipment.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "HIGH — the deli both slices cold potentially hazardous food and cooks food on site. If everything hot is cooked to order, served immediately and nothing is cooled for later use, the health department may rate it Moderate. A HACCP plan and a Certified Food Manager are required.",
     ccpProfileKey: "deli_carryout",
   },
   {
@@ -97,6 +135,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: true,
     hasHotHolding: true,
     description: "Full-service food preparation including hot-holding/steam-table equipment.",
+    priorityAssessment: {
+      foods: "Full menu of cooked and cold potentially hazardous foods prepared on site, including foods held hot on a steam table and leftovers that are cooled and reheated.",
+      system: "Cook-serve, hot hold-serve and cold hold-serve, with cooling and reheating of prepared food.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "HIGH — food is cooked, hot-held, cooled and reheated, so it passes through the 41-135°F range two or more times (COMAR 10.15.03.33C). A HACCP plan and a Certified Food Manager are required.",
   },
   {
     key: "grocery_hot_holding",
@@ -105,6 +149,12 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     hasCookStep: true,
     hasHotHolding: true,
     description: "Grocery or convenience store operating a steam table, buffet, or other hot-holding display.",
+    priorityAssessment: {
+      foods: "Packaged groceries plus cooked foods held hot on a steam table, buffet or heated display.",
+      system: "Cook-hot hold-serve for the hot display, with cooling and reheating of unsold food, and cold hold-serve for packaged items.",
+      population: "General public, walk-in / over-the-counter customers. No highly susceptible population (hospital, nursing home, school) is served.",
+    },
+    priorityReason: "HIGH — hot-holding with cooling and reheating of leftovers means food passes through the 41-135°F range two or more times (COMAR 10.15.03.33C). A HACCP plan and a Certified Food Manager are required.",
     ccpProfileKey: "restaurant",
   },
 ];
@@ -304,6 +354,31 @@ VERIFICATION: Manager reviews temperature logs weekly and re-calibrates thermome
 CROSS-CONTAMINATION: Raw and ready-to-eat items are never commingled; all products sold are received in their original, sealed manufacturer packaging.`,
   },
   {
+    businessTypeKey: "grocery_deli_cold_only",
+    title: "HACCP Plan — Grocery & Deli (Cold Cuts Only, No Cooking)",
+    body: `A. PRIORITY ASSESSMENT INFORMATION
+
+{{businessName}} operates a grocery with a deli counter that slices and sells cold cuts, cheeses and salads by weight or to order, together with commercially packaged foods. No cooking, reheating, or hot-holding takes place on the premises. This facility uses a Cold Hold-Serve system only — all potentially hazardous foods are received cold, held under refrigeration, and served cold. This establishment serves the general public through walk-in/over-the-counter customer service. No high-risk populations (such as hospitals, nursing homes, or schools) are served.
+
+D. CRITICAL CONTROL POINT (CCP) PROCEDURES
+
+Process 1: Cold Storage and Display of Potentially Hazardous Foods (No Cook Step)
+Menu Items: Cold Cuts / Deli Meat, Cheese, Salads, Pre-Cut Fruits, Cold Subs, Cold Wraps, and packaged refrigerated items.
+
+CCP & EQUIPMENT: Cold hold food at or below 41°F in the deli case, sandwich prep table, and refrigerated storage until sale.
+MONITORING: Check internal product temperature at the start of each shift and at least every 2 hours with a calibrated metal stem or digital thermometer.
+CORRECTIVE ACTION: Discard any product held above 41°F for more than 4 hours, or if the time out of temperature cannot be determined. Move product to working refrigeration immediately if a deviation is found.
+VERIFICATION: Manager reviews temperature logs weekly and re-calibrates thermometers weekly and after any drop or extreme temperature exposure.
+
+Process 2: Slicing and Portioning Cold Ready-to-Eat Foods
+CCP & EQUIPMENT: Slice and portion cold cuts and cheeses only after cleaning and sanitizing the slicer and food-contact surfaces; return product to refrigeration promptly. Opened ready-to-eat potentially hazardous food held more than 24 hours is date-marked and discarded after 7 days at or below 41°F.
+MONITORING: Check that the slicer and prep surfaces are cleaned and sanitized at least every 4 hours of continuous use and between different products; check date marks at the start of each shift.
+CORRECTIVE ACTION: Re-clean and sanitize any equipment or surface found soiled. Discard any ready-to-eat food that is past its date mark or has no date mark.
+VERIFICATION: Manager reviews sanitizer test-strip readings and date-marking practices weekly.
+
+CROSS-CONTAMINATION: Raw animal foods are not handled or stored at this facility. Ready-to-eat foods are handled with gloves or clean utensils, and the slicer is cleaned and sanitized before it is used for a different product.`,
+  },
+  {
     businessTypeKey: "deli_carryout",
     title: "HACCP Plan — Deli / Carryout (Cook-and-Serve, No Hot-Holding)",
     body: `A. PRIORITY ASSESSMENT INFORMATION
@@ -378,3 +453,126 @@ CORRECTIVE ACTION: Continue reheating, or use a different reheating method, unti
 VERIFICATION: Manager reviews reheating logs weekly.`,
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Which documents a business type needs
+// ---------------------------------------------------------------------------
+
+/**
+ * Menu and equipment choices that reveal a riskier operation than the business type claims. The form
+ * compares what is checked against the selected type and offers the matching type — a store set to
+ * "No-Cook" that ticks a fryer is not a Low priority store, whatever its type says.
+ */
+export const HACCP_RISK_SIGNALS = {
+  /** Foods that are cooked on site. */
+  hotMenu: ["hot_subs", "fried_chicken", "burgers", "pizza", "soups", "hot_entrees", "eggs_cooked_to_order"],
+  /** Potentially hazardous food that is opened, sliced or assembled on site (not simply sold in its package). */
+  preparedColdMenu: ["breakfast_sandwiches", "cold_subs", "cold_wraps", "cold_cuts", "chicken_tuna_salad", "pre_cut_fruit", "salads"],
+  cookingEquipment: ["grill", "stove", "fryer", "oven"],
+  hotHoldingEquipment: ["steam_table", "heated_display_case"],
+  coldPrepEquipment: ["deli_case", "deli_slicer", "sandwich_prep_table", "food_prep_counter"],
+  /** Not a risk by itself — it depends on whether staff heat food for customers. */
+  microwaveEquipment: ["microwave"],
+} as const;
+
+export type HaccpPlanComponentKey = "haccp_plan" | "menu_equipment" | "license_application" | "plan_review";
+export type RequirementStatus = "required" | "not_required" | "if_applicable";
+
+export interface DocumentRequirement {
+  /** The generator component this maps to, when the app produces it. */
+  component?: HaccpPlanComponentKey;
+  label: string;
+  status: RequirementStatus;
+  why: string;
+}
+
+export interface DocumentRequirements {
+  riskPriority: "High" | "Moderate" | "Low";
+  priorityReason: string;
+  priorityAssessment: HaccpBusinessType["priorityAssessment"];
+  documents: DocumentRequirement[];
+  /** Things the owner must gather and attach — not generated here. */
+  attachments: string[];
+  /** Other approvals outside the health department that commonly come with this kind of store. */
+  relatedApprovals: string[];
+  /** The documents to pre-select in the generator. */
+  defaultComponents: HaccpPlanComponentKey[];
+  fees: string[];
+}
+
+/**
+ * What a business of this type should submit, from Maryland's own rules: COMAR 10.15.03.34A makes a HACCP
+ * plan mandatory only for High and Moderate priority facilities; the plans-and-specifications submittal
+ * (menu, equipment, layout) applies to every new, remodeled or re-owned facility (Health-General §21-321);
+ * Baltimore County waives the Certified Food Manager card for Low priority; Baltimore City's application
+ * lists the fee by priority and the extra attachments it requires. The health department assigns the final
+ * priority — this is what to expect, not a ruling.
+ */
+export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction: string): DocumentRequirements {
+  const low = type.riskPriority === "Low";
+  const isCity = /city/i.test(jurisdiction);
+  const documents: DocumentRequirement[] = [];
+
+  documents.push(low
+    ? { component: "haccp_plan", label: "HACCP Plan", status: "not_required",
+        why: "Not required — a store that sells only commercially packaged foods is exempt (COMAR 10.15.03.34A). Don't submit one: it adds statements the health department may question." }
+    : { component: "haccp_plan", label: "HACCP Plan", status: "required",
+        why: `Required for ${type.riskPriority} priority facilities (COMAR 10.15.03.34A); it must be re-approved every 5 years and before a new process is started.` });
+
+  documents.push({
+    component: "menu_equipment", label: low ? "Menu & Equipment List + priority assessment" : "Menu & Equipment List", status: "required",
+    why: low
+      ? "The menu and equipment are part of the plans submittal, and for a Low priority store this list (with the priority assessment printed on it) is what the department uses to classify the facility."
+      : "The menu and equipment are part of the plans submittal and feed the HACCP plan.",
+  });
+
+  documents.push(isCity
+    ? { component: "license_application", label: "Food Facility License Application (Baltimore City)", status: "required",
+        why: "Required for every food facility. The fee is set by priority — High $520, Moderate $285, Low $65 (form revised 1/15/2020; confirm current amounts)." }
+    : { component: "license_application", label: "Food Service Facility Permit Application and Fee Statement (Baltimore County)", status: "required",
+        why: "Required for each new facility and at a change of ownership, and renewed every year (a $14.00/day late fee applies to renewals filed after March 31)." });
+
+  documents.push(isCity
+    ? { component: "plan_review", label: "Plan Review Application (Baltimore City)", status: "required",
+        why: "Required for every new, renovated or change-of-ownership food facility. Fees: $75 plan review + $150 plan review inspection." }
+    : { component: "plan_review", label: "Plans Review submittal (Baltimore County guide)", status: "if_applicable",
+        why: "Only when you build, remodel, alter or convert the space, or change equipment. Then send plans (layout, finish schedule), the menu, equipment cut sheets" + (low ? "." : " and the HACCP plan.") });
+
+  documents.push(low
+    ? { label: "Certified Food Manager card", status: "not_required",
+        why: "Baltimore County: not applicable to a Low priority permit." }
+    : { label: "Certified Food Manager card", status: "required",
+        why: isCity
+          ? "Expected for Moderate and High priority facilities — confirm with your plan reviewer (the City application doesn't state it)."
+          : "Baltimore County asks for a Certified Food Manager Level I identification card for Moderate and High priority permits." });
+
+  const attachments: string[] = [];
+  if (isCity) {
+    attachments.push(
+      "Workers' compensation Certificate of Compliance (or the policy / binder number) — required with the City application",
+      "Waste hauler statement — and a copy of the contract if the business produces more than three 32-gallon receptacles per week",
+      "If the store sells tobacco: the Statement of Tobacco Licensee on page 2 of the City application (initial each line, add the State license number)",
+    );
+  }
+  if (!low) attachments.push("Equipment cut sheets and a scaled floor plan with the fixture layout");
+  else attachments.push("Equipment cut sheets and a floor plan only if the space is new or being remodeled");
+
+  const fees = isCity
+    ? [`License fee for ${type.riskPriority} priority: ${type.riskPriority === "High" ? "$520" : type.riskPriority === "Moderate" ? "$285" : "$65"}`, "Plan review: $75 (floor plan review) + $150 (plan review inspection)"]
+    : ["Permit fee is set by the County by priority — see the Fee Statement on the application"];
+
+  return {
+    riskPriority: type.riskPriority,
+    priorityReason: type.priorityReason,
+    priorityAssessment: type.priorityAssessment,
+    documents,
+    attachments,
+    relatedApprovals: [
+      "Use and Occupancy certificate and fire department permit for the address",
+      "Baltimore trader's license (Clerk of the Circuit Court)",
+      "Maryland tobacco license — if the store sells tobacco",
+    ],
+    defaultComponents: documents.filter((d) => d.component && d.status === "required").map((d) => d.component as HaccpPlanComponentKey),
+    fees,
+  };
+}

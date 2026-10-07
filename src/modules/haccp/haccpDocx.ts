@@ -346,6 +346,19 @@ export async function generateHaccpDocx(data: HaccpPdfData): Promise<Buffer> {
   // only Menu & Equipment was requested) would leave two consecutive breaks
   // and a blank page. ----
   if (hasMenuEquipment) {
+    // No HACCP plan in this document: print the priority assessment the health department classifies the facility from.
+    if (!hasHaccpPlan && data.priorityAssessment) {
+      children.push(plainHeading("Priority Assessment Information:"));
+      for (const [label, text] of [["Foods", data.priorityAssessment.foods], ["Food service system", data.priorityAssessment.system], ["Population served", data.priorityAssessment.population]] as [string, string][]) {
+        children.push(new Paragraph({
+          spacing: { after: 100 },
+          children: [new TextRun({ text: `${label}: `, bold: true, font: FONT, size: 20 }), new TextRun({ text, font: FONT, size: 20 })],
+        }));
+      }
+      if (data.priorityReason) {
+        children.push(new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: `Priority: ${data.priorityReason}`, font: FONT, size: 18, color: MUTED })] }));
+      }
+    }
     children.push(plainHeading("Menu:"));
     children.push(menuTable(data.menuGroups));
   }

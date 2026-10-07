@@ -15,7 +15,7 @@ import {
 } from "./licenseApplicationsPdf";
 import {
   HACCP_BUSINESS_TYPES, HACCP_BUSINESS_TYPE_LABEL, HACCP_MENU_CATEGORIES, HACCP_EQUIPMENT_ITEMS,
-  GENERAL_HANDLING_KEY, GENERAL_HANDLING_TITLE, GENERAL_HANDLING_BODY, BUILT_IN_HACCP_TEMPLATES,
+  GENERAL_HANDLING_KEY, GENERAL_HANDLING_TITLE, GENERAL_HANDLING_BODY, BUILT_IN_HACCP_TEMPLATES, HACCP_RISK_SIGNALS, buildDocumentRequirements,
 } from "./haccpContent";
 
 export const haccpRouter = Router();
@@ -64,8 +64,15 @@ haccpRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHan
   const customItems = await query<{ label: string }>(`SELECT label FROM altax.v3_haccp_custom_menu_items ORDER BY label ASC`);
   res.json({
     businessTypes: HACCP_BUSINESS_TYPES, menuCategories: HACCP_MENU_CATEGORIES, equipmentItems: HACCP_EQUIPMENT_ITEMS,
-    customMenuItems: customItems.map((r) => r.label),
+    customMenuItems: customItems.map((r) => r.label), riskSignals: HACCP_RISK_SIGNALS,
   });
+}));
+
+/** What this business type needs to submit in this jurisdiction — drives the "What this business needs" card and the default document selection. */
+haccpRouter.get("/requirements", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const type = HACCP_BUSINESS_TYPES.find((t) => t.key === String(req.query.businessTypeKey || ""));
+  if (!type) return res.status(400).json({ error: "Unknown business type." });
+  res.json({ requirements: buildDocumentRequirements(type, String(req.query.jurisdiction || "Baltimore City")) });
 }));
 
 /**
@@ -502,6 +509,8 @@ export function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData
     menuGroups: groupMenuItems(plan.selected_menu_items || []),
     equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
     createdAt: plan.created_at,
+    priorityAssessment: businessType?.priorityAssessment ?? null,
+    priorityReason: businessType?.priorityReason ?? null,
     components,
   };
 }

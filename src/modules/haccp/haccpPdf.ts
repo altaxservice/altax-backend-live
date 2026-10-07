@@ -73,6 +73,9 @@ export interface HaccpPdfData {
   menuGroups: HaccpMenuGroup[];
   equipment: HaccpEquipmentLine[];
   createdAt: string | null;
+  /** The priority-assessment facts for this business type (foods, food service system, population served) and why it lands on its level. */
+  priorityAssessment?: { foods: string; system: string; population: string } | null;
+  priorityReason?: string | null;
   /** Which sections this document actually wants — see haccp.routes.ts's HACCP_PLAN_COMPONENTS. */
   components: string[];
 }
@@ -310,6 +313,32 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   if (bannerAddr) c.text(R - 12, y + 17, bannerAddr, { size: 8.5, align: "right" });
   c.text(R - 12, y + 32, data.jurisdiction, { size: 8.5, color: MUTED, align: "right" });
   y += 56;
+
+  // No HACCP plan in this document: print the priority assessment the health department classifies the facility from.
+  if (!hasHaccpPlan && data.priorityAssessment) {
+    c.text(L, y, "PRIORITY ASSESSMENT INFORMATION", { size: 12.5, bold: true, color: TEAL });
+    y += 8;
+    c.line(L, y, R, y, LINE, 0.75);
+    y += 16;
+    const rows: [string, string][] = [
+      ["Foods", data.priorityAssessment.foods],
+      ["Food service system", data.priorityAssessment.system],
+      ["Population served", data.priorityAssessment.population],
+    ];
+    for (const [label, text] of rows) {
+      const lines = wrapText(text, font, 9.5, maxWidth - 120);
+      ensurePdfSpace(lines.length * 13 + 6);
+      c.text(L, y, label, { size: 9.5, bold: true });
+      lines.forEach((line, i) => c.text(L + 120, y + i * 13, line, { size: 9.5 }));
+      y += lines.length * 13 + 6;
+    }
+    if (data.priorityReason) {
+      const reasonLines = wrapText(`Priority: ${data.priorityReason}`, font, 9, maxWidth);
+      ensurePdfSpace(reasonLines.length * 12 + 10);
+      reasonLines.forEach((line) => { c.text(L, y, line, { size: 9, color: MUTED }); y += 12; });
+    }
+    y += 16;
+  }
 
   c.text(L, y, "MENU", { size: 12.5, bold: true, color: TEAL });
   y += 8;

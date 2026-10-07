@@ -8,10 +8,16 @@ import { AddressFields } from "../components/AddressFields";
 import type { Client } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
 
-interface BusinessType { key: string; label: string; riskPriority: "High" | "Moderate" | "Low"; hasCookStep: boolean; hasHotHolding: boolean; description: string }
+interface BusinessType { key: string; label: string; riskPriority: "High" | "Moderate" | "Low"; hasCookStep: boolean; hasHotHolding: boolean; description: string; priorityReason?: string }
+interface RiskSignals { hotMenu: string[]; preparedColdMenu: string[]; cookingEquipment: string[]; hotHoldingEquipment: string[]; coldPrepEquipment: string[]; microwaveEquipment: string[] }
+interface DocumentRequirement { component?: HaccpPlanComponent; label: string; status: "required" | "not_required" | "if_applicable"; why: string }
+interface DocumentRequirements {
+  riskPriority: "High" | "Moderate" | "Low"; priorityReason: string; documents: DocumentRequirement[];
+  attachments: string[]; relatedApprovals: string[]; defaultComponents: HaccpPlanComponent[]; fees: string[];
+}
 interface ChecklistItem { key: string; label: string }
 interface ChecklistCategory { category: string; items: ChecklistItem[] }
-interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[]; customMenuItems: string[] }
+interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[]; customMenuItems: string[]; riskSignals?: RiskSignals }
 /** Which document(s) a plan wants — see haccp.routes.ts's HACCP_PLAN_COMPONENTS. */
 type HaccpPlanComponent = "haccp_plan" | "menu_equipment" | "license_application" | "plan_review";
 const HACCP_PLAN_COMPONENTS: { key: HaccpPlanComponent; label: string; description: string }[] = [
@@ -314,6 +320,51 @@ export function HaccpGeneratorPage() {
   // record; it never overwrites a field staff already typed (e.g. re-linking
   // an existing saved plan to a different client shouldn't wipe a
   // deliberately-edited phone number).
+  // --- What this business needs: documents, fees and attachments for the chosen type + jurisdiction ---
+  const [requirements, setRequirements] = useState<DocumentRequirements | null>(null);
+  async function loadRequirements(typeKey: string, jurisdiction: string): Promise<DocumentRequirements | null> {
+    if (!typeKey) { setRequirements(null); return null; }
+    try {
+      const r = await api.get<{ requirements: DocumentRequirements }>(`/haccp/requirements?businessTypeKey=${encodeURIComponent(typeKey)}&jurisdiction=${encodeURIComponent(jurisdiction)}`);
+      setRequirements(r.requirements);
+      return r.requirements;
+    } catch { setRequirements(null); return null; }
+  }
+  // A saved plan opened for renewal keeps the documents it was saved with; only the card is refreshed.
+  useEffect(() => { loadRequirements(form.businessTypeKey, form.jurisdiction); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [form.businessTypeKey, form.jurisdiction]);
+
+  /** The user picked a business type or jurisdiction: pre-select exactly the documents that combination needs. */
+  async function chooseTypeOrJurisdiction(typeKey: string, jurisdiction: string) {
+    const req = await loadRequirements(typeKey, jurisdiction);
+    if (req) setComponents(new Set(req.defaultComponents));
+  }
+
+  /**
+   * Compares what is checked (foods, equipment) with the chosen type. A "No-Cook" store that ticks a fryer, or
+   * a store with a deli case set to "packaged only", is a higher-risk operation than its type says — so the
+   * documents (and the HACCP plan's wording) would be wrong. Offers the matching type.
+   */
+  const riskCheck = useMemo(() => {
+    const sig = options?.riskSignals;
+    const type = options?.businessTypes.find((t) => t.key === form.businessTypeKey);
+    if (!sig || !type) return null;
+    const equipKeys = new Set(selectedEquipment.map((e) => e.key));
+    const hasAny = (list: string[], set: { has: (k: string) => boolean }) => list.some((k) => set.has(k));
+    const hot = hasAny(sig.hotMenu, selectedMenu) || hasAny(sig.cookingEquipment, equipKeys);
+    const hotHolding = hasAny(sig.hotHoldingEquipment, equipKeys);
+    const cold = hasAny(sig.preparedColdMenu, selectedMenu) || hasAny(sig.coldPrepEquipment, equipKeys);
+    const microwave = hasAny(sig.microwaveEquipment, equipKeys);
+    let suggestKey: string | null = null;
+    if (type.key === "convenience_grocery") suggestKey = hotHolding ? "grocery_hot_holding" : hot ? "convenience_hot_food" : cold ? "grocery_deli_cold_only" : null;
+    else if (type.key === "grocery_deli_cold_only") suggestKey = hotHolding ? "grocery_hot_holding" : hot ? "grocery_deli_hot_food" : null;
+    else if (!type.hasHotHolding && hotHolding) suggestKey = "grocery_hot_holding";
+    const reasons: string[] = [];
+    if (hot) reasons.push("hot food or cooking equipment is selected");
+    if (hotHolding) reasons.push("a steam table or heated display is selected");
+    if (cold && type.key === "convenience_grocery") reasons.push("cold food that is sliced, assembled or prepared on site is selected (deli case, slicer, prep table, sandwiches or salads)");
+    return { suggestKey, suggestLabel: suggestKey ? options?.businessTypes.find((t) => t.key === suggestKey)?.label : undefined, reasons, microwave: microwave && type.riskPriority === "Low", type };
+  }, [options, form.businessTypeKey, selectedMenu, selectedEquipment]);
+
   /**
    * Fills blank License & Permit fields from what's already on this form: the contact person is the
    * owner's name, the business phone is the fallback owner phone, and the business type decides the
@@ -604,19 +655,79 @@ export function HaccpGeneratorPage() {
             <div className="field"><label htmlFor="hp-name">Business Name</label><input id="hp-name" required value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} /></div>
             <div className="field">
               <label htmlFor="hp-type">Business Type{!wantsHaccpPlan && " (optional — for reference)"}</label>
-              <select id="hp-type" required={wantsHaccpPlan} value={form.businessTypeKey} onChange={(e) => { setForm((f) => ({ ...f, businessTypeKey: e.target.value })); applyBusinessInfoDefaults(e.target.value); }}>
+              <select id="hp-type" required={wantsHaccpPlan} value={form.businessTypeKey} onChange={(e) => { setForm((f) => ({ ...f, businessTypeKey: e.target.value })); applyBusinessInfoDefaults(e.target.value); void chooseTypeOrJurisdiction(e.target.value, form.jurisdiction); }}>
                 <option value="">Select…</option>
                 {options?.businessTypes.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
             </div>
             <div className="field">
               <label htmlFor="hp-juris">Jurisdiction</label>
-              <select id="hp-juris" value={form.jurisdiction} onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))}>
+              <select id="hp-juris" value={form.jurisdiction} onChange={(e) => { setForm((f) => ({ ...f, jurisdiction: e.target.value })); if (form.businessTypeKey) void chooseTypeOrJurisdiction(form.businessTypeKey, e.target.value); }}>
                 {JURISDICTIONS.map((j) => <option key={j}>{j}</option>)}
               </select>
             </div>
           </div>
-          {businessType && wantsHaccpPlan && <p className="muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>{businessType.description} Risk Priority: {businessType.riskPriority}.</p>}
+          {businessType && <p className="muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>{businessType.description}</p>}
+
+          {riskCheck && (riskCheck.reasons.length > 0 || riskCheck.microwave) && (
+            <div className="card" style={{ borderColor: "var(--amber)", padding: 12, marginBottom: 12 }}>
+              <strong style={{ color: "var(--amber)" }}>Check the business type</strong>
+              {riskCheck.reasons.length > 0 && (
+                <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                  You chose <strong>{riskCheck.type.label}</strong> ({riskCheck.type.riskPriority} priority), but {riskCheck.reasons.join(" and ")}. That is a riskier operation than this type describes, so the documents and HACCP wording would be wrong.
+                  {riskCheck.suggestKey && riskCheck.suggestLabel && (
+                    <div style={{ marginTop: 8 }}>
+                      <button type="button" className="btn btn-sm btn-primary" onClick={() => { setForm((f) => ({ ...f, businessTypeKey: riskCheck.suggestKey! })); void chooseTypeOrJurisdiction(riskCheck.suggestKey!, form.jurisdiction); }}>
+                        Switch to “{riskCheck.suggestLabel}”
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {riskCheck.microwave && (
+                <div style={{ fontSize: 12.5, marginTop: riskCheck.reasons.length ? 8 : 4 }}>
+                  <strong>Microwave:</strong> it doesn't change the rating on its own. If staff heat food for customers, this is a Moderate priority operation — choose a type with a cook step. If it is only for customers to use themselves, keep this type and tell the health department.
+                </div>
+              )}
+            </div>
+          )}
+
+          {requirements && businessType && (
+            <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+                <strong style={{ fontSize: 14 }}>What this business needs</strong>
+                <span style={{
+                  fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 999, color: "#fff",
+                  background: requirements.riskPriority === "Low" ? "var(--teal)" : requirements.riskPriority === "Moderate" ? "var(--amber)" : "var(--red)",
+                }}>{requirements.riskPriority.toUpperCase()} PRIORITY</span>
+                <span className="muted" style={{ fontSize: 11.5 }}>{form.jurisdiction} · the health department assigns the final level</span>
+              </div>
+              <p style={{ fontSize: 12.5, margin: "0 0 10px" }}>{requirements.priorityReason}</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {requirements.documents.map((d) => (
+                  <div key={d.label} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12.5 }}>
+                    <span style={{
+                      minWidth: 92, textAlign: "center", fontSize: 10.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                      background: d.status === "required" ? "rgba(11,107,107,.12)" : d.status === "not_required" ? "rgba(120,120,120,.15)" : "rgba(217,119,6,.15)",
+                      color: d.status === "required" ? "var(--teal)" : d.status === "not_required" ? "var(--muted, #666)" : "var(--amber)",
+                    }}>{d.status === "required" ? "REQUIRED" : d.status === "not_required" ? "NOT REQUIRED" : "IF APPLICABLE"}</span>
+                    <span><strong>{d.label}</strong> — <span className="muted">{d.why}</span></span>
+                  </div>
+                ))}
+              </div>
+              {requirements.attachments.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 12.5 }}>
+                  <strong>Gather and attach:</strong>
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>{requirements.attachments.map((a) => <li key={a}>{a}</li>)}</ul>
+                </div>
+              )}
+              {requirements.fees.length > 0 && <p className="muted" style={{ fontSize: 11.5, margin: "8px 0 0" }}>{requirements.fees.join(" · ")}</p>}
+              <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Also needed outside the health department: {requirements.relatedApprovals.join("; ")}.</p>
+              <div style={{ marginTop: 10 }}>
+                <button type="button" className="btn btn-sm" onClick={() => setComponents(new Set(requirements.defaultComponents))}>Select the required documents</button>
+              </div>
+            </div>
+          )}
 
           <AddressFields
             idPrefix="hp"
