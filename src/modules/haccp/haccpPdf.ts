@@ -337,7 +337,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       ensurePdfSpace(reasonLines.length * 12 + 10);
       reasonLines.forEach((line) => { c.text(L, y, line, { size: 9, color: MUTED }); y += 12; });
     }
-    y += 16;
+    y += 10;
   }
 
   c.text(L, y, "MENU", { size: 12.5, bold: true, color: TEAL });
@@ -357,20 +357,20 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   const menuColW = (R - L) / 2;
   function menuCategoryRow(category: string) {
     ensurePdfSpace(20);
-    c.rect(L, y, R - L, 18, TEAL_TINT);
-    c.text(L + (R - L) / 2, y + 12, category.toUpperCase(), { size: 9.5, bold: true, color: TEAL, align: "center" });
-    y += 18;
+    c.rect(L, y, R - L, 16, TEAL_TINT);
+    c.text(L + (R - L) / 2, y + 11, category.toUpperCase(), { size: 9.5, bold: true, color: TEAL, align: "center" });
+    y += 16;
     c.line(L, y, R, y, INK, 0.75);
   }
   function menuItemRow(leftItem: string | undefined, rightItem: string | undefined) {
     const leftLines = leftItem ? wrapText(leftItem, bold, 9, menuColW - 20) : [];
     const rightLines = rightItem ? wrapText(rightItem, bold, 9, menuColW - 20) : [];
     const rowLines = Math.max(leftLines.length, rightLines.length, 1);
-    const rowH = rowLines * 12 + 10;
+    const rowH = rowLines * 12 + 5;
     ensurePdfSpace(rowH);
     const rowTop = y;
-    leftLines.forEach((line, li) => c.text(L + menuColW / 2, rowTop + 14 + li * 12, line, { size: 9, bold: true, align: "center" }));
-    rightLines.forEach((line, li) => c.text(L + menuColW + menuColW / 2, rowTop + 14 + li * 12, line, { size: 9, bold: true, align: "center" }));
+    leftLines.forEach((line, li) => c.text(L + menuColW / 2, rowTop + 11 + li * 12, line, { size: 9, bold: true, align: "center" }));
+    rightLines.forEach((line, li) => c.text(L + menuColW + menuColW / 2, rowTop + 11 + li * 12, line, { size: 9, bold: true, align: "center" }));
     y += rowH;
     // Left, middle, and right vertical rules for this row — drawn per row
     // (rather than one tall rect spanning the whole category, which a page
@@ -383,7 +383,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   for (const group of data.menuGroups) {
     menuCategoryRow(group.category);
     for (let i = 0; i < group.items.length; i += 2) menuItemRow(group.items[i], group.items[i + 1]);
-    y += 10;
+    y += 5;
   }
   }
 
@@ -510,10 +510,16 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   // starting on its own fresh page rather than flowing wherever the Body
   // happened to end. Only when Menu & Equipment was actually requested. ----
   if (hasMenuEquipment) {
-  pageNum += 1;
-  ({ page, c } = newPage(doc, font, bold, data.businessName));
-  y = 56;
-  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
+  if (hasHaccpPlan) {
+    pageNum += 1;
+    ({ page, c } = newPage(doc, font, bold, data.businessName));
+    y = 56;
+    drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
+  } else {
+    // A stand-alone Menu & Equipment List flows on: the equipment follows the menu instead of sitting alone on a new page.
+    y += 4;
+    ensurePdfSpace(34 + Math.ceil(data.equipment.length / 2) * 17);
+  }
   c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
   y += 8;
   c.line(L, y, R, y, LINE, 0.75);

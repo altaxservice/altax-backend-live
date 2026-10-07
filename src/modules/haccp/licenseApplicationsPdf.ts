@@ -259,6 +259,20 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
  * Days→Hours rows above it, i.e. the (otherwise-unlabeled-in-the-AcroForm)
  * "No. of Employees" blank.
  */
+/**
+ * "7am- 11:59pm" -> "7:00 AM - 11:59 PM"; "7 days/ week" -> "7 days/week". Anything that isn't a plain time range is
+ * only space-collapsed, never rewritten.
+ */
+function tidyHoursText(v: unknown): string {
+  const raw = String(v ?? "").replace(/\s+/g, " ").trim();
+  const m = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:-|–|—|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (m) {
+    const t = (h: string, min: string | undefined, ap: string) => `${Number(h)}:${min || "00"} ${ap.toUpperCase()}`;
+    return `${t(m[1], m[2], m[3])} - ${t(m[4], m[5], m[6])}`;
+  }
+  return raw.replace(/\s*\/\s*/g, "/");
+}
+
 /** Single spaces only — "131 1/2  BACK RIVER NECK RD" must not print with a double gap. */
 function squishText(v: unknown): string {
   return String(v ?? "").replace(/\s+/g, " ").trim();
@@ -290,8 +304,8 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
     "Number of Seats Provided": county.numberOfSeats || "",
     "Water Service": county.waterService || "",
     "Sewage Disposal": county.sewageDisposal || "",
-    "Days of Operation": county.daysOfOperation || "",
-    "Hours of Operation": county.hoursOfOperation || "",
+    "Days of Operation": tidyHoursText(county.daysOfOperation),
+    "Hours of Operation": tidyHoursText(county.hoursOfOperation),
     "Text1": county.numberOfEmployees || "",
     "Owner": ownerName,
     "Zip Code_2": app.ownerHomeZip || "",
@@ -311,6 +325,10 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
     "Name of certified manager Baltimore County ID number and Expiration Date_3",
   ];
   const managers = county.certifiedFoodManagers || [];
+  // A Low priority permit doesn't need a Certified Food Manager (Baltimore County) — say so rather than leave the lines looking unfinished.
+  if (managers.length === 0 && data.riskPriority === "Low") {
+    values[managerFieldNames[0]] = "N/A - Low priority facility (Certified Food Manager not required)";
+  }
   managerFieldNames.forEach((fieldName, i) => {
     const mgr = managers[i];
     if (!mgr) return;

@@ -276,6 +276,9 @@ export const HACCP_EQUIPMENT_ITEMS: ChecklistItem[] = [
   { key: "3_compartment_sink", label: "3-Compartment Sink (Wash/Rinse/Sanitize)" },
   { key: "handwashing_sink", label: "Handwashing Sink(s) with Soap, Warm Water, Paper Towels" },
   { key: "metal_stem_thermometer", label: "Digital/Metal Stem Thermometer(s), calibrated weekly" },
+  { key: "refrigerator_thermometers", label: "Thermometer in each refrigerator / freezer / cooler" },
+  { key: "mop_sink", label: "Mop / Utility Sink" },
+  { key: "restroom", label: "Restroom with Hand Sink, Soap and Paper Towels" },
   { key: "sanitizer_buckets", label: "Sanitizer Buckets and Test Strips" },
   { key: "cash_register", label: "Cash Register / POS" },
   { key: "atm", label: "ATM" },
@@ -541,7 +544,7 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
     : buildingPermit === "yes"
     ? { component: "plan_review", label: "Plans review with a building permit — Baltimore County", status: "required",
         why: `Construction or remodeling: submit the building permit application, fees and plans (architectural, plumbing, mechanical, electrical, finish schedule, air balance schedule, scaled fixture layout), the menu${low ? "" : ", the HACCP plan"} and equipment cut sheets to Baltimore County Department of Permits, Approvals and Inspections, Building Inspections, 111 W. Chesapeake Avenue, Room 100, Towson, MD 21204.` }
-    : { component: "plan_review", label: "Plans Review submittal (Baltimore County guide)", status: "if_applicable",
+    : { component: "plan_review", label: "Plans Review submittal (the County's guide is an information sheet — you don't file it)", status: "if_applicable",
         why: "Only when you build, remodel, alter or convert the space, or change equipment. Then send plans (layout, finish schedule), the menu, equipment cut sheets" + (low ? "." : " and the HACCP plan.") + " Tell us below whether a building permit is needed." });
 
   documents.push(low

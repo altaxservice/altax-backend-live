@@ -325,6 +325,17 @@ export function HaccpGeneratorPage() {
   // record; it never overwrites a field staff already typed (e.g. re-linking
   // an existing saved plan to a different client shouldn't wipe a
   // deliberately-edited phone number).
+  // The linked client's record (permit numbers, owner info) — feeds the submission checklist below.
+  const [clientProfile, setClientProfile] = useState<Record<string, any> | null>(null);
+  useEffect(() => {
+    if (!form.clientId) { setClientProfile(null); return; }
+    let cancelled = false;
+    api.get<{ client: Record<string, any> }>(`/clients/${encodeURIComponent(form.clientId)}`)
+      .then((r) => { if (!cancelled) setClientProfile(r.client); })
+      .catch(() => { if (!cancelled) setClientProfile(null); });
+    return () => { cancelled = true; };
+  }, [form.clientId]);
+
   // --- What this business needs: documents, fees and attachments for the chosen type + jurisdiction ---
   const [requirements, setRequirements] = useState<DocumentRequirements | null>(null);
   async function loadRequirements(typeKey: string, jurisdiction: string, buildingPermit: string = licenseForm.county?.buildingPermit || ""): Promise<DocumentRequirements | null> {
@@ -369,6 +380,71 @@ export function HaccpGeneratorPage() {
     if (cold && type.key === "convenience_grocery") reasons.push("cold food that is sliced, assembled or prepared on site is selected (deli case, slicer, prep table, sandwiches or salads)");
     return { suggestKey, suggestLabel: suggestKey ? options?.businessTypes.find((t) => t.key === suggestKey)?.label : undefined, reasons, microwave: microwave && type.riskPriority === "Low", type };
   }, [options, form.businessTypeKey, selectedMenu, selectedEquipment]);
+
+  /**
+   * "Before you submit": what a health department reviewer looks for, checked against what is on this form. TODO = you
+   * must supply it, CHECK = look at it (it may be wrong), DONE = nothing to do.
+   */
+  const submissionChecklist = useMemo(() => {
+    type Item = { level: "todo" | "check" | "done"; text: string; detail?: string };
+    const items: Item[] = [];
+    const type = options?.businessTypes.find((t) => t.key === form.businessTypeKey) || null;
+    const isCounty = form.jurisdiction === "Baltimore County";
+    const county = licenseForm.county || {};
+    const equipKeys = new Set(selectedEquipment.map((e) => e.key));
+    const REFRIGERATION = ["beverage_cooler_1door", "beverage_cooler_2door", "beverage_cooler_4door", "ice_cream_freezer", "walk_in_cooler", "walk_in_freezer", "reach_in_cooler", "deli_case", "sandwich_prep_table"];
+    const NO_CUT_SHEET = ["shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer", "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink"];
+    const norm = (v: unknown) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const blank = (v: unknown) => !String(v ?? "").trim();
+    const wants = (c: HaccpPlanComponent) => components.has(c);
+
+    if (wants("license_application")) {
+      items.push({ level: "todo", text: "Sign and date the application", detail: "The form says it must be signed by the owner/operator. Print it and have the owner sign and date it." });
+      items.push({ level: "todo", text: "Attach payment", detail: isCounty ? "A check payable to “Baltimore County, Maryland” for the amount on the Fee Statement (the County fills in the amount)." : (requirements?.fees || []).join(" · ") + " Check or money order payable to “Director of Finance”." });
+      if (isCounty) items.push({ level: "check", text: "Confirm this is the form the County wants for a new store", detail: "This PDF is footed “Permit Renewal Application 02/04/2010”. Ask Environmental Health Services (410-887-3663) whether a new facility files this form or a newer one." });
+    }
+    const cutSheetItems = selectedEquipment.filter((e) => !NO_CUT_SHEET.includes(e.key));
+    if (cutSheetItems.length) {
+      items.push({ level: "todo", text: "Equipment cut sheets", detail: `Manufacturer spec sheets showing NSF (or equivalent) approval for: ${cutSheetItems.map((e) => e.quantity > 1 ? `${e.label} (x${e.quantity})` : e.label).join(", ")}.` });
+    } else {
+      items.push({ level: "check", text: "Equipment list is empty", detail: "A reviewer expects the refrigeration and other equipment listed." });
+    }
+    if (clientProfile || form.clientId) {
+      const coo = String(clientProfile?.use_and_occupancy_number || "").trim();
+      const zoning = String(clientProfile?.zoning_use_permit_number || "").trim();
+      items.push(coo
+        ? { level: "todo", text: `Copy of the Certificate of Occupancy (${coo})`, detail: "Attach a copy; the number is on the client's profile." }
+        : { level: "todo", text: "Copy of the Certificate of Occupancy", detail: "No number is on the client's profile yet — enter it on Permits & Compliance and attach a copy." });
+      items.push(zoning
+        ? { level: "todo", text: `Copy of the Zoning Use Permit (${zoning})`, detail: "Attach a copy; the number is on the client's profile." }
+        : { level: "todo", text: "Copy of the Zoning Use Permit", detail: "No number is on the client's profile yet — enter it on Permits & Compliance and attach a copy." });
+      if (!String(clientProfile?.fire_dept_permit_number || "").trim()) {
+        items.push({ level: "check", text: "Fire Marshal inspection", detail: "No fire inspection or permit number yet. Use “Create Schedule fire inspection task” on the client's Permits & Compliance tab." });
+      }
+    }
+    items.push({ level: "check", text: "Business name and address match the Certificate of Occupancy and Zoning Use Permit", detail: `This application says “${form.businessName}” at “${[form.street, form.city].filter(Boolean).join(", ")}”. A reviewer compares them letter for letter — including “131 1/2” versus “131.5”.` });
+
+    if (wants("license_application") && isCounty) {
+      const seats = String(county.numberOfSeats ?? "").trim();
+      if (!seats) items.push({ level: "todo", text: "Number of seats", detail: "Enter 0 if customers cannot sit." });
+      else if (type && !type.hasCookStep && !type.hasHotHolding && Number(seats) > 0) items.push({ level: "check", text: `Seats provided is “${seats}”`, detail: "A no-cook store normally has no seating. Enter 0 unless customers can sit." });
+      if (blank(county.numberOfEmployees)) items.push({ level: "todo", text: "Number of employees" });
+      if (blank(county.daysOfOperation) || blank(county.hoursOfOperation)) items.push({ level: "todo", text: "Days and hours of operation" });
+      if (blank(licenseForm.ownerHomeStreet)) items.push({ level: "todo", text: "Owner's address" });
+      else if (norm(licenseForm.ownerHomeStreet) === norm(form.street)) items.push({ level: "check", text: "Owner's address is the store's address", detail: "Confirm this is where the owner lives, not just the shop." });
+    }
+    if (selectedEquipment.some((e) => REFRIGERATION.includes(e.key)) && !equipKeys.has("refrigerator_thermometers")) {
+      items.push({ level: "check", text: "Thermometers in the coolers and freezers", detail: "Every refrigeration unit needs one. Add “Thermometer in each refrigerator / freezer / cooler” to the equipment list once the owner confirms." });
+    }
+    if (!equipKeys.has("handwashing_sink") && !equipKeys.has("restroom")) {
+      items.push({ level: "check", text: "Hand sink / restroom", detail: "The inspector checks handwashing facilities. Add the hand sink or restroom to the equipment list (and a mop/utility sink if there is one)." });
+    }
+    if (type?.riskPriority === "Low") {
+      items.push({ level: "done", text: "No HACCP plan needed", detail: "Low priority — the priority assessment on the Menu & Equipment List is enough." });
+      items.push({ level: "done", text: "No Certified Food Manager card needed (Baltimore County, Low priority)" });
+    }
+    return items;
+  }, [options, form.businessTypeKey, form.jurisdiction, form.businessName, form.street, form.city, form.clientId, licenseForm, selectedEquipment, components, clientProfile, requirements]);
 
   /**
    * Fills blank License & Permit fields from what's already on this form: the contact person is the
@@ -1095,6 +1171,29 @@ export function HaccpGeneratorPage() {
             </>
           )}
           </>
+          )}
+
+          {wantsLicenseOrReview && submissionChecklist.length > 0 && (
+            <div className="card" style={{ padding: 14, marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                <strong style={{ fontSize: 14 }}>Before you submit</strong>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {submissionChecklist.filter((i) => i.level === "todo").length} to supply · {submissionChecklist.filter((i) => i.level === "check").length} to check · {submissionChecklist.filter((i) => i.level === "done").length} done
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {submissionChecklist.map((i, idx) => (
+                  <div key={idx} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12.5 }}>
+                    <span style={{
+                      minWidth: 70, textAlign: "center", fontSize: 10.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                      background: i.level === "todo" ? "rgba(220,38,38,.12)" : i.level === "check" ? "rgba(217,119,6,.15)" : "rgba(11,107,107,.12)",
+                      color: i.level === "todo" ? "var(--red)" : i.level === "check" ? "var(--amber)" : "var(--teal)",
+                    }}>{i.level === "todo" ? "TO SUPPLY" : i.level === "check" ? "CHECK" : "DONE"}</span>
+                    <span><strong>{i.text}</strong>{i.detail && <> — <span className="muted">{i.detail}</span></>}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
