@@ -197,7 +197,8 @@ haccpRouter.get("/plans/:planId", requireAuth, requireRole("admin", "staff"), as
  * master list's wording changes later — same immutable-snapshot reasoning as
  * rendered_body itself.
  */
-export interface EquipmentSelection { key: string; label: string; quantity: number }
+/** `model` is the manufacturer and model number — what the equipment cut sheets are matched against. */
+export interface EquipmentSelection { key: string; label: string; quantity: number; model?: string }
 
 function parseEquipmentSelection(raw: unknown): EquipmentSelection[] {
   if (!Array.isArray(raw)) return [];
@@ -205,7 +206,8 @@ function parseEquipmentSelection(raw: unknown): EquipmentSelection[] {
     const key = String(item?.key || `custom-${i}`).trim();
     const label = String(item?.label || "").trim();
     const quantity = Number(item?.quantity);
-    return { key, label, quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1 };
+    const model = String(item?.model || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    return { key, label, quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1, ...(model ? { model } : {}) };
   }).filter((item) => item.label);
 }
 
@@ -509,7 +511,7 @@ export function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData
     riskPriority: businessType?.riskPriority || "Moderate",
     renderedBody: plan.rendered_body,
     menuGroups: groupMenuItems(plan.selected_menu_items || []),
-    equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
+    equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity, model: e.model })),
     createdAt: plan.created_at,
     priorityAssessment: businessType?.priorityAssessment
       ? { ...businessType.priorityAssessment, foods: businessType.priorityAssessment.foods + (businessType.riskPriority === "Low" && (plan.selected_menu_items || []).includes("ice_cream") ? " Ice cream is sold prepackaged only — no scooping." : "") }

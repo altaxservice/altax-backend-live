@@ -53,7 +53,7 @@ function addressLine(data: { streetAddress?: string | null; city?: string | null
 }
 
 export interface HaccpMenuGroup { category: string; items: string[] }
-export interface HaccpEquipmentLine { label: string; quantity: number }
+export interface HaccpEquipmentLine { label: string; quantity: number; model?: string }
 
 export interface HaccpPdfData {
   planId: string;
@@ -537,8 +537,8 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   for (let i = 0; i < data.equipment.length; i += 2) {
     const leftItem = data.equipment[i];
     const rightItem = data.equipment[i + 1];
-    const leftLabel = `${leftItem.label}${leftItem.quantity > 1 ? ` (x${leftItem.quantity})` : ""}`;
-    const rightLabel = rightItem ? `${rightItem.label}${rightItem.quantity > 1 ? ` (x${rightItem.quantity})` : ""}` : "";
+    const leftLabel = `${leftItem.label}${leftItem.quantity > 1 ? ` (x${leftItem.quantity})` : ""}${leftItem.model ? ` - ${leftItem.model}` : ""}`;
+    const rightLabel = rightItem ? `${rightItem.label}${rightItem.quantity > 1 ? ` (x${rightItem.quantity})` : ""}${rightItem.model ? ` - ${rightItem.model}` : ""}` : "";
     const leftLines = wrapText(leftLabel, font, 9.5, colWidthEquip - 14);
     const rightLines = rightItem ? wrapText(rightLabel, font, 9.5, colWidthEquip - 14) : [];
     const rowLines = Math.max(leftLines.length, rightLines.length || 1);

@@ -31,7 +31,7 @@ interface HaccpPlanRow {
   jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
   created_at: string; updated_at: string; components: HaccpPlanComponent[];
 }
-interface EquipmentSelection { key: string; label: string; quantity: number }
+interface EquipmentSelection { key: string; label: string; quantity: number; model?: string }
 interface CertifiedFoodManager { name: string; idNumber: string; expirationDate: string }
 interface CountyPermitData {
   facilityId?: string; applicationType?: string; buildingPermit?: "yes" | "no"; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
@@ -251,6 +251,9 @@ export function HaccpGeneratorPage() {
   function toggleEquipment(key: string, label: string) {
     setSelectedEquipment((prev) => prev.some((e) => e.key === key) ? prev.filter((e) => e.key !== key) : [...prev, { key, label, quantity: 1 }]);
   }
+  function setEquipmentModel(key: string, model: string) {
+    setSelectedEquipment((prev) => prev.map((e) => (e.key === key ? { ...e, model } : e)));
+  }
   function setEquipmentQuantity(key: string, quantity: number) {
     setSelectedEquipment((prev) => prev.map((e) => (e.key === key ? { ...e, quantity: Math.max(1, Math.floor(quantity) || 1) } : e)));
   }
@@ -405,7 +408,9 @@ export function HaccpGeneratorPage() {
     }
     const cutSheetItems = selectedEquipment.filter((e) => !NO_CUT_SHEET.includes(e.key));
     if (cutSheetItems.length) {
-      items.push({ level: "todo", text: "Equipment cut sheets", detail: `Manufacturer spec sheets showing NSF (or equivalent) approval for: ${cutSheetItems.map((e) => e.quantity > 1 ? `${e.label} (x${e.quantity})` : e.label).join(", ")}.` });
+      const withoutModel = cutSheetItems.filter((e) => !String(e.model || "").trim());
+      items.push({ level: "todo", text: "Equipment cut sheets", detail: `The manufacturer's spec sheet (PDF) for each piece, showing NSF or equivalent approval, for: ${cutSheetItems.map((e) => `${e.quantity > 1 ? `${e.label} (x${e.quantity})` : e.label}${e.model ? ` — ${e.model}` : ""}`).join("; ")}.` });
+      if (withoutModel.length) items.push({ level: "todo", text: "Make and model of each piece of equipment", detail: `Needed to get the cut sheets — read it off the data plate (usually inside the door or on the back). Missing for: ${withoutModel.map((e) => e.label).join(", ")}. Type it next to the quantity in the equipment list.` });
     } else {
       items.push({ level: "check", text: "Equipment list is empty", detail: "A reviewer expects the refrigeration and other equipment listed." });
     }
@@ -998,7 +1003,10 @@ export function HaccpGeneratorPage() {
                     {item.label}
                   </label>
                   {selected && (
-                    <input type="number" min={1} value={selected.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
+                    <>
+                      <input type="number" min={1} value={selected.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
+                      <input type="text" value={selected.model || ""} onChange={(e) => setEquipmentModel(item.key, e.target.value)} placeholder="Make / model" maxLength={80} style={{ width: 130, padding: "2px 6px", fontSize: 12 }} aria-label={`Make and model of ${item.label}`} />
+                    </>
                   )}
                 </div>
               );
@@ -1012,6 +1020,7 @@ export function HaccpGeneratorPage() {
                   <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
                     <span>{item.label}</span>
                     <input type="number" min={1} value={item.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
+                    <input type="text" value={item.model || ""} onChange={(e) => setEquipmentModel(item.key, e.target.value)} placeholder="Make / model" maxLength={80} style={{ width: 130, padding: "2px 6px", fontSize: 12 }} aria-label={`Make and model of ${item.label}`} />
                     <button type="button" onClick={() => removeEquipmentItem(item.key)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1 }} aria-label={`Remove ${item.label}`}>×</button>
                   </div>
                 ))}

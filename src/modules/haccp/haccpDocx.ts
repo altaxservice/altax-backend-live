@@ -226,7 +226,7 @@ function equipmentParagraphs(equipment: HaccpEquipmentLine[]): Paragraph[] {
   return equipment.map((item) => new Paragraph({
     numbering: { reference: EQUIPMENT_BULLETS_REF, level: 0 },
     spacing: { after: 60 },
-    children: [new TextRun({ text: `${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, italics: true, font: FONT, size: 21 })],
+    children: [new TextRun({ text: `${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}${item.model ? ` - ${item.model}` : ""}`, italics: true, font: FONT, size: 21 })],
   }));
 }
 
