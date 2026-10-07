@@ -508,7 +508,7 @@ export interface DocumentRequirements {
  * lists the fee by priority and the extra attachments it requires. The health department assigns the final
  * priority — this is what to expect, not a ruling.
  */
-export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction: string): DocumentRequirements {
+export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction: string, buildingPermit: "yes" | "no" | "unknown" = "unknown"): DocumentRequirements {
   const low = type.riskPriority === "Low";
   const isCity = /city/i.test(jurisdiction);
   const documents: DocumentRequirement[] = [];
@@ -535,8 +535,14 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
   documents.push(isCity
     ? { component: "plan_review", label: "Plan Review Application (Baltimore City)", status: "required",
         why: "Required for every new, renovated or change-of-ownership food facility. Fees: $75 plan review + $150 plan review inspection." }
+    : buildingPermit === "no"
+    ? { component: "plan_review", label: "Equipment review — Baltimore County Department of Health", status: "required",
+        why: `No building permit is needed (per the County), so this is an equipment-only review. Send the menu and equipment cut sheets${low ? "" : " and the HACCP plan"} to Baltimore County Department of Health, Division of Environmental Health Services, 6401 York Road, Third Floor, Baltimore, MD 21212 (ehs@baltimorecountymd.gov).` }
+    : buildingPermit === "yes"
+    ? { component: "plan_review", label: "Plans review with a building permit — Baltimore County", status: "required",
+        why: `Construction or remodeling: submit the building permit application, fees and plans (architectural, plumbing, mechanical, electrical, finish schedule, air balance schedule, scaled fixture layout), the menu${low ? "" : ", the HACCP plan"} and equipment cut sheets to Baltimore County Department of Permits, Approvals and Inspections, Building Inspections, 111 W. Chesapeake Avenue, Room 100, Towson, MD 21204.` }
     : { component: "plan_review", label: "Plans Review submittal (Baltimore County guide)", status: "if_applicable",
-        why: "Only when you build, remodel, alter or convert the space, or change equipment. Then send plans (layout, finish schedule), the menu, equipment cut sheets" + (low ? "." : " and the HACCP plan.") });
+        why: "Only when you build, remodel, alter or convert the space, or change equipment. Then send plans (layout, finish schedule), the menu, equipment cut sheets" + (low ? "." : " and the HACCP plan.") + " Tell us below whether a building permit is needed." });
 
   documents.push(low
     ? { label: "Certified Food Manager card", status: "not_required",

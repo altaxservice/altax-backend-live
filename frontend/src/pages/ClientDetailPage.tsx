@@ -1,3 +1,4 @@
+import { PermitTrackerSection } from "../components/PermitTrackerSection";
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
@@ -175,10 +176,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       // IDs above. Feed into generated Health Permit license/plan-review
       // applications (haccp.routes.ts) so staff enter them once here instead
       // of retyping on every renewal.
+      { key: "zoning_use_permit_number", apiKey: "zoningUsePermitNumber", label: "Zoning Use Permit Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "use_and_occupancy_number", apiKey: "useAndOccupancyNumber", label: "Use and Occupancy Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "fire_dept_permit_number", apiKey: "fireDeptPermitNumber", label: "Fire Department Permit Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "traders_license_number", apiKey: "tradersLicenseNumber", label: "Trader's License", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "health_permit_license_number", apiKey: "healthPermitLicenseNumber", label: "Health Permit License", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      { key: "tobacco_license_number", apiKey: "tobaccoLicenseNumber", label: "Tobacco License", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
     ],
   },
   {
@@ -1181,6 +1184,7 @@ export function ClientDetailPage() {
                   <DetailField label="Referral Source" value={client.referral_source as string | null} />
                   {isBusinessClient && <DetailField label="Trader's License" value={client.traders_license_number as string | null} />}
                   {isBusinessClient && <DetailField label="Health Permit License" value={client.health_permit_license_number as string | null} />}
+                {isBusinessClient && <DetailField label="Tobacco License" value={client.tobacco_license_number as string | null} />}
                 </div>
               </div>
               {String(client.notes || "").trim() && (
@@ -1207,6 +1211,7 @@ export function ClientDetailPage() {
                 {isBusinessClient && <DetailField label="State Tax ID" value={client.state_tax_id as string | null} />}
                 {isBusinessClient && <DetailField label={clientStateLabel("Secretary of State ID (SDAT)", client.state)} value={client.secretary_of_state_id as string | null} />}
                 {isBusinessClient && (isMarylandClient(client.state) || Boolean(client.cra_registration_number)) && <DetailField label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
+                {isBusinessClient && <DetailField label="Zoning Use Permit Number" value={client.zoning_use_permit_number as string | null} />}
                 {isBusinessClient && <DetailField label="Use and Occupancy Number" value={client.use_and_occupancy_number as string | null} />}
                 {isBusinessClient && <DetailField label="Fire Department Permit Number" value={client.fire_dept_permit_number as string | null} />}
                 {isBusinessClient && <DetailField label="Trader's License" value={client.traders_license_number as string | null} />}
@@ -1420,6 +1425,7 @@ export function ClientDetailPage() {
 
           {tab === "Permits & Compliance" && canSeeStaffTabs && (
             <>
+              <PermitTrackerSection clientId={client.client_id} />
               <ClientChecklistSection clientId={client.client_id} />
               <HealthPermitsSection clientId={client.client_id} />
             </>

@@ -34,7 +34,7 @@ interface HaccpPlanRow {
 interface EquipmentSelection { key: string; label: string; quantity: number }
 interface CertifiedFoodManager { name: string; idNumber: string; expirationDate: string }
 interface CountyPermitData {
-  facilityId?: string; applicationType?: string; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
+  facilityId?: string; applicationType?: string; buildingPermit?: "yes" | "no"; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
   numberOfSeats?: string; waterService?: string; sewageDisposal?: string; majorMenuChanges?: boolean;
   certifiedFoodManagers?: CertifiedFoodManager[];
   daysOfOperation?: string; hoursOfOperation?: string; numberOfEmployees?: string;
@@ -327,16 +327,16 @@ export function HaccpGeneratorPage() {
   // deliberately-edited phone number).
   // --- What this business needs: documents, fees and attachments for the chosen type + jurisdiction ---
   const [requirements, setRequirements] = useState<DocumentRequirements | null>(null);
-  async function loadRequirements(typeKey: string, jurisdiction: string): Promise<DocumentRequirements | null> {
+  async function loadRequirements(typeKey: string, jurisdiction: string, buildingPermit: string = licenseForm.county?.buildingPermit || ""): Promise<DocumentRequirements | null> {
     if (!typeKey) { setRequirements(null); return null; }
     try {
-      const r = await api.get<{ requirements: DocumentRequirements }>(`/haccp/requirements?businessTypeKey=${encodeURIComponent(typeKey)}&jurisdiction=${encodeURIComponent(jurisdiction)}`);
+      const r = await api.get<{ requirements: DocumentRequirements }>(`/haccp/requirements?businessTypeKey=${encodeURIComponent(typeKey)}&jurisdiction=${encodeURIComponent(jurisdiction)}&buildingPermit=${encodeURIComponent(buildingPermit)}`);
       setRequirements(r.requirements);
       return r.requirements;
     } catch { setRequirements(null); return null; }
   }
   // A saved plan opened for renewal keeps the documents it was saved with; only the card is refreshed.
-  useEffect(() => { loadRequirements(form.businessTypeKey, form.jurisdiction); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [form.businessTypeKey, form.jurisdiction]);
+  useEffect(() => { loadRequirements(form.businessTypeKey, form.jurisdiction); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [form.businessTypeKey, form.jurisdiction, licenseForm.county?.buildingPermit]);
 
   /** The user picked a business type or jurisdiction: pre-select exactly the documents that combination needs. */
   async function chooseTypeOrJurisdiction(typeKey: string, jurisdiction: string) {
@@ -727,6 +727,20 @@ export function HaccpGeneratorPage() {
                 </div>
               )}
               {requirements.fees.length > 0 && <p className="muted" style={{ fontSize: 11.5, margin: "8px 0 0" }}>{requirements.fees.join(" · ")}</p>}
+              {form.jurisdiction === "Baltimore County" && (
+                <div className="field" style={{ maxWidth: 420, marginTop: 10, marginBottom: 0 }}>
+                  <label htmlFor="hp-building-permit">Does this work need a building permit?</label>
+                  <select id="hp-building-permit" value={licenseForm.county?.buildingPermit || ""} onChange={(e) => {
+                    const v = e.target.value as "" | "yes" | "no";
+                    setLicenseForm((f) => ({ ...f, county: { ...f.county, buildingPermit: v || undefined } }));
+                    void loadRequirements(form.businessTypeKey, form.jurisdiction, v).then((req) => { if (req) setComponents(new Set(req.defaultComponents)); });
+                  }}>
+                    <option value="">Not sure yet</option>
+                    <option value="no">No — the County said no building inspections are required</option>
+                    <option value="yes">Yes — construction, remodeling or alterations</option>
+                  </select>
+                </div>
+              )}
               <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Also needed outside the health department: {requirements.relatedApprovals.join("; ")}.</p>
               <div style={{ marginTop: 10 }}>
                 <button type="button" className="btn btn-sm" onClick={() => setComponents(new Set(requirements.defaultComponents))}>Select the required documents</button>

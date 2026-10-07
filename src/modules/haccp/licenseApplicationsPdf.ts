@@ -59,6 +59,8 @@ export interface CountyPermitData {
   facilityId?: string;
   /** "New", "Renewal" or "Change of Ownership" — printed on the permit's Type of Application line. */
   applicationType?: string;
+  /** Whether the work needs a building permit — decides where plans review goes. Not printed on a form. */
+  buildingPermit?: "yes" | "no";
   cateringServiceProvided?: boolean;
   cateringId?: string;
   facilityClassification?: string;

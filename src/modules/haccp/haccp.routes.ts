@@ -72,7 +72,8 @@ haccpRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHan
 haccpRouter.get("/requirements", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const type = HACCP_BUSINESS_TYPES.find((t) => t.key === String(req.query.businessTypeKey || ""));
   if (!type) return res.status(400).json({ error: "Unknown business type." });
-  res.json({ requirements: buildDocumentRequirements(type, String(req.query.jurisdiction || "Baltimore City")) });
+  const bp = String(req.query.buildingPermit || "");
+  res.json({ requirements: buildDocumentRequirements(type, String(req.query.jurisdiction || "Baltimore City"), bp === "yes" || bp === "no" ? bp : "unknown") });
 }));
 
 /**
@@ -269,6 +270,7 @@ function parseCountyPermitData(raw: unknown): LicenseApplicationData["county"] {
   return {
     facilityId: String(d.facilityId || "").trim() || undefined,
     applicationType: ["New", "Renewal", "Change of Ownership"].includes(String(d.applicationType)) ? String(d.applicationType) : undefined,
+    buildingPermit: ["yes", "no"].includes(String(d.buildingPermit)) ? (d.buildingPermit as "yes" | "no") : undefined,
     cateringServiceProvided: Boolean(d.cateringServiceProvided),
     cateringId: String(d.cateringId || "").trim() || undefined,
     facilityClassification: String(d.facilityClassification || "").trim() || undefined,

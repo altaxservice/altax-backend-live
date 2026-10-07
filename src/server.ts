@@ -11,6 +11,7 @@ import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep, runClientM
 import { runComplianceDeadlineReminders } from "./common/complianceReminders";
 import { runSalesLoggingNudges } from "./common/salesLoggingNudges";
 import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
+import { permitsRouter } from "./modules/clients/permits.routes";
 import { noticesRouter } from "./modules/clients/notices.routes";
 import { taxReturnsRouter } from "./modules/clients/taxReturns.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
@@ -331,6 +332,7 @@ app.use("/auth", authRouter);
 // /clients/tax-returns/summary was silently resolving to computeClientOpsSummary("tax-returns", ...)
 // instead of the real tax-returns/summary handler, returning a shape with no `counts` field.
 app.use("/clients", ownershipTransferRouter);
+app.use("/clients", permitsRouter);
 app.use("/clients", noticesRouter);
 app.use("/clients", taxReturnsRouter);
 app.use("/clients", clientsRouter);
