@@ -14,7 +14,7 @@ import {
   type LicenseApplicationData,
 } from "./licenseApplicationsPdf";
 import {
-  HACCP_BUSINESS_TYPES, HACCP_BUSINESS_TYPE_LABEL, HACCP_MENU_CATEGORIES, HACCP_EQUIPMENT_ITEMS,
+  HACCP_BUSINESS_TYPES, HACCP_BUSINESS_TYPE_LABEL, HACCP_MENU_CATEGORIES, HACCP_EQUIPMENT_ITEMS, HACCP_EQUIPMENT_GROUPS,
   GENERAL_HANDLING_KEY, GENERAL_HANDLING_TITLE, GENERAL_HANDLING_BODY, BUILT_IN_HACCP_TEMPLATES, HACCP_RISK_SIGNALS, buildDocumentRequirements,
 } from "./haccpContent";
 
@@ -63,7 +63,7 @@ async function resolveHaccpTemplate(businessTypeKey: string): Promise<ResolvedHa
 haccpRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const customItems = await query<{ label: string }>(`SELECT label FROM altax.v3_haccp_custom_menu_items ORDER BY label ASC`);
   res.json({
-    businessTypes: HACCP_BUSINESS_TYPES, menuCategories: HACCP_MENU_CATEGORIES, equipmentItems: HACCP_EQUIPMENT_ITEMS,
+    businessTypes: HACCP_BUSINESS_TYPES, menuCategories: HACCP_MENU_CATEGORIES, equipmentItems: HACCP_EQUIPMENT_ITEMS, equipmentGroups: HACCP_EQUIPMENT_GROUPS,
     customMenuItems: customItems.map((r) => r.label), riskSignals: HACCP_RISK_SIGNALS,
   });
 }));
@@ -529,7 +529,7 @@ export function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData
     riskPriority: businessType?.riskPriority || "Moderate",
     renderedBody: plan.rendered_body,
     menuGroups: groupMenuItems(plan.selected_menu_items || []),
-    equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity, model: e.model })),
+    equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ key: e.key, label: e.label, quantity: e.quantity, model: e.model })),
     createdAt: plan.created_at,
     priorityAssessment: businessType?.priorityAssessment
       ? { ...businessType.priorityAssessment, foods: businessType.priorityAssessment.foods + (businessType.riskPriority === "Low" && (plan.selected_menu_items || []).includes("ice_cream") ? " Ice cream is sold prepackaged only — no scooping." : "") }

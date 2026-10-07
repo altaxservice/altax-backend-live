@@ -18,7 +18,7 @@ import {
   generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf, generateCountyFoodServicePermitApplicationPdf,
 } from "./licenseApplicationsPdf";
 import { loadPlanForUser, toHaccpPdfInput, toLicensePdfInput, sanitizeEquipmentSpec, type EquipmentSelection } from "./haccp.routes";
-import { HACCP_NO_CUT_SHEET_KEYS } from "./haccpContent";
+import { HACCP_NO_CUT_SHEET_KEYS, groupEquipment } from "./haccpContent";
 
 export const haccpPackageRouter = Router();
 
@@ -141,7 +141,7 @@ export async function generateEquipmentSchedulePdf(plan: any, attachments: Attac
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const equipment: EquipmentSelection[] = plan.selected_equipment || [];
+  const equipment: EquipmentSelection[] = groupEquipment((plan.selected_equipment || []) as EquipmentSelection[]).flatMap((g) => g.items);
   const L = 48, R = PAGE_W - 48;
   const cols = { no: L, name: L + 26, qty: L + 214, model: L + 250, sheet: L + 420 };
   let page = doc.addPage([PAGE_W, PAGE_H]);

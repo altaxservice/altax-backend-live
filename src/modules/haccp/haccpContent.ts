@@ -250,41 +250,68 @@ export const HACCP_MENU_CATEGORIES: ChecklistCategory[] = [
   },
 ];
 
-/** Master equipment checklist — every realistic piece of equipment across all three business types; staff check off what's on site. */
-export const HACCP_EQUIPMENT_ITEMS: ChecklistItem[] = [
-  { key: "shelves", label: "Shelves / Storage Shelving" },
-  { key: "beverage_cooler_1door", label: "1-Door Beverage Cooler" },
-  { key: "beverage_cooler_2door", label: "2-Door Beverage Cooler" },
-  { key: "beverage_cooler_4door", label: "4-Door Commercial Beverage Cooler" },
-  { key: "ice_cream_freezer", label: "Ice-Cream Freezer" },
-  { key: "walk_in_cooler", label: "Walk-In Cooler" },
-  { key: "walk_in_freezer", label: "Walk-In Freezer" },
-  { key: "reach_in_cooler", label: "Reach-In Cooler" },
-  { key: "dairy_case", label: "Dairy / Multi-Deck Refrigerated Display Case" },
-  { key: "reach_in_freezer", label: "Reach-In / Chest Freezer" },
-  { key: "food_prep_counter", label: "Food Prep Counter" },
-  { key: "sandwich_prep_table", label: "Sandwich Prep Table (Cold Well)" },
-  { key: "deli_case", label: "Deli Case" },
-  { key: "deli_slicer", label: "Deli Slicer" },
-  { key: "grill", label: "Grill / Griddle" },
-  { key: "stove", label: "Stove / Range" },
-  { key: "fryer", label: "Deep Fryer" },
-  { key: "oven", label: "Oven" },
-  { key: "steam_table", label: "Steam Table / Hot-Holding Unit" },
-  { key: "heated_display_case", label: "Heated Display Case / Warmer" },
-  { key: "microwave", label: "Microwave" },
-  { key: "coffee_machine", label: "Coffee Machine" },
-  { key: "ice_machine", label: "Ice Machine" },
-  { key: "3_compartment_sink", label: "3-Compartment Sink (Wash/Rinse/Sanitize)" },
-  { key: "handwashing_sink", label: "Handwashing Sink(s) with Soap, Warm Water, Paper Towels" },
-  { key: "metal_stem_thermometer", label: "Digital/Metal Stem Thermometer(s), calibrated weekly" },
-  { key: "refrigerator_thermometers", label: "Thermometer in each refrigerator / freezer / cooler" },
-  { key: "mop_sink", label: "Mop / Utility Sink" },
-  { key: "restroom", label: "Restroom with Hand Sink, Soap and Paper Towels" },
-  { key: "sanitizer_buckets", label: "Sanitizer Buckets and Test Strips" },
-  { key: "cash_register", label: "Cash Register / POS" },
-  { key: "atm", label: "ATM" },
-  { key: "security_cameras", label: "Security Cameras" },
+export interface HaccpEquipmentItem extends ChecklistItem {
+  /** Section of the checklist the item is shown under. */
+  group: string;
+  /**
+   * True for appliances and food-contact/refrigeration equipment a reviewer wants a manufacturer cut sheet (NSF or
+   * equivalent) for — these get a Make / model box and an attachment slot. False for shelving, sinks, supplies,
+   * thermometers and the register, where a make and model mean nothing.
+   */
+  needsCutSheet: boolean;
+}
+
+/** Order the groups are shown in. */
+export const HACCP_EQUIPMENT_GROUPS = [
+  "Refrigeration & Freezing", "Food Preparation", "Cooking, Heating & Hot-Holding", "Beverage & Ice",
+  "Sinks, Washing & Sanitizing", "Thermometers", "Store Fixtures & Other",
+] as const;
+
+/** Master equipment checklist, by group; staff check off what's on site. */
+export const HACCP_EQUIPMENT_ITEMS: HaccpEquipmentItem[] = [
+  // Refrigeration & freezing — food-rated units; the reviewer reads their cut sheets for NSF and 41°F / 0°F holding
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "reach_in_cooler", label: "Reach-In Cooler" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "dairy_case", label: "Dairy / Multi-Deck Refrigerated Display Case" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "walk_in_cooler", label: "Walk-In Cooler" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "deli_case", label: "Deli Case (Refrigerated)" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "sandwich_prep_table", label: "Sandwich Prep Table (Cold Well)" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "beverage_cooler_1door", label: "1-Door Beverage Cooler" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "beverage_cooler_2door", label: "2-Door Beverage Cooler" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "beverage_cooler_4door", label: "4-Door Commercial Beverage Cooler" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "reach_in_freezer", label: "Reach-In / Chest Freezer" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "walk_in_freezer", label: "Walk-In Freezer" },
+  { group: "Refrigeration & Freezing", needsCutSheet: true, key: "ice_cream_freezer", label: "Ice-Cream Freezer" },
+  // Food preparation
+  { group: "Food Preparation", needsCutSheet: false, key: "food_prep_counter", label: "Food Prep Counter / Table" },
+  { group: "Food Preparation", needsCutSheet: true, key: "deli_slicer", label: "Deli Slicer" },
+  // Cooking, heating & hot-holding — selecting any of these makes the store a cooking operation (higher risk level)
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "grill", label: "Grill / Griddle" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "stove", label: "Stove / Range" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "fryer", label: "Deep Fryer" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "oven", label: "Oven" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "exhaust_hood", label: "Exhaust Hood (over cooking equipment)" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "microwave", label: "Microwave" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "steam_table", label: "Steam Table / Hot-Holding Unit" },
+  { group: "Cooking, Heating & Hot-Holding", needsCutSheet: true, key: "heated_display_case", label: "Heated Display Case / Warmer" },
+  // Beverage & ice
+  { group: "Beverage & Ice", needsCutSheet: true, key: "coffee_machine", label: "Coffee Machine" },
+  { group: "Beverage & Ice", needsCutSheet: true, key: "fountain_dispenser", label: "Fountain Soda Dispenser" },
+  { group: "Beverage & Ice", needsCutSheet: true, key: "ice_machine", label: "Ice Machine" },
+  // Sinks, washing & sanitizing — fixtures and supplies: no make or model
+  { group: "Sinks, Washing & Sanitizing", needsCutSheet: false, key: "handwashing_sink", label: "Handwashing Sink (soap, warm water, paper towels)" },
+  { group: "Sinks, Washing & Sanitizing", needsCutSheet: false, key: "restroom", label: "Restroom with Hand Sink, Soap and Paper Towels" },
+  { group: "Sinks, Washing & Sanitizing", needsCutSheet: false, key: "mop_sink", label: "Mop / Utility Sink" },
+  { group: "Sinks, Washing & Sanitizing", needsCutSheet: false, key: "3_compartment_sink", label: "3-Compartment Sink (Wash/Rinse/Sanitize)" },
+  { group: "Sinks, Washing & Sanitizing", needsCutSheet: true, key: "dish_machine", label: "Dishwasher / Dish Machine" },
+  { group: "Sinks, Washing & Sanitizing", needsCutSheet: false, key: "sanitizer_buckets", label: "Sanitizer Buckets and Test Strips" },
+  // Thermometers
+  { group: "Thermometers", needsCutSheet: false, key: "refrigerator_thermometers", label: "Thermometer in each refrigerator / freezer / cooler" },
+  { group: "Thermometers", needsCutSheet: false, key: "metal_stem_thermometer", label: "Metal Stem Thermometer (calibrated weekly)" },
+  // Store fixtures & other
+  { group: "Store Fixtures & Other", needsCutSheet: false, key: "shelves", label: "Shelves / Storage Shelving" },
+  { group: "Store Fixtures & Other", needsCutSheet: false, key: "cash_register", label: "Cash Register / POS" },
+  { group: "Store Fixtures & Other", needsCutSheet: false, key: "atm", label: "ATM" },
+  { group: "Store Fixtures & Other", needsCutSheet: false, key: "security_cameras", label: "Security Cameras" },
 ];
 
 /**
@@ -473,7 +500,7 @@ export const HACCP_RISK_SIGNALS = {
   hotMenu: ["hot_subs", "fried_chicken", "burgers", "pizza", "soups", "hot_entrees", "eggs_cooked_to_order"],
   /** Potentially hazardous food that is opened, sliced or assembled on site (not simply sold in its package). */
   preparedColdMenu: ["breakfast_sandwiches", "cold_subs", "cold_wraps", "cold_cuts", "chicken_tuna_salad", "pre_cut_fruit", "salads"],
-  cookingEquipment: ["grill", "stove", "fryer", "oven"],
+  cookingEquipment: ["grill", "stove", "fryer", "oven", "exhaust_hood"],
   hotHoldingEquipment: ["steam_table", "heated_display_case"],
   coldPrepEquipment: ["deli_case", "deli_slicer", "sandwich_prep_table", "food_prep_counter"],
   /** Not a risk by itself — it depends on whether staff heat food for customers. */
@@ -594,8 +621,23 @@ export function buildDocumentRequirements(type: HaccpBusinessType, jurisdiction:
   };
 }
 
-/** Equipment that is not a food-contact or refrigeration appliance — it needs no NSF cut sheet. Used by the Equipment Schedule and the submission checklist. */
-export const HACCP_NO_CUT_SHEET_KEYS: readonly string[] = [
-  "shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer",
-  "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink",
-];
+/**
+ * Splits a plan's selected equipment into the master list's groups, in the master list's order (anything typed in by
+ * hand goes last under "Other Equipment"). Used so the printed list and the schedule read by section, not in the order
+ * the boxes happened to be ticked.
+ */
+export function groupEquipment<T extends { key: string }>(list: T[]): { group: string; items: T[] }[] {
+  const order = new Map(HACCP_EQUIPMENT_ITEMS.map((i, idx) => [i.key, idx]));
+  const groupOf = new Map(HACCP_EQUIPMENT_ITEMS.map((i) => [i.key, i.group]));
+  const out: { group: string; items: T[] }[] = [];
+  for (const g of [...HACCP_EQUIPMENT_GROUPS, "Other Equipment"]) {
+    const items = list
+      .filter((e) => (groupOf.get(e.key) ?? "Other Equipment") === g)
+      .sort((a, b) => (order.get(a.key) ?? 9999) - (order.get(b.key) ?? 9999));
+    if (items.length) out.push({ group: g, items });
+  }
+  return out;
+}
+
+/** Equipment that is not a food-contact or refrigeration appliance — it needs no NSF cut sheet. Derived from the master list above. */
+export const HACCP_NO_CUT_SHEET_KEYS: readonly string[] = HACCP_EQUIPMENT_ITEMS.filter((i) => !i.needsCutSheet).map((i) => i.key);

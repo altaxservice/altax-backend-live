@@ -19,6 +19,7 @@ import {
   ShadingType, Table, TableCell, TableRow, TabStopType, TextRun, WidthType,
 } from "docx";
 import type { HaccpPdfData, HaccpMenuGroup, HaccpEquipmentLine } from "./haccpPdf";
+import { groupEquipment } from "./haccpContent";
 
 const FONT = "Calibri";
 // Back to the real sample's flat neutral gray — the earlier "cozy" warm
@@ -223,11 +224,18 @@ function equipmentParagraphs(equipment: HaccpEquipmentLine[]): Paragraph[] {
   if (!equipment.length) {
     return [new Paragraph({ children: [new TextRun({ text: "(none selected)", italics: true, color: MUTED, font: FONT, size: 20 })] })];
   }
-  return equipment.map((item) => new Paragraph({
-    numbering: { reference: EQUIPMENT_BULLETS_REF, level: 0 },
-    spacing: { after: 60 },
-    children: [new TextRun({ text: `${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}${item.model ? ` - ${item.model}` : ""}`, italics: true, font: FONT, size: 21 })],
-  }));
+  const out: Paragraph[] = [];
+  for (const grp of groupEquipment(equipment.map((e) => ({ ...e, key: e.key || e.label })))) {
+    out.push(new Paragraph({ keepNext: true, spacing: { before: 160, after: 60 }, children: [new TextRun({ text: grp.group, bold: true, font: FONT, size: 20, color: MUTED })] }));
+    for (const item of grp.items) {
+      out.push(new Paragraph({
+        numbering: { reference: EQUIPMENT_BULLETS_REF, level: 0 },
+        spacing: { after: 60 },
+        children: [new TextRun({ text: `${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}${item.model ? ` - ${item.model}` : ""}`, italics: true, font: FONT, size: 21 })],
+      }));
+    }
+  }
+  return out;
 }
 
 function ccpHeaderRow(): TableRow {

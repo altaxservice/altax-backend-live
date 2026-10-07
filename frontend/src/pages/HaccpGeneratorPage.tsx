@@ -18,7 +18,9 @@ interface DocumentRequirements {
 }
 interface ChecklistItem { key: string; label: string }
 interface ChecklistCategory { category: string; items: ChecklistItem[] }
-interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[]; customMenuItems: string[]; riskSignals?: RiskSignals }
+/** `needsCutSheet` is true for appliances and food-contact/refrigeration equipment (they get a make/model box and a cut sheet). */
+interface EquipmentOption extends ChecklistItem { group?: string; needsCutSheet?: boolean }
+interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: EquipmentOption[]; equipmentGroups?: string[]; customMenuItems: string[]; riskSignals?: RiskSignals }
 /** Which document(s) a plan wants — see haccp.routes.ts's HACCP_PLAN_COMPONENTS. */
 type HaccpPlanComponent = "haccp_plan" | "menu_equipment" | "license_application" | "plan_review";
 const HACCP_PLAN_COMPONENTS: { key: HaccpPlanComponent; label: string; description: string }[] = [
@@ -62,6 +64,7 @@ interface HaccpPlanDetail extends HaccpPlanRow {
 const JURISDICTIONS = ["Baltimore City", "Baltimore County"];
 
 /** Equipment that is not a food-contact or refrigeration appliance — no NSF cut sheet is needed for it. */
+/** Fallback only — the server's equipment list (needsCutSheet) is the source of truth once options load. */
 const NO_CUT_SHEET_KEYS = ["shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer", "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink"];
 
 interface PlanAttachment { attachment_id: string; kind: "cut_sheet" | "occupancy" | "zoning" | "other"; equipment_key: string | null; label: string | null; file_name: string; file_size: number }
@@ -71,7 +74,7 @@ interface PlanAttachment { attachment_id: string; kind: "cut_sheet" | "occupancy
  * then print the whole submission — cover sheet, application, menu and equipment, equipment schedule, cut sheets,
  * approvals — as one PDF in the order a reviewer expects.
  */
-function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void }) {
+function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange, noCutSheetKeys }: { planId: string; equipment: EquipmentSelection[]; baseName: string; onEquipmentChange: (list: EquipmentSelection[]) => void; noCutSheetKeys: Set<string> }) {
   const toast = useToast();
   const [items, setItems] = useState<PlanAttachment[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -121,7 +124,7 @@ function SubmissionPackagePanel({ planId, equipment, baseName, onEquipmentChange
   }
 
   const find = (kind: PlanAttachment["kind"], key?: string) => (items || []).find((a) => a.kind === kind && (kind !== "cut_sheet" || a.equipment_key === key));
-  const needSheets = equipment.filter((e) => !NO_CUT_SHEET_KEYS.includes(e.key));
+  const needSheets = equipment.filter((e) => !noCutSheetKeys.has(e.key));
   const extras = (items || []).filter((a) => a.kind === "other");
 
   const slot = (title: string, hint: string, a: PlanAttachment | undefined, onPick: (f: File | undefined) => void, slotKey: string) => (
@@ -443,6 +446,12 @@ export function HaccpGeneratorPage() {
   }
   const knownEquipmentKeys = useMemo(() => new Set((options?.equipmentItems || []).map((i) => i.key)), [options]);
   const customEquipmentItems = selectedEquipment.filter((e) => !knownEquipmentKeys.has(e.key));
+  // Which pieces get a make/model box and a cut sheet: appliances and food-contact equipment, never shelving, sinks, supplies or the register.
+  const noCutSheetKeys = useMemo(() => {
+    const items = options?.equipmentItems;
+    return items && items.length ? new Set(items.filter((i) => i.needsCutSheet === false).map((i) => i.key)) : new Set(NO_CUT_SHEET_KEYS);
+  }, [options]);
+  const [showCooking, setShowCooking] = useState(false);
   function selectAllEquipment() {
     setSelectedEquipment((prev) => {
       const existingKeys = new Set(prev.map((e) => e.key));
@@ -571,7 +580,6 @@ export function HaccpGeneratorPage() {
     const county = licenseForm.county || {};
     const equipKeys = new Set(selectedEquipment.map((e) => e.key));
     const REFRIGERATION = ["beverage_cooler_1door", "beverage_cooler_2door", "beverage_cooler_4door", "ice_cream_freezer", "walk_in_cooler", "walk_in_freezer", "reach_in_cooler", "dairy_case", "reach_in_freezer", "deli_case", "sandwich_prep_table"];
-    const NO_CUT_SHEET = ["shelves", "cash_register", "atm", "security_cameras", "sanitizer_buckets", "metal_stem_thermometer", "refrigerator_thermometers", "handwashing_sink", "restroom", "mop_sink", "3_compartment_sink"];
     const norm = (v: unknown) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const blank = (v: unknown) => !String(v ?? "").trim();
     const wants = (c: HaccpPlanComponent) => components.has(c);
@@ -581,7 +589,7 @@ export function HaccpGeneratorPage() {
       items.push({ level: "todo", text: "Attach payment", detail: isCounty ? "A check payable to “Baltimore County, Maryland” for the amount on the Fee Statement (the County fills in the amount)." : (requirements?.fees || []).join(" · ") + " Check or money order payable to “Director of Finance”." });
       if (isCounty) items.push({ level: "check", text: "Confirm this is the form the County wants for a new store", detail: "This PDF is footed “Permit Renewal Application 02/04/2010”. Ask Environmental Health Services (410-887-3663) whether a new facility files this form or a newer one." });
     }
-    const cutSheetItems = selectedEquipment.filter((e) => !NO_CUT_SHEET.includes(e.key));
+    const cutSheetItems = selectedEquipment.filter((e) => !noCutSheetKeys.has(e.key));
     if (cutSheetItems.length) {
       const withoutModel = cutSheetItems.filter((e) => !String(e.model || "").trim());
       items.push({ level: "todo", text: "Equipment cut sheets", detail: `The manufacturer's spec sheet (PDF) for each piece, showing NSF or equivalent approval, for: ${cutSheetItems.map((e) => `${e.quantity > 1 ? `${e.label} (x${e.quantity})` : e.label}${e.model ? ` — ${e.model}` : ""}`).join("; ")}.` });
@@ -659,7 +667,7 @@ export function HaccpGeneratorPage() {
       items.push({ level: "done", text: "No Certified Food Manager card needed (Baltimore County, Low priority)" });
     }
     return items;
-  }, [options, form.businessTypeKey, form.jurisdiction, form.businessName, form.street, form.city, form.clientId, licenseForm, selectedEquipment, components, clientProfile, requirements]);
+  }, [options, form.businessTypeKey, form.jurisdiction, form.businessName, form.street, form.city, form.clientId, licenseForm, selectedEquipment, components, clientProfile, requirements, noCutSheetKeys]);
 
   /**
    * Fills blank License & Permit fields from what's already on this form: the contact person is the
@@ -1177,9 +1185,13 @@ export function HaccpGeneratorPage() {
             <button type="button" className="btn btn-sm" onClick={clearAllEquipment} style={{ textTransform: "none", fontWeight: 400 }}>Clear All</button>
           </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every piece of equipment on site — set a quantity if there's more than one. Not on the list? Type it below and add it.</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 10 }}>
-            {options?.equipmentItems.map((item) => {
+          {(() => {
+            const items = options?.equipmentItems || [];
+            const groups = options?.equipmentGroups?.length ? options.equipmentGroups : Array.from(new Set(items.map((i) => i.group || "Equipment")));
+            const noCook = Boolean(businessType && !businessType.hasCookStep && !businessType.hasHotHolding);
+            const renderItem = (item: EquipmentOption) => {
               const selected = selectedEquipment.find((e) => e.key === item.key);
+              const appliance = item.needsCutSheet !== false;
               return (
                 <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1189,13 +1201,38 @@ export function HaccpGeneratorPage() {
                   {selected && (
                     <>
                       <input type="number" min={1} value={selected.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
-                      <input type="text" value={selected.model || ""} onChange={(e) => setEquipmentModel(item.key, e.target.value)} placeholder="Make / model" maxLength={80} style={{ width: 130, padding: "2px 6px", fontSize: 12 }} aria-label={`Make and model of ${item.label}`} />
+                      {appliance && <input type="text" value={selected.model || ""} onChange={(e) => setEquipmentModel(item.key, e.target.value)} placeholder="Make / model" maxLength={80} style={{ width: 130, padding: "2px 6px", fontSize: 12 }} aria-label={`Make and model of ${item.label}`} />}
                     </>
                   )}
                 </div>
               );
-            })}
-          </div>
+            };
+            return groups.map((g) => {
+              const inGroup = items.filter((i) => (i.group || "Equipment") === g);
+              if (!inGroup.length) return null;
+              const isCooking = g.startsWith("Cooking");
+              const anySelected = inGroup.some((i) => selectedEquipment.some((e) => e.key === i.key));
+              const collapsed = isCooking && noCook && !anySelected && !showCooking;
+              return (
+                <div key={g} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                    {g}
+                    {isCooking && noCook && (
+                      <button type="button" onClick={() => setShowCooking((v) => !v)} style={{ background: "none", border: "none", color: "var(--teal)", cursor: "pointer", padding: 0, marginLeft: 8, fontSize: 11, textDecoration: "underline" }}>
+                        {collapsed ? "Show" : "Hide"}
+                      </button>
+                    )}
+                    {!collapsed && g === "Refrigeration & Freezing" && <span className="muted" style={{ fontWeight: 400, fontSize: 11.5, marginLeft: 8 }}>Food units need a cut sheet; beverage coolers are for drinks.</span>}
+                  </div>
+                  {collapsed ? (
+                    <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>Hidden for a no-cook store. Ticking any cooking, heating or hot-holding equipment makes this a higher-risk operation.</p>
+                  ) : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px" }}>{inGroup.map(renderItem)}</div>
+                  )}
+                </div>
+              );
+            });
+          })()}
           {customEquipmentItems.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Added Items</div>
@@ -1391,7 +1428,7 @@ export function HaccpGeneratorPage() {
           )}
 
           {savedPlanId && (
-            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} />
+            <SubmissionPackagePanel planId={savedPlanId} equipment={selectedEquipment} baseName={downloadBaseName} onEquipmentChange={setSelectedEquipment} noCutSheetKeys={noCutSheetKeys} />
           )}
 
           {wantsLicenseOrReview && submissionChecklist.length > 0 && (

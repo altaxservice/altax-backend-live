@@ -17,6 +17,7 @@
  * doc's document order (Cover → Menu → Body → Equipment List).
  */
 import { tidyAddress } from "../govForms/billOfSale";
+import { groupEquipment } from "./haccpContent";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, degrees } from "pdf-lib";
 import { pdfSafeText } from "../../common/pdfText";
 
@@ -53,7 +54,7 @@ function addressLine(data: { streetAddress?: string | null; city?: string | null
 }
 
 export interface HaccpMenuGroup { category: string; items: string[] }
-export interface HaccpEquipmentLine { label: string; quantity: number; model?: string }
+export interface HaccpEquipmentLine { label: string; quantity: number; model?: string; key?: string }
 
 export interface HaccpPdfData {
   planId: string;
@@ -534,9 +535,14 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   const colWidthEquip = (R - L - colGapEquip) / 2;
   const leftEquipX = L;
   const rightEquipX = leftEquipX + colWidthEquip + colGapEquip;
-  for (let i = 0; i < data.equipment.length; i += 2) {
-    const leftItem = data.equipment[i];
-    const rightItem = data.equipment[i + 1];
+  for (const grp of groupEquipment(data.equipment.map((e) => ({ ...e, key: e.key || e.label })))) {
+  // Section heading — kept with at least its first row.
+  if (y + 40 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
+  c.text(L, y, grp.group, { size: 9.5, bold: true, color: MUTED });
+  y += 14;
+  for (let i = 0; i < grp.items.length; i += 2) {
+    const leftItem = grp.items[i];
+    const rightItem = grp.items[i + 1];
     const leftLabel = `${leftItem.label}${leftItem.quantity > 1 ? ` (x${leftItem.quantity})` : ""}${leftItem.model ? ` - ${leftItem.model}` : ""}`;
     const rightLabel = rightItem ? `${rightItem.label}${rightItem.quantity > 1 ? ` (x${rightItem.quantity})` : ""}${rightItem.model ? ` - ${rightItem.model}` : ""}` : "";
     const leftLines = wrapText(leftLabel, font, 9.5, colWidthEquip - 14);
@@ -550,6 +556,8 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       rightLines.forEach((line, li) => c.text(rightEquipX + 12, y + li * 13, line, { size: 9.5 }));
     }
     y += rowLines * 13 + 4;
+  }
+  y += 6;
   }
   }
 
