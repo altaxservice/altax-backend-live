@@ -308,6 +308,9 @@ app.get("*", (req, res, next) => {
   if (/^\/public\/md-filing\/[^/]+\/pdf$/.test(req.path)) return next();
   // Same carve-out, same reason, for Form 941's public acknowledge page.
   if (/^\/public\/form941\/[^/]+\/pdf$/.test(req.path)) return next();
+  // A signed view link (POST /auth/view-link) opens a file straight in a browser tab, which is a real navigation sending
+  // "Accept: text/html" first — without this it would be swallowed here and show the app instead of the document.
+  if (typeof req.query.vt === "string" && req.query.vt) return next();
   if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
   res.sendFile(path.join(frontendDist, "index.html"), (err) => {
     if (err) next(err);

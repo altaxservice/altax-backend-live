@@ -645,46 +645,42 @@ export function HaccpGeneratorPage() {
                       <td>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                           {HACCP_PLAN_COMPONENTS.filter((c) => pc.has(c.key)).map((c) => (
-                            <span key={c.key} className="quick-tab active" style={{ fontSize: 10.5, padding: "2px 6px" }}>{c.label}</span>
+                            <span key={c.key} className="quick-tab active" style={{ fontSize: 10.5, padding: "2px 6px" }}>
+                              {c.key === "license_application" ? licenseDocName(p.jurisdiction) : c.key === "plan_review" ? planReviewDocName(p.jurisdiction) : c.label}
+                            </span>
                           ))}
                         </div>
                       </td>
                       <td className="muted">{p.client_id || "—"}</td>
                       <td className="muted">{new Date(p.updated_at).toLocaleDateString()}</td>
-                      <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <button className="btn btn-sm" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
-                        {pc.has("haccp_plan") && (
-                          <>
-                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`, `${fileBase(p.business_name)} - HACCP Plan.pdf`)}>HACCP</button>
-                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf`)}>Print HACCP</button>
-                            <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx`, `${p.business_name} - HACCP Plan (Editable).docx`)}>HACCP Word</button>
-                          </>
-                        )}
-                        {pc.has("menu_equipment") && (
-                          <>
-                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf?only=menu_equipment`, `${fileBase(p.business_name)} - Menu & Equipment List.pdf`)}>Menu &amp; Equip.</button>
-                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf?only=menu_equipment`)}>Print Menu &amp; Equip.</button>
-                            <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx?only=menu_equipment`, `${p.business_name} - Menu & Equipment List (Editable).docx`)}>Menu &amp; Equip. Word</button>
-                          </>
-                        )}
-                        {pc.has("license_application") && (
-                          <>
-                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`, `${fileBase(p.business_name)} - ${licenseDocName(p.jurisdiction)}.pdf`)}>{p.jurisdiction === "Baltimore County" ? "Permit App" : "License App"}</button>
-                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
-                          </>
-                        )}
-                        {pc.has("plan_review") && (
-                          <>
-                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`, `${fileBase(p.business_name)} - ${planReviewDocName(p.jurisdiction)}.pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
-                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
-                          </>
-                        )}
-                        {p.client_id && (
-                          <button className="btn btn-sm" onClick={() => saveToDocuments(p.plan_id)} disabled={savingToDocuments}>Save to Documents</button>
-                        )}
-                        {isAdmin && (
-                          <button className="btn btn-sm danger-button" onClick={() => handleDeletePlan(p.plan_id, p.business_name)}>Delete</button>
-                        )}
+                      <td>
+                        {(() => {
+                          const base = fileBase(p.business_name);
+                          const docs: { show: boolean; label: string; path: string; name: string; docx?: string }[] = [
+                            { show: pc.has("haccp_plan"), label: "HACCP Plan", path: `/haccp/plans/${p.plan_id}/pdf`, name: `${base} - HACCP Plan`, docx: `/haccp/plans/${p.plan_id}/docx` },
+                            { show: pc.has("menu_equipment"), label: "Menu & Equipment List", path: `/haccp/plans/${p.plan_id}/pdf?only=menu_equipment`, name: `${base} - Menu & Equipment List`, docx: `/haccp/plans/${p.plan_id}/docx?only=menu_equipment` },
+                            { show: pc.has("license_application"), label: licenseDocName(p.jurisdiction), path: `/haccp/plans/${p.plan_id}/license-pdf`, name: `${base} - ${licenseDocName(p.jurisdiction)}` },
+                            { show: pc.has("plan_review"), label: planReviewDocName(p.jurisdiction), path: `/haccp/plans/${p.plan_id}/plan-review-pdf`, name: `${base} - ${planReviewDocName(p.jurisdiction)}` },
+                          ];
+                          return (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 380 }}>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                <button className="btn btn-sm btn-primary" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
+                                {p.client_id && <button className="btn btn-sm" onClick={() => saveToDocuments(p.plan_id)} disabled={savingToDocuments} title="Saves every document in this plan to the client's Documents tab, named by document.">Save to Documents</button>}
+                                {isAdmin && <button className="btn btn-sm danger-button" onClick={() => handleDeletePlan(p.plan_id, p.business_name)}>Delete</button>}
+                              </div>
+                              {docs.filter((d) => d.show).map((d) => (
+                                <div key={d.label} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                  <span className="muted" style={{ fontSize: 11.5, minWidth: 150 }}>{d.label}</span>
+                                  <button className="btn btn-sm" onClick={() => viewFile(d.path, `${d.name}.pdf`)}>View</button>
+                                  <button className="btn btn-sm" onClick={() => printFile(d.path)}>Print</button>
+                                  <button className="btn btn-sm" onClick={() => downloadFile(d.path, `${d.name}.pdf`)}>Download PDF</button>
+                                  {d.docx && <button className="btn btn-sm" onClick={() => downloadFile(d.docx!, `${d.name} (Editable).docx`)}>Word</button>}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                     );
