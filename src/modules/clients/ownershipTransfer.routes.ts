@@ -45,6 +45,7 @@ import { composeAddress } from "../../common/address";
 import { getFirmProfile } from "../../common/firmProfile";
 import { generateBillOfSalePdf } from "../govForms/billOfSale";
 import { generateBillOfSaleDocx } from "../govForms/billOfSaleDocx";
+import { generateStockTransferPackageDocx, validateStockPackage, type StockPackageInput } from "../govForms/stockTransferPackage";
 import {
   generateGovForm, type CraData, type Form8822bData,
   type MdAmendLlcData, type MdAmendCorpData, type MdDissolutionData, type MdDissolutionPerson,
@@ -174,7 +175,7 @@ ownershipTransferRouter.get("/:clientId/ownership-transfers", requireAuth, requi
     `SELECT transfer_id, client_id, seller_name, seller_title, buyer_name, buyer_title, buyer_ssn, buyer_email, buyer_phone,
             buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
             assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations,
-            additional_sellers, additional_buyers,
+            additional_sellers, additional_buyers, include_stock_package, stock_details,
             gov_form_8822b_filing_id, gov_form_cra_filing_id, md_amendment_task_id,
             gov_form_amendment_filing_id, gov_form_dissolution_filing_id, created_by, created_at,
             applied_to_profile_at, applied_by
@@ -248,7 +249,9 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   // real Amendment PDF can usually be generated instead of just a reminder
   // task — still accepts the old field name too, in case anything upstream
   // hasn't moved to the new wizard yet.
-  const includeAmendment = body.includeAmendment !== false && body.includeMdAmendmentTask !== false;
+  // Articles of Amendment change a corporation's CHARTER (name, authorized stock, purpose). A sale of shares or
+  // membership interest does not, so this is only drafted when the caller explicitly asks for it.
+  const includeAmendment = (body.includeAmendment === true || body.includeMdAmendmentTask === true) && body.includeAmendment !== false;
   // Dissolution is only ever attempted when staff explicitly flagged this
   // transfer as the old entity closing (not just amending) on the wizard's
   // step 3 toggle — a missing/false isDissolving means the dissolution
@@ -770,6 +773,129 @@ async function loadBillOfSaleInputs(clientId: string, transferId: string) {
     },
   };
 }
+
+/** What a client-side "Stock Transfer Package" form may store — trimmed, typed, and bounded so a typo can't become a wrong legal document. */
+interface StockDetails {
+  corpKind: "Stock" | "Close";
+  sdatId: string;
+  sharesIssued: number;
+  parValue: string;
+  taxStatus: "" | "C" | "S";
+  certificateNumbers: string;
+  originalHolder: string;
+  originalHolderTransferDate: string;
+  paymentTerms: string;
+  landlordConsentRequired: "" | "Yes" | "No";
+  sellers: { address: string; shares: number }[];
+  buyers: { shares: number }[];
+  officers: { president: string; vicePresident: string; secretary: string; treasurer: string };
+  directors: string[];
+  residentAgent: { change: boolean; name: string; address: string };
+}
+
+function sanitizeStockDetails(raw: any): StockDetails {
+  const str = (v: unknown, max = 300) => String(v ?? "").trim().slice(0, max);
+  const whole = (v: unknown) => { const n = Number(String(v ?? "").replace(/,/g, "")); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
+  const list = (v: unknown) => (Array.isArray(v) ? v : []);
+  const ra = raw?.residentAgent || {};
+  const off = raw?.officers || {};
+  return {
+    corpKind: raw?.corpKind === "Close" ? "Close" : "Stock",
+    sdatId: str(raw?.sdatId, 40),
+    sharesIssued: whole(raw?.sharesIssued),
+    parValue: str(raw?.parValue, 20),
+    taxStatus: raw?.taxStatus === "S" ? "S" : raw?.taxStatus === "C" ? "C" : "",
+    certificateNumbers: str(raw?.certificateNumbers, 120),
+    originalHolder: str(raw?.originalHolder, 120),
+    originalHolderTransferDate: str(raw?.originalHolderTransferDate, 60),
+    paymentTerms: str(raw?.paymentTerms, 600),
+    landlordConsentRequired: raw?.landlordConsentRequired === "Yes" ? "Yes" : raw?.landlordConsentRequired === "No" ? "No" : "",
+    sellers: list(raw?.sellers).slice(0, 10).map((x: any) => ({ address: str(x?.address), shares: whole(x?.shares) })),
+    buyers: list(raw?.buyers).slice(0, 10).map((x: any) => ({ shares: whole(x?.shares) })),
+    officers: { president: str(off.president, 120), vicePresident: str(off.vicePresident, 120), secretary: str(off.secretary, 120), treasurer: str(off.treasurer, 120) },
+    directors: list(raw?.directors).map((d: unknown) => str(d, 120)).filter(Boolean).slice(0, 10),
+    residentAgent: { change: ra.change === true, name: str(ra.name, 120), address: str(ra.address) },
+  };
+}
+
+/** Combines the saved transfer, the client record, and the stock details into the package generator's input (or null when not found). */
+async function loadStockPackageInput(clientId: string, transferId: string): Promise<{ input: StockPackageInput; clientName: string } | null> {
+  const [client, transfer] = await Promise.all([
+    queryOne<any>(`SELECT client_id, client_name, entity_type, ein, street_address, city, state, zip_code, secretary_of_state_id FROM altax.v3_clients WHERE client_id = $1`, [clientId]),
+    queryOne<any>(`SELECT * FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]),
+  ]);
+  if (!client || !transfer) return null;
+  const d: StockDetails = sanitizeStockDetails(transfer.stock_details || {});
+  const joinAddress = (street: unknown, city: unknown, state: unknown, zip: unknown) =>
+    [street, city, [state, zip].filter((v) => String(v || "").trim()).join(" ")].filter((v) => String(v || "").trim()).join(", ");
+  const extraSellers = ((transfer.additional_sellers as ExtraParty[] | null) || []).filter((p) => p?.name);
+  const extraBuyers = ((transfer.additional_buyers as ExtraParty[] | null) || []).filter((p) => p?.name);
+  const sellerNames = [transfer.seller_name, ...extraSellers.map((p) => p.name)];
+  const buyerRows = [
+    { name: transfer.buyer_name, address: joinAddress(transfer.buyer_street_address, transfer.buyer_city, transfer.buyer_state, transfer.buyer_zip_code) },
+    ...extraBuyers.map((p) => ({ name: p.name, address: p.address || "" })),
+  ];
+  const input: StockPackageInput = {
+    corporationName: client.client_name,
+    sdatId: d.sdatId || String(client.secretary_of_state_id || "").trim(),
+    corpKind: d.corpKind,
+    sharesIssued: d.sharesIssued,
+    parValue: d.parValue,
+    taxStatus: d.taxStatus || (client.entity_type === "S-Corp" ? "S" : client.entity_type === "C-Corp" ? "C" : ""),
+    ein: client.ein ? decryptTolerant(client.ein) : null,
+    principalOffice: joinAddress(client.street_address, client.city, client.state, client.zip_code),
+    certificateNumbers: d.certificateNumbers,
+    originalHolder: d.originalHolder,
+    originalHolderTransferDate: d.originalHolderTransferDate,
+    sellers: sellerNames.map((name, i) => ({ name, address: d.sellers[i]?.address || "", shares: d.sellers[i]?.shares || 0 })),
+    buyers: buyerRows.map((b, i) => ({ name: b.name, address: b.address, shares: d.buyers[i]?.shares || 0 })),
+    effectiveDate: transfer.effective_date ? new Date(transfer.effective_date).toISOString().slice(0, 10) : null,
+    purchasePrice: transfer.sale_price !== null ? Number(transfer.sale_price) : null,
+    paymentTerms: d.paymentTerms,
+    officers: d.officers,
+    directors: d.directors,
+    residentAgent: d.residentAgent,
+    landlordConsentRequired: d.landlordConsentRequired,
+    internalFirmLine: [(await getFirmProfile()).firmName, (await getFirmProfile()).phone].filter(Boolean).join(" · "),
+  };
+  return { input, clientName: client.client_name };
+}
+
+/** Saves whether this transfer includes the Stock Transfer Package, and its corporation details. Validates the share counts before saving. */
+ownershipTransferRouter.put("/:clientId/ownership-transfers/:transferId/stock-package", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const existing = await queryOne<any>(`SELECT transfer_id, applied_to_profile_at FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
+  if (!existing) return res.status(404).json({ error: "Transfer not found." });
+
+  const include = req.body?.include !== false;
+  const details = sanitizeStockDetails(req.body?.stockDetails || {});
+  await query(`UPDATE altax.v3_ownership_transfers SET include_stock_package = $3, stock_details = $4, updated_at = now() WHERE transfer_id = $1 AND client_id = $2`,
+    [transferId, clientId, include, JSON.stringify(details)]);
+
+  // Validate after saving so a half-finished form is never lost; the response says what still needs fixing.
+  let problem: string | null = null;
+  if (include) {
+    const loaded = await loadStockPackageInput(clientId, transferId);
+    problem = loaded ? validateStockPackage(loaded.input) : "Transfer not found.";
+  }
+  await logAudit("Clients", "STOCK_PACKAGE_SAVED", transferId, "include_stock_package", "", String(include), `Stock Transfer Package details saved by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, ready: include && !problem, problem });
+}));
+
+ownershipTransferRouter.get("/:clientId/ownership-transfers/:transferId/stock-package.docx", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const loaded = await loadStockPackageInput(clientId, transferId);
+  if (!loaded) return res.status(404).json({ error: "Transfer not found." });
+  const problem = validateStockPackage(loaded.input);
+  if (problem) return res.status(400).json({ error: problem });
+
+  const buffer = await generateStockTransferPackageDocx(loaded.input);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", `attachment; filename="Stock Transfer Package - ${loaded.clientName.replace(/[^\w .&-]/g, "")}.docx"`);
+  res.send(buffer);
+}));
 
 ownershipTransferRouter.get("/:clientId/ownership-transfers/:transferId/bill-of-sale.pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId, transferId } = req.params;

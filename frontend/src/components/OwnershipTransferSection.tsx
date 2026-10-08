@@ -1,3 +1,4 @@
+import { StockPackagePanel, type StockDetailsValue } from "./StockPackagePanel";
 import { useEffect, useState } from "react";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -47,6 +48,8 @@ interface OwnershipTransfer {
   liabilities_included: string | null;
   additional_terms: string | null;
   include_bill_of_sale: boolean;
+  include_stock_package?: boolean;
+  stock_details?: Partial<StockDetailsValue> | null;
   gov_form_8822b_filing_id: string | null;
   gov_form_cra_filing_id: string | null;
   gov_form_amendment_filing_id: string | null;
@@ -107,7 +110,7 @@ const EMPTY_FORM = {
   effectiveDate: "", salePrice: "",
   assetsIncluded: "", liabilitiesIncluded: "", additionalTerms: "",
   includeBillOfSale: true, include8822b: true, includeCra: true,
-  includeAmendment: true, isDissolving: false, includeDissolution: false,
+  includeAmendment: false, isDissolving: false, includeDissolution: false,
   assetAllocations: [] as AllocationRow[],
   additionalSellers: [] as PartyRow[],
   additionalBuyers: [] as PartyRow[],
@@ -413,7 +416,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
       effectiveDate: t.effective_date ? t.effective_date.slice(0, 10) : "", salePrice: t.sale_price !== null ? String(t.sale_price) : "",
       assetsIncluded: t.assets_included || "", liabilitiesIncluded: t.liabilities_included || "", additionalTerms: t.additional_terms || "",
       includeBillOfSale: t.include_bill_of_sale, include8822b: true, includeCra: true,
-      includeAmendment: true, isDissolving: false, includeDissolution: false,
+      includeAmendment: false, isDissolving: false, includeDissolution: false,
       assetAllocations: (t.asset_allocations || []).map((a) => ({ category: a.category, description: a.description || "", amount: String(a.amount) })),
       additionalSellers: toPartyRows(t.additional_sellers),
       additionalBuyers: toPartyRows(t.additional_buyers),
@@ -831,6 +834,13 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                       : amendmentKind === "CORP" ? "MD Articles of Amendment — Corporation"
                       : "MD Amendment reminder task (SDAT)"}
                   </label>
+                  <p className="muted" style={{ fontSize: 11.5, margin: "2px 0 10px 24px" }}>
+                    {amendmentKind === "CORP"
+                      ? "Not needed for a sale of shares — a change of stockholders is made by transferring the stock (use \"Create Stock Transfer Package\" on the saved transfer below). Check this only if the charter itself changes: name, authorized stock, or purpose."
+                      : amendmentKind === "LLC"
+                      ? "Not needed for a change of members — Maryland LLC articles don't list members. Check this only if the articles of organization themselves change (name, purpose, etc.). A new resident agent is filed on SDAT's resident-agent form."
+                      : "Only check this if the entity's charter documents themselves change."}
+                  </p>
                   {form.includeAmendment && !amendmentKind && (
                     <p className="muted" style={{ fontSize: 11.5, margin: "2px 0 10px 24px" }}>
                       No Maryland Articles of Amendment generator applies to entity type "{identity?.entity_type || "not set"}" — a reminder task will be created instead of a real filing.
@@ -840,7 +850,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                     <div style={{ marginLeft: 24, marginBottom: 12, paddingLeft: 10, borderLeft: "2px solid var(--border)" }}>
                       <div className={`field${stepError && !amendment.amendmentText.trim() ? " invalid" : ""}`}>
                         <label htmlFor="xfer-amend-text">Amendment Text — what's changing in the charter</label>
-                        <textarea id="xfer-amend-text" rows={3} value={amendment.amendmentText} onChange={(e) => setAmendment((a) => ({ ...a, amendmentText: e.target.value }))} placeholder="e.g. Article FIRST is amended to reflect the new owner as sole member." />
+                        <textarea id="xfer-amend-text" rows={3} value={amendment.amendmentText} onChange={(e) => setAmendment((a) => ({ ...a, amendmentText: e.target.value }))} placeholder="e.g. Article FIRST is amended to change the corporation's name to …" />
                       </div>
                       {amendmentKind === "CORP" && (
                         <div className="form-grid-3">
@@ -1199,6 +1209,14 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                         <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t.transfer_id, t.buyer_name)}>Download PDF</button>
                         <button className="btn-secondary" onClick={() => handlePrintBillOfSale(t.transfer_id)}>Print PDF</button>
                         <button className="btn-secondary" onClick={() => handleDownloadBillOfSaleDocx(t.transfer_id, t.buyer_name)}>Word (.docx)</button>
+                      </>
+                    )}
+                    {ENTITY_TYPE_TO_AMENDMENT_KIND[identity?.entity_type || ""] === "CORP" && identity?.entity_type !== "Nonprofit" && (
+                      <>
+                        {t.include_stock_package && (
+                          <button className="btn-secondary" onClick={() => downloadFile(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/stock-package.docx`, buildFilename([clientName, "Stock Transfer Package"], "docx")).catch((err) => notify(err instanceof ApiError ? err.message : "Could not build the package."))}>Stock Package (.docx)</button>
+                        )}
+                        <StockPackagePanel clientId={clientId} clientName={clientName} transfer={t} sdatId={identity?.secretary_of_state_id || ""} entityType={identity?.entity_type || null} onSaved={load} />
                       </>
                     )}
                     <button className="btn-secondary" onClick={() => openEditForm(t)} disabled={busyId === t.transfer_id}>Edit</button>

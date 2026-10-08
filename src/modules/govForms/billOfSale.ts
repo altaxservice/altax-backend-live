@@ -22,8 +22,6 @@
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { stateDisplayName } from "../../common/stateNames";
-import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
-import { embedFirmLogo } from "../../common/pdfLogo";
 import { pdfSafeText } from "../../common/pdfText";
 
 const PAGE_W = 612;
@@ -250,8 +248,6 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const profile: FirmProfile = await getFirmProfile();
-  const logo = await embedFirmLogo(doc, profile);
 
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let c = new Cursor(page, font, bold, PAGE_H);
@@ -260,7 +256,7 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
 
   let pageNum = 1;
   const footer = () => {
-    c.text(L, PAGE_H - 28, `${profile.firmName} — Prepared for ${data.businessName} (${data.clientId})`, { size: 7.5, color: MUTED });
+    c.text(L, PAGE_H - 28, `${data.businessName} — Bill of Sale`, { size: 7.5, color: MUTED });
     c.text(R, PAGE_H - 28, `Page ${pageNum}`, { size: 7.5, color: MUTED, align: "right" });
   };
 
@@ -279,16 +275,9 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
     if (y + needed > PAGE_H - BOTTOM_MARGIN) newPage();
   };
 
+  // The agreement is between the parties: it carries no preparer branding (no firm name, logo, or "prepared by" line).
   c.rect(0, 0, PAGE_W, 6, TEAL);
-  let textL = L;
-  if (logo) {
-    const logoH = 30;
-    const logoW = (logo.width / logo.height) * logoH;
-    page.drawImage(logo, { x: L, y: PAGE_H - y - logoH + 6, width: logoW, height: logoH });
-    textL = L + logoW + 10;
-  }
-  c.text(textL, y, profile.firmName.toUpperCase(), { size: 14, bold: true, color: TEAL });
-  c.text(R, y, "BILL OF SALE", { size: 16, bold: true, align: "right" });
+  c.text(L, y, "BILL OF SALE", { size: 16, bold: true });
   y += 15;
   const kind = entityKindFor(data.entityType);
   const state = legalState(data.state);
@@ -297,7 +286,7 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
     : kind === "Corp"
     ? `${data.businessName}, a ${state} corporation`
     : data.businessName;
-  c.text(R, y, kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)", { size: 8.5, color: MUTED, align: "right" });
+  c.text(L, y, kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)", { size: 8.5, color: MUTED });
   y += 11;
   c.line(L, y, R, y, INK, 1.25);
   y += 20;
@@ -351,15 +340,15 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
   if (kind === "LLC") {
     heading(`${n++}. SALE OF MEMBERSHIP INTEREST`);
     paragraph(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
+      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
       `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
       `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
-      `Company, together with all of the assets of the Business described in Section 3 below. ${llcClosingSentence(data)}`
+      `Company, together with all of the assets of the Business described in Section 3 below (collectively, the "Assets"). ${llcClosingSentence(data)}`
     );
   } else if (kind === "Corp") {
     heading(`${n++}. SALE OF BUSINESS ASSETS`);
     paragraph(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
+      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
       `Seller does hereby sell, transfer, convey, and deliver to Buyer all of Seller's right, title, and interest in and to ` +
       `${businessLabel}, including the assets described in Section 3 below (collectively, the "Assets").`
     );
@@ -368,7 +357,7 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
     paragraph(
       `For and in consideration of ${fmtMoney(data.salePrice)}, and other good and valuable consideration, the receipt and ` +
       `sufficiency of which is hereby acknowledged, Seller does hereby sell, transfer, assign, and convey to Buyer all of ` +
-      `Seller's right, title, and interest in and to the Business, effective as of the date above.`
+      `Seller's right, title, and interest in and to the Business, including the assets described in Section 3 below (collectively, the "Assets"), effective as of the date above.`
     );
   }
 
@@ -419,8 +408,8 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
 
   heading(`${n++}. PURCHASE PRICE AND PAYMENT`);
   paragraph(
-    `The total purchase price for the Assets is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
-    `parties, the receipt of which Seller acknowledges upon payment in full.`
+    `The total purchase price for ${kind === "LLC" ? "the membership interest and the Assets" : "the Assets"} is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
+    `parties. Seller acknowledges receipt of the purchase price upon payment in full.`
   );
 
   heading(`${n++}. LIABILITIES`);

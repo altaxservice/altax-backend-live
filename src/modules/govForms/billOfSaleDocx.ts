@@ -13,7 +13,6 @@ import {
   AlignmentType, BorderStyle, Document, Footer, HeadingLevel, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell,
   TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
-import { getFirmProfile } from "../../common/firmProfile";
 import { classForCategory, entityKindFor, billOfSaleParties, tidyAddress, legalState, stateClause, stateCaption, describeSellers, describeBuyers, llcClosingSentence, joinNames, type BillOfSaleData, type EntityKind } from "./billOfSale";
 
 export type { EntityKind };
@@ -168,7 +167,6 @@ function notaryBlock(signerNames: string, state: string): Paragraph[] {
 
 export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buffer> {
   const data: BillOfSaleData = { ...input, businessAddress: tidyAddress(input.businessAddress) };
-  const profile = await getFirmProfile();
   const kind = entityKindFor(data.entityType);
   const state = legalState(data.state);
   const businessLabel = kind === "LLC"
@@ -180,7 +178,6 @@ export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buf
   const children: (Paragraph | Table)[] = [];
   const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
 
-  children.push(centered(profile.firmName.toUpperCase(), { bold: true, size: 18 }));
   children.push(new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 40, before: 60 }, children: [new TextRun({ text: "BILL OF SALE", bold: true, font: FONT, size: 32 })] }));
   children.push(centered(kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)", { size: 19 }));
 
@@ -208,15 +205,15 @@ export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buf
   if (kind === "LLC") {
     children.push(heading(`${n++}. SALE OF MEMBERSHIP INTEREST`));
     children.push(body(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
+      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
       `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
       `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
-      `Company, together with all of the assets of the Business described in Section 3 below. ${llcClosingSentence(data)}`
+      `Company, together with all of the assets of the Business described in Section 3 below (collectively, the "Assets"). ${llcClosingSentence(data)}`
     ));
   } else {
     children.push(heading(`${n++}. SALE OF BUSINESS ASSETS`));
     children.push(body(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
+      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
       `Seller does hereby sell, transfer, convey, and deliver to Buyer all of Seller's right, title, and interest in and to ` +
       `${businessLabel}, including the assets described in Section 3 below (collectively, the "Assets").`
     ));
@@ -240,8 +237,8 @@ export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buf
 
   children.push(heading(`${n++}. PURCHASE PRICE AND PAYMENT`));
   children.push(body(
-    `The total purchase price for the Assets is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
-    `parties, the receipt of which Seller acknowledges upon payment in full.`
+    `The total purchase price for ${kind === "LLC" ? "the membership interest and the Assets" : "the Assets"} is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
+    `parties. Seller acknowledges receipt of the purchase price upon payment in full.`
   ));
 
   children.push(heading(`${n++}. LIABILITIES`));
