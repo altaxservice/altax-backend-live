@@ -99,7 +99,6 @@ export interface InvoicePdfData {
   shippingDate?: string | null;
   trackingNumber?: string | null;
   paymentInstructions?: string | null;
-  cardPaymentLink?: string | null;
   clientNote?: string | null;
   lineItems?: InvoiceLineItemPdfData[];
   subtotalAmount?: number | null;
@@ -320,15 +319,6 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     y += 13;
     c.text(L, y, `Zelle by phone number: ${profile.zellePhone}`, { size: 10, bold: true });
     y += 22;
-  }
-  if (data.cardPaymentLink && data.balanceDue > 0) {
-    c.text(L, y, "Pay by card online", { size: 9, bold: true });
-    y += 13;
-    for (let i = 0; i < data.cardPaymentLink.length && i < 240; i += 80) {
-      c.text(L, y, data.cardPaymentLink.slice(i, i + 80), { size: 8, color: MUTED });
-      y += 11;
-    }
-    y += 9;
   }
   if (data.paymentInstructions) {
     c.text(L, y, "Payment Instructions", { size: 9, bold: true });
