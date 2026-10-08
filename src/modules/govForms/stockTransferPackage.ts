@@ -18,7 +18,7 @@
  * (marked "not part of the signed documents") is the only place the firm is named.
  */
 import {
-  AlignmentType, BorderStyle, Document, Footer, Packer, PageBreak, PageNumber, Paragraph, ShadingType, Table, TableCell,
+  AlignmentType, BorderStyle, Document, Footer, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell,
   TableRow, TabStopType, TextRun, WidthType,
 } from "docx";
 
@@ -177,7 +177,7 @@ const p = (text: string, o: { bold?: boolean; keepNext?: boolean; after?: number
 const centered = (text: string, o: { bold?: boolean; size?: number } = {}) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 120 }, children: [run(text, o)] });
 const bullet = (text: string) => new Paragraph({ keepLines: true, spacing: { after: 70 }, indent: { left: 360, hanging: 260 }, children: [run("•  "), run(text)] });
 const checkItem = (text: string) => new Paragraph({ keepLines: true, spacing: { after: 70 }, indent: { left: 460, hanging: 460 }, children: [run("[   ]  "), run(text)] });
-const pageBreak = () => new Paragraph({ children: [new PageBreak()] });
+
 
 function sigBlock(label: string, printName: string, opts: { title?: string } = {}): Paragraph[] {
   return [
@@ -251,7 +251,7 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   const oneBuyer = buyers.length === 1;
   const moves = allocateShares(sellers, buyers);
   const eff = fmtDate(input.effectiveDate);
-  const effBlank = input.effectiveDate ? eff : "[EFFECTIVE DATE]";
+  const effBlank = input.effectiveDate ? eff : "____________________";
   const price = fmtMoney(input.purchasePrice);
   const par = input.parValue.trim() ? `$${input.parValue.trim().replace(/^\$/, "")} par value` : "no stated par value";
   const sellerNames = sellers.map((s) => s.name);
@@ -274,7 +274,10 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   const sellerTerm = S("Seller", "Sellers");
   const holdersText = oneBuyer ? `${buyers[0].name}, who owns ${shareCount(total)} shares (100%)` : buyers.map((b) => `${b.name} (${b.shares.toLocaleString("en-US")} ${sharesWord(b.shares)}, ${pct(b.shares, total)})`).join("; ");
 
-  const kids: (Paragraph | Table)[] = [];
+  // Each document is its own Word section, so every one starts on a fresh page in any viewer.
+  const finished: (Paragraph | Table)[][] = [];
+  let kids: (Paragraph | Table)[] = [];
+  const startDocument = () => { finished.push(kids); kids = []; };
 
   // ===== Cover + summary =====
   kids.push(...h1("STOCK TRANSFER PACKAGE", `${corp} — change of stockholders of a ${corpKindText}`));
@@ -286,8 +289,8 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
     ["Principal office", orBlank(input.principalOffice)],
     ...sellers.map((s, i): [string, string] => [`Seller${oneSeller ? "" : ` ${i + 1}`} (${pct(s.shares, total)})`, `${s.name}${s.address ? `, ${s.address}` : ""} — ${s.shares.toLocaleString("en-US")} ${sharesWord(s.shares)}`]),
     ...buyers.map((b, i): [string, string] => [`Buyer${oneBuyer ? "" : ` ${i + 1}`} (${pct(b.shares, total)})`, `${b.name}${b.address ? `, ${b.address}` : ""} — ${b.shares.toLocaleString("en-US")} ${sharesWord(b.shares)}`]),
-    ["Purchase price", input.purchasePrice != null ? price : "$[PURCHASE PRICE]"],
-    ["Effective date", input.effectiveDate ? eff : "[EFFECTIVE DATE]"],
+    ["Purchase price", input.purchasePrice != null ? price : "$____________________"],
+    ["Effective date", input.effectiveDate ? eff : "____________________"],
     ...(input.residentAgent.change ? [["New resident agent", `${newAgent}, ${orBlank(newAgentAddress)}`] as [string, string]] : []),
   ]));
   kids.push(spacer());
@@ -304,7 +307,7 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   kids.push(bullet("Keep all signed originals in the corporate minute book."));
 
   // ===== 1. Stock Purchase Agreement =====
-  kids.push(pageBreak());
+  startDocument();
   kids.push(...h1("1. Stock Purchase Agreement", `${corp} · SDAT ID ${sdat}`));
   kids.push(p(`This Stock Purchase Agreement (the "Agreement") is made and entered into as of ${effBlank} (the "Effective Date"), by and between:`));
   kids.push(p(`${S("SELLER", "SELLERS")}: ${joinSemi(sellers.map((s) => `${s.name}, of ${orBlank(s.address)}`))} (${oneSeller ? 'the "Seller"' : 'each a "Seller" and together the "Sellers"'}); and`));
@@ -324,7 +327,7 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
     kids.push(p(`${oneSeller ? "The Seller, as the" : "The Sellers, as all of the"} stockholder${oneSeller ? "" : "s"} of the Corporation, consent${oneSeller ? "s" : ""} to this transfer for purposes of the restrictions on transfer of stock of a Maryland close corporation, and waive${oneSeller ? "s" : ""} any notice or right of first refusal.`));
   }
   kids.push(h2(`${n++}. Purchase Price`));
-  kids.push(p(`The total purchase price for the Shares is ${input.purchasePrice != null ? price : "$[PURCHASE PRICE]"} (the "Purchase Price"), payable by ${oneBuyer ? "the Buyer" : "the Buyers"} to ${oneSeller ? "the Seller" : "the Sellers"} as follows: ${input.paymentTerms.trim() || "[PAYMENT TERMS]"}. ${oneSeller ? "The Seller acknowledges" : "Each Seller acknowledges"} receipt of ${oneSeller ? "the" : "his or her share of the"} Purchase Price upon payment in full.`));
+  kids.push(p(`The total purchase price for the Shares is ${input.purchasePrice != null ? price : "$____________________"} (the "Purchase Price"), payable by ${oneBuyer ? "the Buyer" : "the Buyers"} to ${oneSeller ? "the Seller" : "the Sellers"} as follows: ${input.paymentTerms.trim() || "______________________________________________"}. ${oneSeller ? "The Seller acknowledges" : "Each Seller acknowledges"} receipt of ${oneSeller ? "the" : "his or her share of the"} Purchase Price upon payment in full.`));
   if (!oneSeller) {
     kids.push(h2(`${n++}. Prior Ownership Records`));
     kids.push(p("Each person who has been identified in any public filing, license, bank record, or tax record as an owner, stockholder, or officer of the Corporation joins in this Agreement as a Seller, whether or not that identification was accurate, to convey any and all interest he or she holds or may claim in the Corporation, and waives any future claim to an ownership or economic interest in the Corporation."));
@@ -352,13 +355,13 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
 
   // ===== 2. Stock Power and Assignment — one per seller =====
   sellers.forEach((s, si) => {
-    kids.push(pageBreak());
+    startDocument();
     kids.push(...h1("2. Stock Power and Assignment", oneSeller ? `${corp} · SDAT ID ${sdat}` : `${corp} · SDAT ID ${sdat} · Seller ${si + 1} of ${sellers.length}`));
     const mine = moves.filter((m) => m.seller === s);
     kids.push(p(`FOR VALUE RECEIVED, the undersigned, ${s.name} ("Assignor"), hereby sells, assigns, and transfers unto:`, { keepNext: true }));
     kids.push(grid(["Assignee", "Number of shares", "Percentage of Corporation"], mine.map((m) => [`${m.buyer.name}${m.buyer.address ? `, ${m.buyer.address}` : ""}`, m.shares.toLocaleString("en-US"), pct(m.shares, total)]), [5600, 2000, 2400], [1, 2]));
     kids.push(spacer());
-    kids.push(p(`being ${s.shares === total ? "all" : `${shareCount(s.shares)}`} of the shares of common stock, ${par}, of ${corp}, a ${corpKindText} (SDAT ID ${sdat}) (the "Corporation"), standing in the name of the Assignor on the books of the Corporation, represented by Certificate No(s). ${certs || "[____]"}, together with any other interest the Assignor holds or may claim in the Corporation. The Assignor irrevocably appoints the Secretary of the Corporation as attorney-in-fact to transfer the shares on the books of the Corporation, with full power of substitution.`));
+    kids.push(p(`being ${s.shares === total ? "all" : `${shareCount(s.shares)}`} of the shares of common stock, ${par}, of ${corp}, a ${corpKindText} (SDAT ID ${sdat}) (the "Corporation"), standing in the name of the Assignor on the books of the Corporation, represented by Certificate No(s). ${certs || "________"}, together with any other interest the Assignor holds or may claim in the Corporation. The Assignor irrevocably appoints the Secretary of the Corporation as attorney-in-fact to transfer the shares on the books of the Corporation, with full power of substitution.`));
     kids.push(p(`Date: ${effBlank}`));
     kids.push(...sigBlock("ASSIGNOR", s.name));
     kids.push(...sigBlock("WITNESS", BLANK));
@@ -366,30 +369,30 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
 
   // ===== 3. Resignations — one per outgoing officer/director =====
   sellers.forEach((s, si) => {
-    kids.push(pageBreak());
+    startDocument();
     kids.push(...h1(`3. Resignation of ${close ? "Outgoing Officer" : "Director and Officer"}`, oneSeller ? `${corp} · SDAT ID ${sdat}` : `${corp} · SDAT ID ${sdat} · ${si + 1} of ${sellers.length}`));
     kids.push(p(`To the ${close ? "Stockholders" : "Board of Directors and Stockholders"} of ${corp} (SDAT ID ${sdat}):`));
     kids.push(p(`I, ${s.name}, hereby resign from every position I hold with the Corporation, including the following, effective as of ${effBlank}:`, { keepNext: true }));
     const positions = [...(close ? [] : ["Director"]), "President", "Vice President", "Secretary", "Treasurer", "Resident Agent", "Other: ____________________"];
     positions.forEach((x) => kids.push(checkItem(x)));
     kids.push(spacer());
-    kids.push(p("I confirm that I have no claim against the Corporation for compensation, fees, or reimbursement except as stated here: [NONE / DESCRIBE]. I agree to return all corporate records, keys, bank cards, and property, and to cooperate in removing my name from bank accounts, licenses, and government records."));
+    kids.push(p("I confirm that I have no claim against the Corporation for compensation, fees, or reimbursement except as stated here (write NONE if there is none): ____________________. I agree to return all corporate records, keys, bank cards, and property, and to cooperate in removing my name from bank accounts, licenses, and government records."));
     kids.push(...sigBlock(close ? "RESIGNING OFFICER" : "RESIGNING DIRECTOR / OFFICER", s.name));
   });
 
   // ===== 4. Unanimous Written Consent =====
-  kids.push(pageBreak());
+  startDocument();
   kids.push(...h1(close ? "4. Unanimous Written Consent of the Stockholders" : "4. Unanimous Written Consent of the Stockholders and Board of Directors", `In lieu of a meeting · ${corp} · SDAT ID ${sdat}`));
   kids.push(p(close
     ? `The undersigned, being all of the stockholders of ${corp}, a Maryland close corporation that has elected to have no board of directors (the "Corporation"), acting by unanimous written consent without a meeting as permitted by the Maryland General Corporation Law, adopt the following resolutions, effective as of ${effBlank}:`
     : `The undersigned, being all of the stockholders and all of the directors of ${corp}, a Maryland corporation (the "Corporation"), acting by unanimous written consent without a meeting as permitted by the Maryland General Corporation Law, adopt the following resolutions, effective as of ${effBlank}:`));
   kids.push(h2("Transfer of Shares"));
-  kids.push(p(`RESOLVED, that the transfer of ${shareCount(total)} shares of the Corporation's common stock, being 100% of the issued and outstanding stock, from ${joinNames(sellerNames)} to ${buyers.map((b) => `${b.name} (${b.shares.toLocaleString("en-US")} ${sharesWord(b.shares)}, ${pct(b.shares, total)})`).join(" and ")} under the Stock Purchase Agreement dated ${effBlank} is approved; that Certificate No(s). ${certs || "[____]"} are cancelled; and that new Certificate No(s). [____] are issued ${oneBuyer ? `to ${buyers[0].name} for ${shareCount(total)} shares` : "to the Buyers in the amounts stated"}.`));
+  kids.push(p(`RESOLVED, that the transfer of ${shareCount(total)} shares of the Corporation's common stock, being 100% of the issued and outstanding stock, from ${joinNames(sellerNames)} to ${buyers.map((b) => `${b.name} (${b.shares.toLocaleString("en-US")} ${sharesWord(b.shares)}, ${pct(b.shares, total)})`).join(" and ")} under the Stock Purchase Agreement dated ${effBlank} is approved; that Certificate No(s). ${certs || "________"} are cancelled; and that new Certificate No(s). ________ are issued ${oneBuyer ? `to ${buyers[0].name} for ${shareCount(total)} shares` : "to the Buyers in the amounts stated"}.`));
   kids.push(h2(oneSeller ? "Resignation" : "Resignations"));
   kids.push(p(`RESOLVED, that the ${oneSeller ? "resignation" : "resignations"} of ${joinNames(sellerNames)} from all ${close ? "officer" : "director and officer"} positions and as Resident Agent ${oneSeller ? "is" : "are"} accepted.`));
   if (!close) {
     kids.push(h2("Election of Directors"));
-    kids.push(p(`RESOLVED, that ${directors.length ? joinNames(directors) : "[DIRECTOR NAME(S)]"} ${directors.length === 1 ? "is" : "are"} elected as ${directors.length === 1 ? "the director" : "directors"} of the Corporation to serve until ${directors.length === 1 ? "his or her" : "their"} successors are elected and qualify.`));
+    kids.push(p(`RESOLVED, that ${directors.length ? joinNames(directors) : "____________________"} ${directors.length === 1 ? "is" : "are"} elected as ${directors.length === 1 ? "the director" : "directors"} of the Corporation to serve until ${directors.length === 1 ? "his or her" : "their"} successors are elected and qualify.`));
   }
   kids.push(h2("Election of Officers"));
   kids.push(grid(["Office", "Name"], [
@@ -405,7 +408,7 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   }
   kids.push(h2("Banking and Filings"));
   const signers = joinNames(unique([officers.president, officers.secretary, officers.treasurer].filter((x) => x !== BLANK)));
-  kids.push(p(`RESOLVED, that ${signers || "[AUTHORIZED SIGNERS]"} ${signers && /,| and /.test(signers) ? "are" : "is"} the sole authorized signer${/,| and /.test(signers) ? "s" : ""} on all bank accounts of the Corporation, and ${joinNames(sellerNames)} ${oneSeller ? "is" : "are"} removed as ${oneSeller ? "a signer" : "signers"}; and that the officers are authorized to sign and file all documents needed to carry out these resolutions, including with SDAT, the Comptroller of Maryland, the IRS, the landlord, and licensing agencies.`));
+  kids.push(p(`RESOLVED, that ${signers || "____________________"} ${signers && /,| and /.test(signers) ? "are" : "is"} the sole authorized signer${/,| and /.test(signers) ? "s" : ""} on all bank accounts of the Corporation, and ${joinNames(sellerNames)} ${oneSeller ? "is" : "are"} removed as ${oneSeller ? "a signer" : "signers"}; and that the officers are authorized to sign and file all documents needed to carry out these resolutions, including with SDAT, the Comptroller of Maryland, the IRS, the landlord, and licensing agencies.`));
   kids.push(h2(oneBuyer ? "Stockholder" : "Stockholders"));
   buyers.forEach((b, i) => kids.push(...sigBlock(`${oneBuyer ? "SOLE STOCKHOLDER" : `STOCKHOLDER ${i + 1}`} (${b.shares.toLocaleString("en-US")} ${sharesWord(b.shares)}, ${pct(b.shares, total)})`, b.name)));
   if (!close) {
@@ -418,7 +421,7 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   // ===== 5. Resolution to Change Resident Agent =====
   let docNo = 5;
   if (input.residentAgent.change) {
-    kids.push(pageBreak());
+    startDocument();
     kids.push(...h1("5. Resolution to Change Resident Agent", "For filing with the Maryland State Department of Assessments and Taxation"));
     kids.push(p(`The ${close ? "stockholders" : "stockholders and directors"} of ${corp}, a Maryland corporation, SDAT ID ${sdat}, passed the following resolution:`));
     kids.push(p(`Change of principal office: No change (remains ${orBlank(input.principalOffice)})`, { bold: true }));
@@ -435,17 +438,17 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   }
 
   // ===== Stock Transfer Ledger =====
-  kids.push(pageBreak());
+  startDocument();
   kids.push(...h1(`${docNo}. Stock Transfer Ledger`, `${corp} · SDAT ID ${sdat} · Authorized and issued: ${total.toLocaleString("en-US")} shares, ${par}`));
   const holderBalances = buyers.map((b) => `${b.name}: ${b.shares.toLocaleString("en-US")}`).join("; ");
   kids.push(grid(["Date", "Cert. No.", "From", "To", "Shares", "Cert. cancelled", "Holder balance"], [
     ...(input.originalHolder.trim() && sellers.length === 1 && input.originalHolder.trim().toLowerCase() !== sellers[0].name.trim().toLowerCase()
       ? [
-          ["[____]", "[____]", "Corporation (original issue)", input.originalHolder.trim(), total.toLocaleString("en-US"), "", `${input.originalHolder.trim()}: ${total.toLocaleString("en-US")}`],
-          [input.originalHolderTransferDate.trim() || "[____]", certs || "[____]", input.originalHolder.trim(), sellers[0].name, total.toLocaleString("en-US"), "[____]", `${sellers[0].name}: ${total.toLocaleString("en-US")}`],
+          ["________", "________", "Corporation (original issue)", input.originalHolder.trim(), total.toLocaleString("en-US"), "", `${input.originalHolder.trim()}: ${total.toLocaleString("en-US")}`],
+          [input.originalHolderTransferDate.trim() || "________", certs || "________", input.originalHolder.trim(), sellers[0].name, total.toLocaleString("en-US"), "________", `${sellers[0].name}: ${total.toLocaleString("en-US")}`],
         ]
-      : sellers.map((s) => ["[____]", certs || "[____]", "Corporation (original issue)", s.name, s.shares.toLocaleString("en-US"), "", `${s.name}: ${s.shares.toLocaleString("en-US")}`])),
-    ...moves.map((m) => [effBlank, "[____]", m.seller.name, m.buyer.name, m.shares.toLocaleString("en-US"), certs || "[____]", `${m.buyer.name}: ${m.shares.toLocaleString("en-US")}`]),
+      : sellers.map((s) => ["________", certs || "________", "Corporation (original issue)", s.name, s.shares.toLocaleString("en-US"), "", `${s.name}: ${s.shares.toLocaleString("en-US")}`])),
+    ...moves.map((m) => [effBlank, "________", m.seller.name, m.buyer.name, m.shares.toLocaleString("en-US"), certs || "________", `${m.buyer.name}: ${m.shares.toLocaleString("en-US")}`]),
   ], [1100, 900, 1900, 1900, 900, 1100, 2200], [4]));
   kids.push(spacer());
   kids.push(p(`Holders after the transfer: ${holderBalances}.`, { size: 19 }));
@@ -454,7 +457,7 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
 
   // ===== Closing checklist (internal) =====
   docNo += 1;
-  kids.push(pageBreak());
+  startDocument();
   kids.push(...h1(`${docNo}. Closing Checklist`, `${corp} · SDAT ID ${sdat}`));
   kids.push(p(`Internal working paper${input.internalFirmLine ? ` · ${input.internalFirmLine}` : ""} · Not part of the signed documents`, { italics: true, size: 19, color: "6B6B6B" }));
   kids.push(h2("At signing"));
@@ -486,20 +489,20 @@ export async function generateStockTransferPackageDocx(input: StockPackageInput)
   kids.push(spacer());
   kids.push(grid(["Item", "Date completed", "Completed by"], ["Package signed", "Notarized", "SDAT filing", "IRS 8822-B", "Comptroller / licenses"].map((x) => [x, "", ""]), [4000, 3000, 3000]));
 
+  finished.push(kids);
+  const makeFooter = () => new Footer({
+    children: [new Paragraph({
+      tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
+      border: { top: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } },
+      children: [run(`${corp} — Stock Transfer Package`, { size: 16, color: "6B6B6B" }), run("\t", { size: 16 }), new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], font: FONT, size: 16, color: "6B6B6B" })],
+    })],
+  });
   const doc = new Document({
-    sections: [{
+    sections: finished.filter((c) => c.length > 0).map((children) => ({
       properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } } },
-      footers: {
-        default: new Footer({
-          children: [new Paragraph({
-            tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
-            border: { top: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } },
-            children: [run(`${corp} — Stock Transfer Package`, { size: 16, color: "6B6B6B" }), run("\t", { size: 16 }), new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], font: FONT, size: 16, color: "6B6B6B" })],
-          })],
-        }),
-      },
-      children: kids,
-    }],
+      footers: { default: makeFooter() },
+      children,
+    })),
   });
   return Packer.toBuffer(doc);
 }
