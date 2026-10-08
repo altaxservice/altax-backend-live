@@ -105,6 +105,15 @@ firmSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(as
 
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : undefined);
 
+  // The Zelle phone number is stored formatted — "(443) 825-8804" — whatever way it was typed; blank clears it.
+  let zellePhone: string | undefined;
+  if (typeof body.zellePhone === "string") {
+    const digits = body.zellePhone.replace(/\D/g, "");
+    const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+    if (digits && ten.length !== 10) return res.status(400).json({ error: "Enter the Zelle phone number as 10 digits, like (443) 825-8804." });
+    zellePhone = digits ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : "";
+  }
+
   await updateFirmProfile({
     firmName: str(body.firmName),
     street: str(body.street),
@@ -124,6 +133,7 @@ firmSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(as
     emailFromName: str(body.emailFromName),
     emailReplyTo: str(body.emailReplyTo),
     emailSignature: str(body.emailSignature),
+    zellePhone,
     updatedBy: req.user!.email,
   });
 

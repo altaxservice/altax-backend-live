@@ -314,6 +314,12 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     page.drawImage(zelleQr, { x: R - qrSize, y: PAGE_H - qrTopY - 12 - qrSize, width: qrSize, height: qrSize });
   }
 
+  if (profile.zellePhone) {
+    c.text(L, y, "Pay by Zelle", { size: 9, bold: true });
+    y += 13;
+    c.text(L, y, `Zelle by phone number: ${profile.zellePhone}`, { size: 10, bold: true });
+    y += 22;
+  }
   if (data.paymentInstructions) {
     c.text(L, y, "Payment Instructions", { size: 9, bold: true });
     y += 13;

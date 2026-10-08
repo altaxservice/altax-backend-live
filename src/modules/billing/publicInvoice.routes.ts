@@ -5,6 +5,7 @@
  * opaque share_token (24 random bytes, effectively unguessable) rather than by
  * identity — scoped to exactly one invoice, read-only, no mutation routes exist here.
  */
+import { getFirmProfile } from "../../common/firmProfile";
 import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -51,6 +52,8 @@ publicInvoiceRouter.get("/:token", invoiceLimiter, asyncHandler(async (req: Requ
     // The Pay button only renders when Stripe is actually connected — a button
     // that errors "not configured" at a CLIENT is worse than no button.
     cardPaymentsEnabled: isStripeConfigured(),
+    // The firm's Zelle phone number, shown with the payment instructions ("Zelle by phone number: …").
+    zellePhone: (await getFirmProfile()).zellePhone || null,
   });
 }));
 

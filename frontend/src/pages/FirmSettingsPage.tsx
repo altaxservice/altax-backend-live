@@ -18,6 +18,7 @@ interface FirmProfile {
   email: string;
   logoDataUrl: string | null;
   zelleQrDataUrl: string | null;
+  zellePhone: string;
   ein: string;
   efin: string;
   website: string;
@@ -35,14 +36,14 @@ interface FirmSettingsForm {
   firmName: string; street: string; city: string; state: string; zipCode: string; phone: string; email: string;
   ein: string; efin: string; website: string;
   defaultPaymentTerms: string; defaultPaymentInstructions: string; invoiceFooter: string;
-  emailFromName: string; emailReplyTo: string; emailSignature: string;
+  emailFromName: string; emailReplyTo: string; emailSignature: string; zellePhone: string;
 }
 
 const EMPTY_FORM: FirmSettingsForm = {
   firmName: "", street: "", city: "", state: "", zipCode: "", phone: "", email: "",
   ein: "", efin: "", website: "",
   defaultPaymentTerms: "", defaultPaymentInstructions: "", invoiceFooter: "",
-  emailFromName: "", emailReplyTo: "", emailSignature: "",
+  emailFromName: "", emailReplyTo: "", emailSignature: "", zellePhone: "",
 };
 
 // SVG dropped (SEC-004, hard audit 2026-08-13) — see the matching backend
@@ -74,6 +75,7 @@ export function FirmSettingsPage() {
           defaultPaymentTerms: res.defaultPaymentTerms, defaultPaymentInstructions: res.defaultPaymentInstructions,
           invoiceFooter: res.invoiceFooter,
           emailFromName: res.emailFromName, emailReplyTo: res.emailReplyTo, emailSignature: res.emailSignature,
+          zellePhone: res.zellePhone || "",
         });
         setLogoPreview(res.logoDataUrl);
         setPendingLogoDataUrl(undefined);
@@ -277,7 +279,15 @@ export function FirmSettingsPage() {
             </div>
 
             <div className="card">
-              <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Zelle "Scan to Pay" QR Code</h2>
+              <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Zelle Payments</h2>
+              <div className="field" style={{ maxWidth: 320, marginBottom: 12 }}>
+                <label htmlFor="firm-zelle-phone">Zelle phone number</label>
+                <input id="firm-zelle-phone" value={form.zellePhone} onChange={(e) => set("zellePhone", formatPhoneInput(e.target.value))} placeholder="(443) 825-8804" inputMode="tel" />
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                  Printed on every invoice — the PDF, the online invoice page and the invoice email — as “Zelle by phone number: {form.zellePhone || "(###) ###-####"}”. Leave blank to hide it.
+                </div>
+              </div>
+              <h3 style={{ fontSize: 13.5, margin: "0 0 4px" }}>“Scan to Pay” QR Code</h3>
               <p className="muted" style={{ fontSize: 11.5, margin: "0 0 10px" }}>
                 A screenshot of the QR code your bank's Zelle app generates for receiving payments — printed on every
                 invoice PDF next to Payment Instructions so clients can pay by scanning it. Test-scan it yourself

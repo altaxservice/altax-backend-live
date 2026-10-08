@@ -35,6 +35,8 @@ export interface FirmProfile {
   logoDataUrl: string | null;
   /** A "Scan to pay" QR image from the firm's own bank/Zelle app — a static image, not a payment-processor integration, so it needs no API keys. Embedded on invoice PDFs when set. */
   zelleQrDataUrl: string | null;
+  /** The phone number clients send Zelle payments to — printed as "Zelle by phone number: …" on every invoice (PDF, online page, email). */
+  zellePhone: string;
   /** Firm credentials — print on engagement letters and prefill IRS 2848/8821 + MD 548 POA generation. Not PTIN/CAF: those are per-preparer, on v3_users. */
   ein: string;
   efin: string;
@@ -76,6 +78,7 @@ export async function getFirmProfile(): Promise<FirmProfile> {
     email: row?.email || DEFAULT_FIRM_PROFILE.email,
     logoDataUrl: row?.logo_data && row?.logo_content_type ? `data:${row.logo_content_type};base64,${row.logo_data}` : null,
     zelleQrDataUrl: row?.zelle_qr_data && row?.zelle_qr_content_type ? `data:${row.zelle_qr_content_type};base64,${row.zelle_qr_data}` : null,
+    zellePhone: row?.zelle_phone || "",
     ein: row?.ein || "",
     efin: row?.efin || "",
     website: row?.website || "",
@@ -110,7 +113,7 @@ export async function updateFirmProfile(fields: {
   zelleQrData?: string | null; zelleQrContentType?: string | null;
   ein?: string; efin?: string; website?: string;
   defaultPaymentTerms?: string; defaultPaymentInstructions?: string; invoiceFooter?: string;
-  emailFromName?: string; emailReplyTo?: string; emailSignature?: string;
+  emailFromName?: string; emailReplyTo?: string; emailSignature?: string; zellePhone?: string;
   updatedBy: string;
 }): Promise<void> {
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_firm_settings WHERE id = 'FIRM-1'`);
@@ -136,21 +139,22 @@ export async function updateFirmProfile(fields: {
     email_from_name: fields.emailFromName ?? existing?.email_from_name ?? null,
     email_reply_to: fields.emailReplyTo ?? existing?.email_reply_to ?? null,
     email_signature: fields.emailSignature ?? existing?.email_signature ?? null,
+    zelle_phone: fields.zellePhone ?? existing?.zelle_phone ?? null,
   };
   await query(
     `INSERT INTO altax.v3_firm_settings (id, firm_name, street_address, city, state, zip_code, phone, email, logo_data, logo_content_type, zelle_qr_data, zelle_qr_content_type,
-       ein, efin, website, default_payment_terms, default_payment_instructions, invoice_footer, email_from_name, email_reply_to, email_signature, updated_at, updated_by)
-     VALUES ('FIRM-1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), $21)
+       ein, efin, website, default_payment_terms, default_payment_instructions, invoice_footer, email_from_name, email_reply_to, email_signature, zelle_phone, updated_at, updated_by)
+     VALUES ('FIRM-1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now(), $22)
      ON CONFLICT (id) DO UPDATE SET
        firm_name = $1, street_address = $2, city = $3, state = $4, zip_code = $5, phone = $6, email = $7,
        logo_data = $8, logo_content_type = $9, zelle_qr_data = $10, zelle_qr_content_type = $11,
        ein = $12, efin = $13, website = $14, default_payment_terms = $15, default_payment_instructions = $16,
-       invoice_footer = $17, email_from_name = $18, email_reply_to = $19, email_signature = $20,
-       updated_at = now(), updated_by = $21`,
+       invoice_footer = $17, email_from_name = $18, email_reply_to = $19, email_signature = $20, zelle_phone = $21,
+       updated_at = now(), updated_by = $22`,
     [merged.firm_name, merged.street_address, merged.city, merged.state, merged.zip_code, merged.phone, merged.email,
       merged.logo_data, merged.logo_content_type, merged.zelle_qr_data, merged.zelle_qr_content_type,
       merged.ein, merged.efin, merged.website, merged.default_payment_terms, merged.default_payment_instructions,
-      merged.invoice_footer, merged.email_from_name, merged.email_reply_to, merged.email_signature,
+      merged.invoice_footer, merged.email_from_name, merged.email_reply_to, merged.email_signature, merged.zelle_phone,
       fields.updatedBy]
   );
 }

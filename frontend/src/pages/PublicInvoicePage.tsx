@@ -38,6 +38,7 @@ export function PublicInvoicePage() {
   const returnedFromStripe = searchParams.get("paid") === "1";
   const [invoice, setInvoice] = useState<PublicInvoice | null>(null);
   const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
+  const [zellePhone, setZellePhone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState(false);
@@ -46,8 +47,8 @@ export function PublicInvoicePage() {
     if (!token) return;
     // The GET itself settles a completed Stripe checkout server-side, so on the
     // ?paid=1 return trip this load is what flips the invoice to Paid.
-    api.get<{ invoice: PublicInvoice; cardPaymentsEnabled?: boolean }>(`/public/invoices/${token}`)
-      .then((r) => { setInvoice(r.invoice); setCardPaymentsEnabled(Boolean(r.cardPaymentsEnabled)); })
+    api.get<{ invoice: PublicInvoice; cardPaymentsEnabled?: boolean; zellePhone?: string | null }>(`/public/invoices/${token}`)
+      .then((r) => { setInvoice(r.invoice); setCardPaymentsEnabled(Boolean(r.cardPaymentsEnabled)); setZellePhone(r.zellePhone || null); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this invoice."));
   }, [token]);
 
@@ -158,10 +159,20 @@ export function PublicInvoicePage() {
         <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 14, fontWeight: 700 }}><span>Balance Due</span><span>{fmtMoney(invoice.balance_due)}</span></div>
       </div>
 
-      {invoice.payment_instructions && (
+      {(zellePhone || invoice.payment_instructions) && (
         <div className="card" style={{ marginBottom: 20 }}>
-          <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Payment Instructions</div>
-          <div style={{ fontSize: 13 }}>{invoice.payment_instructions}</div>
+          {zellePhone && (
+            <div style={{ marginBottom: invoice.payment_instructions ? 12 : 0 }}>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Pay by Zelle</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Zelle by phone number: {zellePhone}</div>
+            </div>
+          )}
+          {invoice.payment_instructions && (
+            <>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Payment Instructions</div>
+              <div style={{ fontSize: 13 }}>{invoice.payment_instructions}</div>
+            </>
+          )}
         </div>
       )}
       {invoice.client_note && <p className="muted" style={{ fontSize: 13 }}>{invoice.client_note}</p>}

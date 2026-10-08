@@ -514,6 +514,7 @@ async function invoiceEmailHtml(opts: {
 }): Promise<string> {
   const { wrapEmailHtml } = await import("../../common/emailTemplate");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const zellePhone = (await getFirmProfile()).zellePhone;
   const fmtDate = (v: string | null) => {
     if (!v) return "—";
     const d = new Date(v);
@@ -537,6 +538,7 @@ async function invoiceEmailHtml(opts: {
         </table>
       </td></tr>
     </table>
+    ${zellePhone ? `<p style="margin:0 0 14px; font-size:14px;"><strong>Pay by Zelle</strong><br/>Zelle by phone number: <strong>${esc(zellePhone)}</strong></p>` : ""}
     <p style="margin:0; color:#6b7280; font-size:12.5px;">The full invoice is attached to this email as a PDF. <bdi dir="rtl">الفاتورة الكاملة مرفقة بهذه الرسالة بصيغة PDF.</bdi></p>`;
   return wrapEmailHtml(body, opts.req);
 }
