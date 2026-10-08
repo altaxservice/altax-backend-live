@@ -18,6 +18,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { DetailField } from "../components/DetailCard";
+import { InvoiceActivityCard, InvoiceStatusChips, useInvoiceActivity } from "../components/InvoiceActivity";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -61,6 +62,8 @@ export function InvoiceDetailPage() {
   const [showSend, setShowSend] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [activityTick, setActivityTick] = useState(0);
+  const activity = useInvoiceActivity(user?.role === "admin" || user?.role === "staff" ? invoiceId : undefined, activityTick);
   const { setSelectedClient } = useSelectedClient();
 
   const canManage = user?.role === "admin" || user?.role === "staff";
@@ -158,7 +161,7 @@ export function InvoiceDetailPage() {
       api.get<{ invoice: Invoice }>(`/billing/invoices/${invoiceId}`),
       api.get<{ payments: Payment[] }>(`/billing/invoices/${invoiceId}/payments`),
     ])
-      .then(([i, p]) => { setInvoice(i.invoice); setPayments(p.payments); })
+      .then(([i, p]) => { setInvoice(i.invoice); setPayments(p.payments); setActivityTick((t) => t + 1); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this invoice."));
   }
 
@@ -260,6 +263,7 @@ export function InvoiceDetailPage() {
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{invoice.invoice_id}</h1>
           <StatusBadge status={invoice.status} />
+          <InvoiceStatusChips summary={activity?.summary ?? null} />
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn" disabled={viewingInvoice} onClick={handleViewInvoice}>{viewingInvoice ? "Generating…" : "View Invoice"}</button>
@@ -388,6 +392,8 @@ export function InvoiceDetailPage() {
           </div>
         </div>
       )}
+
+      {activity && <InvoiceActivityCard items={activity.items} />}
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Payments</h2>

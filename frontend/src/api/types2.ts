@@ -89,6 +89,10 @@ export interface Invoice {
   balance_due: string | number;
   status: string;
   pdf_link: string | null;
+  /** Delivery trail, present on the staff invoices list. */
+  first_sent_at?: string | null;
+  first_viewed_at?: string | null;
+  reminder_count?: number | null;
   terms?: string | null;
   customer_type?: string | null;
   bill_to?: string | null;

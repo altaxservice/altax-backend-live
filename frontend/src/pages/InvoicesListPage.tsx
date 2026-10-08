@@ -491,7 +491,16 @@ export function InvoicesListPage() {
                   <td className="muted" data-label={canManage ? "Description" : t("billing.client.colDescription")}>{inv.description}</td>
                   <td data-label={canManage ? "Amount" : t("billing.client.colAmount")}><Num>{fmtMoney(inv.total_amount)}</Num></td>
                   <td data-label={canManage ? "Balance" : t("billing.client.colBalance")}><Num>{fmtMoney(inv.balance_due)}</Num></td>
-                  <td data-label={canManage ? "Status" : t("billing.client.colStatus")}><StatusBadge status={inv.status} /></td>
+                  <td data-label={canManage ? "Status" : t("billing.client.colStatus")}>
+                    <StatusBadge status={inv.status} />
+                    {canManage && inv.status !== "Void" && Number(inv.balance_due) > 0 && (
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.35 }}>
+                        {inv.first_sent_at ? "Sent" : "Not sent"}
+                        {inv.first_sent_at && (inv.first_viewed_at ? " · Viewed" : " · Not viewed")}
+                        {Number(inv.reminder_count) > 0 && ` · ${inv.reminder_count} reminder${Number(inv.reminder_count) === 1 ? "" : "s"}`}
+                      </div>
+                    )}
+                  </td>
                   {canManage && (
                     <td data-label="" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu

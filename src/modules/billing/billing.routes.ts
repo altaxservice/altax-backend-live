@@ -11,6 +11,7 @@ import { lookupSalesTaxRate } from "../../common/taxRates";
 import { encryptValue } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
 import { getFirmProfile } from "../../common/firmProfile";
+import { recordInvoiceEvent, loadInvoiceActivity, newInvoiceId, INVOICE_STATUS_COLUMNS } from "../../common/invoiceEvents";
 
 /**
  * Billing module — Phase 5. Covers invoices, payments, and recurring billing. Ported
@@ -58,7 +59,7 @@ function idSuffix(): string {
   return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 function nextInvoiceId(): string {
-  return `INV-${idSuffix()}`;
+  return newInvoiceId();
 }
 function nextPaymentId(): string {
   return `PAY-${idSuffix()}`;
@@ -387,7 +388,7 @@ billingRouter.get("/invoices", requireAuth, asyncHandler(async (req: AuthedReque
   const role = req.user!.role;
 
   if (role === "admin") {
-    const rows = await query(`SELECT * FROM altax.v3_invoices ORDER BY invoice_date DESC NULLS LAST`);
+    const rows = await query(`SELECT i.*, ${INVOICE_STATUS_COLUMNS} FROM altax.v3_invoices i ORDER BY i.invoice_date DESC NULLS LAST`);
     return res.json({ invoices: rows });
   }
   if (role === "client") {
@@ -402,9 +403,9 @@ billingRouter.get("/invoices", requireAuth, asyncHandler(async (req: AuthedReque
 
   const aliases = await getUserAliases(req.user!.email);
   const rows = await query(
-    `SELECT * FROM altax.v3_invoices
-      WHERE client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))
-      ORDER BY invoice_date DESC NULLS LAST`,
+    `SELECT i.*, ${INVOICE_STATUS_COLUMNS} FROM altax.v3_invoices i
+      WHERE i.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))
+      ORDER BY i.invoice_date DESC NULLS LAST`,
     [Array.from(aliases)]
   );
   res.json({ invoices: rows });
@@ -421,6 +422,14 @@ billingRouter.get("/invoices/:invoiceId", requireAuth, asyncHandler(async (req: 
 
   const lineItems = await query(`SELECT * FROM altax.v3_invoice_line_items WHERE invoice_id = $1 ORDER BY line_no ASC`, [req.params.invoiceId]);
   res.json({ invoice: { ...invoice, lineItems } });
+}));
+
+/** Delivery status and activity timeline (created, sent, opened by the client, reminders, payments) — staff only. */
+billingRouter.get("/invoices/:invoiceId/activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const invoice = await queryOne<any>(`SELECT * FROM altax.v3_invoices WHERE invoice_id = $1`, [req.params.invoiceId]);
+  if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+  if (!(await canMutateInvoice(req.user!, invoice))) return res.status(403).json({ error: "You do not have access to this invoice." });
+  res.json(await loadInvoiceActivity(invoice));
 }));
 
 /** Payments recorded against one invoice — same visibility rule as the invoice itself. */
@@ -702,6 +711,7 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
       error = err?.message || "Send failed.";
     }
     results.push({ channel, ok, error });
+    await recordInvoiceEvent(invoice.invoice_id, ok ? "sent" : "send_failed", { channel, sentTo: sentTo || null, detail: ok ? null : error || "Send failed", actor: req.user!.email });
 
     // Previously this send never wrote a v3_communications row — it only
     // reached the audit log below, which has no client_id, so the client's
@@ -1631,7 +1641,7 @@ billingRouter.post("/recurring/:recurringBillingId/run-now", requireAuth, requir
   const nextRun = dateOnly(schedule.next_run_date || schedule.start_date || runDate);
   const sourceRecordId = `${schedule.recurring_billing_id}:${dateString(nextRun)}`;
 
-  const invoiceId = `INV-${idSuffix()}`;
+  const invoiceId = newInvoiceId();
   const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
   // The pre-check used to run as a plain SELECT before this transaction opened,
   // so two concurrent triggers for the same schedule/period (a double-click on
@@ -1741,7 +1751,7 @@ export async function runRecurringBillingSweep(
     if (amount <= 0) { errors.push(`${schedule.recurring_billing_id}: amount is missing.`); continue; }
 
     const sourceRecordId = `${schedule.recurring_billing_id}:${dateString(nextRun)}`;
-    const invoiceId = `INV-${idSuffix()}`;
+    const invoiceId = newInvoiceId();
     const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
     // The duplicate check used to run as a plain SELECT before this transaction
     // opened, so this nightly sweep overlapping a manual "Use Now" run (billing.ts
@@ -1818,9 +1828,11 @@ export async function runRecurringBillingSweep(
             attachments: [{ filename: `Invoice_${invoiceId}.pdf`, content: Buffer.from(built!.pdfBytes) }],
           });
           emailSent = true;
+          await recordInvoiceEvent(invoiceId, "sent", { channel: "email", sentTo: client.email, actor: "Recurring billing" });
           await logAudit("Billing", "SEND_INVOICE", invoiceId, "", "", "email: sent (auto)", `Recurring auto-send by schedule ${schedule.recurring_billing_id}.`, actor.email);
         } catch (err: any) {
           emailSkippedReason = err?.message || "Send failed.";
+          await recordInvoiceEvent(invoiceId, "send_failed", { channel: "email", sentTo: client.email, detail: emailSkippedReason, actor: "Recurring billing" });
         }
       }
       if (client?.sms_allowed && client?.phone) {
@@ -1835,8 +1847,10 @@ export async function runRecurringBillingSweep(
              VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,$7,now(),'Sent','Recurring Billing',$8,$9)`,
             [`COM-${idSuffix()}`, schedule.client_id, schedule.client_name, `Invoice ${invoiceId} from AL Tax Service`, smsBody, client.phone, actor.email, invoiceId, result.providerMessageId]
           );
+          await recordInvoiceEvent(invoiceId, "sent", { channel: "sms", sentTo: client.phone, actor: "Recurring billing" });
           await logAudit("Billing", "SEND_INVOICE", invoiceId, "", "", "sms: sent (auto)", `Recurring auto-send SMS by schedule ${schedule.recurring_billing_id}.`, actor.email);
         } catch (err: any) {
+          await recordInvoiceEvent(invoiceId, "send_failed", { channel: "sms", sentTo: client.phone, detail: err?.message || "SMS failed", actor: "Recurring billing" });
           await query(
             `INSERT INTO altax.v3_communications
                (communication_id, client_id, client_name, related_task_id, direction, channel, subject,

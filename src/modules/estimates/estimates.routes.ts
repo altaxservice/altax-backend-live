@@ -9,6 +9,7 @@ import { generateEstimatePdf, type EstimatePdfLine } from "./estimatePdf";
 import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
 import { syncFeeItemProduct } from "./feeItemProductSync";
+import { newInvoiceId } from "../../common/invoiceEvents";
 
 /**
  * Tools → Fee Schedule + Estimates.
@@ -642,7 +643,7 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
   const createInvoice = req.body?.createInvoice !== false;
 
   const clientId = `C-${idSuffix()}`;
-  const invoiceId = createInvoice ? `INV-${idSuffix()}` : null;
+  const invoiceId = createInvoice ? newInvoiceId() : null;
 
   const db = await pool.connect();
   try {

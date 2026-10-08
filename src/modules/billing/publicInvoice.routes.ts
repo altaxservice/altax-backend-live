@@ -6,7 +6,9 @@
  * identity — scoped to exactly one invoice, read-only, no mutation routes exist here.
  */
 import { getFirmProfile } from "../../common/firmProfile";
+import { recordInvoiceView } from "../../common/invoiceEvents";
 import { Router, Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { publicBaseUrl } from "../../common/publicUrl";
@@ -38,6 +40,23 @@ publicInvoiceRouter.get("/:token", invoiceLimiter, asyncHandler(async (req: Requ
   }
 
   const items = await query<any>(`SELECT * FROM altax.v3_invoice_line_items WHERE invoice_id = $1 ORDER BY line_no ASC`, [invoice.invoice_id]);
+
+  // "Opened by the client" — skipped for link-preview bots (email scanners, chat unfurlers) and for staff previewing
+  // the page (the app adds ?preview=1 on its own Copy Share Link / View buttons).
+  const ua = String(req.headers["user-agent"] || "");
+  const isBot = !ua || /bot|crawl|spider|preview|slurp|facebookexternalhit|whatsapp|telegram|skypeuri|outlook|microsoft|barracuda|proofpoint|mimecast|curl|wget|python|node-fetch|axios/i.test(ua);
+  // A signed-in staff member opening the link is previewing it, not the client.
+  let staffPreview = false;
+  const bearer = String(req.headers.authorization || "");
+  if (bearer.startsWith("Bearer ")) {
+    try {
+      const v = jwt.verify(bearer.slice(7), process.env.JWT_SECRET as string) as { role?: string };
+      staffPreview = ["admin", "staff"].includes(String(v.role || "").toLowerCase());
+    } catch { /* expired or invalid token: treat as an anonymous visitor */ }
+  }
+  if (!isBot && !staffPreview && req.query.preview !== "1" && Number(invoice.balance_due) >= 0 && String(invoice.status || "").toLowerCase() !== "void") {
+    await recordInvoiceView(invoice.invoice_id);
+  }
 
   res.json({
     invoice: {
