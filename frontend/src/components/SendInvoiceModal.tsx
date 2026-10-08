@@ -13,19 +13,22 @@ interface SendResult { channel: string; ok: boolean; error?: string }
  * InvoiceDetailPage); this is specifically the "Send Now" step, always showing the
  * actual PDF before sending (the embedded preview below loads automatically, no
  * extra click needed to satisfy "view every one before we send them"), then send.
- * Email-only — SMS/WhatsApp aren't connected (no Twilio credentials), so those
- * channel options were removed rather than left as choices that silently fail.
+ * Email and/or text message. The email carries the PDF plus a "View invoice online" button; the text carries
+ * the same online link. Texting requires the client's "SMS allowed" consent, so the option is disabled without it.
  * Also used for Sales Receipts, which are just Paid-status invoices under the hood
  * (see billing.routes.ts POST /sales-receipt).
  */
-export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
-  invoice: Invoice; clientEmail: string | null; onClose: () => void;
+export function SendInvoiceModal({ invoice, clientEmail, clientPhone, smsAllowed, onClose }: {
+  invoice: Invoice; clientEmail: string | null; clientPhone?: string | null; smsAllowed?: boolean; onClose: () => void;
 }) {
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
   const toast = useToast();
   const [email, setEmail] = useState(clientEmail || "");
+  const [byEmail, setByEmail] = useState(true);
+  const [bySms, setBySms] = useState(false);
+  const [phone, setPhone] = useState(clientPhone || "");
   const [cc, setCc] = useState("");
   const [bcc, setBcc] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
@@ -50,7 +53,7 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [invoice.invoice_id]);
 
-  const canSend = email.trim().length > 0;
+  const canSend = (byEmail || bySms) && (!byEmail || email.trim().length > 0) && (!bySms || phone.trim().length > 0);
 
   async function handleSend() {
     setSending(true);
@@ -58,7 +61,7 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
     setResults(null);
     try {
       const res = await api.post<{ results: SendResult[] }>(`/billing/invoices/${invoice.invoice_id}/send`, {
-        channels: ["email"], email, cc, bcc, subject, message,
+        channels: [...(byEmail ? ["email"] : []), ...(bySms ? ["sms"] : [])], email, phone, cc, bcc, subject, message,
       });
       setResults(res.results);
       const allOk = res.results.every((r) => r.ok);
@@ -78,12 +81,26 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
+            <div style={{ display: "flex", gap: 18, marginBottom: 10, flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><input type="checkbox" checked={byEmail} onChange={(e) => setByEmail(e.target.checked)} /> Email (PDF + online link)</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, opacity: smsAllowed ? 1 : 0.6 }}>
+                <input type="checkbox" checked={bySms} disabled={!smsAllowed} onChange={(e) => setBySms(e.target.checked)} /> Text message (online link)
+              </label>
+            </div>
+            {!smsAllowed && <div className="muted" style={{ fontSize: 12, margin: "-4px 0 10px" }}>Texting is off because this client has not agreed to text messages or has no phone number. Turn on "SMS allowed" and add a phone in their profile to enable it.</div>}
+            {bySms && (
+              <div className="field">
+                <label htmlFor="send-invoice-phone">Phone number (text)</label>
+                <input id="send-invoice-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(410) 555-0123" />
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>The text says: "AL TAX SERVICE: Invoice {invoice.invoice_id} — $balance due. View it here: [secure link]".</div>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="send-invoice-email">
                 Email address
                 {!showCcBcc && <button type="button" className="link-button" style={{ float: "right", fontWeight: 400 }} onClick={() => setShowCcBcc(true)}>Add Cc/Bcc</button>}
               </label>
-              <input id="send-invoice-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" />
+              <input id="send-invoice-email" type="email" value={email} disabled={!byEmail} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" />
             </div>
             {showCcBcc && (
               <>

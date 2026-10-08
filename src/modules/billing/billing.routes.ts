@@ -11,6 +11,7 @@ import { lookupSalesTaxRate } from "../../common/taxRates";
 import { encryptValue } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
 import { getFirmProfile } from "../../common/firmProfile";
+import { publicBaseUrl } from "../../common/publicUrl";
 import { recordInvoiceEvent, loadInvoiceActivity, newInvoiceId, INVOICE_STATUS_COLUMNS } from "../../common/invoiceEvents";
 
 /**
@@ -57,6 +58,33 @@ function idSuffix(): string {
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
+}
+/**
+ * The client-facing "view online" link for an invoice. Creates the invoice's share token on first use (same token
+ * "Copy Share Link" hands out), so the email button and the text message always point at the same page.
+ */
+async function invoiceViewUrl(invoiceId: string, req?: AuthedRequest, actor?: string): Promise<string | null> {
+  const base = publicBaseUrl(req);
+  if (!base) return null;
+  const row = await queryOne<any>(`SELECT share_token FROM altax.v3_invoices WHERE invoice_id = $1`, [invoiceId]);
+  if (!row) return null;
+  let token: string | null = row.share_token;
+  if (!token) {
+    const { randomBytes } = await import("crypto");
+    token = randomBytes(24).toString("hex");
+    await query(`UPDATE altax.v3_invoices SET share_token = $2, updated_at = now() WHERE invoice_id = $1 AND share_token IS NULL`, [invoiceId, token]);
+    const again = await queryOne<any>(`SELECT share_token FROM altax.v3_invoices WHERE invoice_id = $1`, [invoiceId]);
+    token = again?.share_token || token;
+    await logAudit("Billing", "CREATE_SHARE_LINK", invoiceId, "", "", "", "Share link created automatically when the invoice was sent.", actor || "System");
+  }
+  return `${base}/public/invoice/${token}`;
+}
+/** Text-message wording for an invoice: short, names the firm (so it is not mistaken for spam) and links the online page. */
+function invoiceSmsText(invoice: any, viewUrl: string | null): string {
+  const bal = Number(invoice.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const d = invoice.due_date ? new Date(invoice.due_date) : null;
+  const due = d && !Number.isNaN(d.getTime()) ? ` due ${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}` : "";
+  return `AL TAX SERVICE: Invoice ${invoice.invoice_id} — $${bal}${due}.${viewUrl ? ` View it here: ${viewUrl}` : ""}`;
 }
 function nextInvoiceId(): string {
   return newInvoiceId();
@@ -519,7 +547,7 @@ billingRouter.get("/invoices/:invoiceId/print", requireAuth, asyncHandler(async 
  * the invoice PDF itself. Shared by the manual send route and recurring auto-send.
  */
 async function invoiceEmailHtml(opts: {
-  message: string; invoiceId: string; invoiceDate: string | null; dueDate: string | null; balanceDue: number; req?: AuthedRequest;
+  message: string; invoiceId: string; invoiceDate: string | null; dueDate: string | null; balanceDue: number; req?: AuthedRequest; viewUrl?: string | null;
 }): Promise<string> {
   const { wrapEmailHtml } = await import("../../common/emailTemplate");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -548,6 +576,7 @@ async function invoiceEmailHtml(opts: {
       </td></tr>
     </table>
     ${zellePhone ? `<p style="margin:0 0 14px; font-size:14px;"><strong>Pay by Zelle</strong><br/>Zelle by phone number: <strong>${esc(zellePhone)}</strong></p>` : ""}
+    ${opts.viewUrl ? `<p style="margin:0 0 14px;"><a href="${esc(opts.viewUrl)}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:600; font-size:14px; padding:10px 22px; border-radius:6px;">View invoice online</a></p>` : ""}
     <p style="margin:0; color:#6b7280; font-size:12.5px;">The full invoice is attached to this email as a PDF. <bdi dir="rtl">الفاتورة الكاملة مرفقة بهذه الرسالة بصيغة PDF.</bdi></p>`;
   return wrapEmailHtml(body, opts.req);
 }
@@ -677,9 +706,10 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
   const bcc = parseEmailList(body.bcc);
 
   const clientName = await getClientName(invoice.client_id);
+  const viewUrl = await invoiceViewUrl(invoice.invoice_id, req, req.user!.email);
   const results: { channel: string; ok: boolean; error?: string }[] = [];
   for (const channel of channels) {
-    let ok = false, error: string | undefined, providerMessageId: string | null = null, sentTo = "";
+    let ok = false, error: string | undefined, providerMessageId: string | null = null, sentTo = "", smsText: string | null = null;
     try {
       if (channel === "email") {
         sentTo = String(body.email || "").trim();
@@ -688,7 +718,7 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
           to: sentTo, cc, bcc, subject,
           html: await invoiceEmailHtml({
             message, invoiceId: invoice.invoice_id, invoiceDate: invoice.invoice_date,
-            dueDate: invoice.due_date, balanceDue: Number(invoice.balance_due), req,
+            dueDate: invoice.due_date, balanceDue: Number(invoice.balance_due), req, viewUrl,
           }),
           attachments: [{ filename: `Invoice_${invoice.invoice_id}.pdf`, content: Buffer.from(built!.pdfBytes) }],
         });
@@ -696,7 +726,11 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
       } else if (channel === "sms") {
         sentTo = String(body.phone || "").trim();
         if (!sentTo) throw new Error("No phone number provided.");
-        const result = await sendSms({ to: sentTo, body: message });
+        // Text messages need the client's consent on file (Client > "SMS allowed"), same rule as the automatic reminders.
+        const consent = await queryOne<any>(`SELECT sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]);
+        if (!consent?.sms_allowed) throw new Error("This client has not agreed to text messages (turn on SMS allowed in their profile first).");
+        smsText = invoiceSmsText(invoice, viewUrl);
+        const result = await sendSms({ to: sentTo, body: smsText });
         providerMessageId = result.providerMessageId;
       } else if (channel === "whatsapp") {
         sentTo = String(body.phone || "").trim();
@@ -721,7 +755,7 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
          (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
           message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
        VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,'',$7,$8,now(),$9,'Invoice',$1,$10)`,
-      [`COM-${idSuffix()}`, invoice.client_id, clientName, channel, subject, message, sentTo || null,
+      [`COM-${idSuffix()}`, invoice.client_id, clientName, channel, subject, smsText || message, sentTo || null,
         req.user!.email, ok ? "Saved + Sent" : `Saved — ${error}`, providerMessageId]
     );
   }
@@ -1824,6 +1858,7 @@ export async function runRecurringBillingSweep(
             html: await invoiceEmailHtml({
               message: `Please find your recurring invoice attached. Total due: $${amount.toFixed(2)}.`,
               invoiceId, invoiceDate: runDateString, dueDate, balanceDue: amount, req: opts.req,
+              viewUrl: await invoiceViewUrl(invoiceId, opts.req, actor.email).catch(() => null),
             }),
             attachments: [{ filename: `Invoice_${invoiceId}.pdf`, content: Buffer.from(built!.pdfBytes) }],
           });
@@ -1836,7 +1871,8 @@ export async function runRecurringBillingSweep(
         }
       }
       if (client?.sms_allowed && client?.phone) {
-        const smsBody = `AL TAX SERVICE: New invoice ${invoiceId} — $${amount.toFixed(2)} due ${dueDate}.`;
+        const smsViewUrl = await invoiceViewUrl(invoiceId, opts.req, actor.email).catch(() => null);
+        const smsBody = `AL TAX SERVICE: New invoice ${invoiceId} — $${amount.toFixed(2)} due ${dueDate}.${smsViewUrl ? ` View it here: ${smsViewUrl}` : ""}`;
         try {
           const { sendSms } = await import("../../common/notifications");
           const result = await sendSms({ to: client.phone, body: smsBody });

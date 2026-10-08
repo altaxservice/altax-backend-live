@@ -314,7 +314,9 @@ export function InvoiceDetailPage() {
         <SendInvoiceModal
           invoice={invoice}
           clientEmail={invoiceClient?.email || null}
-          onClose={() => setShowSend(false)}
+          clientPhone={invoiceClient?.phone || null}
+          smsAllowed={Boolean(invoiceClient?.sms_allowed && invoiceClient?.phone)}
+          onClose={() => { setShowSend(false); load(); }}
         />
       )}
 
