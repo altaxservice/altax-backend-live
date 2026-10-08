@@ -1,3 +1,4 @@
+import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -234,6 +235,7 @@ export function NotesPage() {
                   <th scope="col">Notify</th>
                   <th scope="col">Remind</th>
                   <th scope="col">Created</th>
+                  <th scope="col">Modified</th>
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -268,6 +270,7 @@ export function NotesPage() {
                         {n.remindAt && n.reminderSentAt && <div className="muted" style={{ fontSize: 10.5, fontWeight: 400 }}>Sent {fmtRelative(n.reminderSentAt)}</div>}
                       </td>
                       <td className="muted">{fmtRelative(n.createdAt)}</td>
+                      <td className="muted"><ModifiedStamp at={n.updatedAt} /></td>
                       <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {n.status === "Open"
                           ? <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Done")}>Mark Done</button>

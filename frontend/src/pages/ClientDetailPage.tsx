@@ -1,3 +1,4 @@
+import { ModifiedStamp } from "../components/ModifiedStamp";
 import { PermitTrackerSection } from "../components/PermitTrackerSection";
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -759,6 +760,11 @@ export function ClientDetailPage() {
           {String(client.dba_name || "").trim() && (
             <div className="muted" style={{ fontSize: 13, margin: "-2px 0 6px" }}>DBA: {client.dba_name as string}</div>
           )}
+          {client.updated_at ? (
+            <div className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+              Last modified {fmtDateTime(client.updated_at)}{client.updated_by ? ` by ${client.updated_by}` : ""}
+            </div>
+          ) : null}
           <StatusBadge status={client.status} />
           {complianceScore && complianceScore.currentlyOverdueCount > 0 && (
             <button
@@ -2339,7 +2345,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th scope="col">Contract</th><th scope="col">Status</th><th scope="col">Effective</th><th scope="col">Signed</th><th scope="col">Action</th></tr></thead>
+          <thead><tr><th scope="col">Contract</th><th scope="col">Status</th><th scope="col">Effective</th><th scope="col">Signed</th><th scope="col">Modified</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {filteredContracts.map((c) => (
               <Fragment key={c.contract_id}>
@@ -2352,6 +2358,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                       ? `${c.signer_name}${c.signed_at ? ` · ${fmtDateTime(c.signed_at)}` : ""}${c.signature_method === "In-Person" ? " · In Person" : ""}`
                       : "—"}
                   </td>
+                  <td className="muted"><ModifiedStamp at={c.updated_at} /></td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button type="button" className="btn btn-sm" onClick={() => handlePreview(c.contract_id)}>{previewId === c.contract_id ? "Hide Text" : "Preview"}</button>
@@ -2391,7 +2398,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                 </tr>
                 {previewId === c.contract_id && (
                   <tr>
-                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                    <td colSpan={6} style={{ background: "var(--surface)" }}>
                       {previewText[c.contract_id] ? (
                         // No inner scroll cap — same reasoning as PublicContractPage.tsx:
                         // the Arabic translation sits at the end of a long document and a
@@ -2407,7 +2414,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                 )}
                 {signInPersonFor === c.contract_id && (
                   <tr>
-                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                    <td colSpan={6} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
                           <label htmlFor={`cd-contract-signer-name-${c.contract_id}`}>Signer's Full Legal Name</label>
@@ -2608,7 +2615,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th scope="col">Form</th><th scope="col">Representative(s)</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
+          <thead><tr><th scope="col">Form</th><th scope="col">Representative(s)</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Modified</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {filteredFilings.map((f) => (
               <Fragment key={f.filing_id}>
@@ -2622,6 +2629,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
                   <td className="muted">
                     {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${fmtDateTime(f.submitted_at)}` : ""}` : "—"}
                   </td>
+                  <td className="muted"><ModifiedStamp at={f.updated_at} /></td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
@@ -2647,7 +2655,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
                 </tr>
                 {signInPersonFor === f.filing_id && (
                   <tr>
-                    <td colSpan={6} style={{ background: "var(--surface)" }}>
+                    <td colSpan={7} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
                           <label htmlFor={`cd-poa-signer-name-${f.filing_id}`}>Signer's Full Legal Name</label>
@@ -2674,7 +2682,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
                 )}
                 {submitFor === f.filing_id && (
                   <tr>
-                    <td colSpan={6} style={{ background: "var(--surface)" }}>
+                    <td colSpan={7} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 200 }}>
                           <label htmlFor={`cd-poa-submitted-via-${f.filing_id}`}>Sent Via</label>
@@ -2926,6 +2934,7 @@ interface TaxReturnRow {
   tax_return_id: string; client_id: string; tax_year: number; return_type: string; status: string;
   preparer: string | null; reviewer: string | null; extension_filed: boolean; due_date: string | null;
   filed_date: string | null; accepted_date: string | null; rejection_reason: string | null; notes: string | null;
+  updated_at?: string | null; updated_by?: string | null;
 }
 const TAX_RETURN_STATUSES = [
   "Not Started", "Documents Requested", "Documents Received", "In Preparation", "Missing Information",
@@ -3049,10 +3058,10 @@ function TaxReturnProductionSection({ clientId, defaultReturnType }: { clientId:
 
         <div className="table-scroll" style={{ marginTop: 12 }}>
           <table>
-            <thead><tr><th scope="col">Year</th><th scope="col">Type</th><th scope="col">Preparer</th><th scope="col">Reviewer</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+            <thead><tr><th scope="col">Year</th><th scope="col">Type</th><th scope="col">Preparer</th><th scope="col">Reviewer</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Modified</th><th scope="col">Actions</th></tr></thead>
             <tbody>
-              {returns === null && <tr><td colSpan={7} className="muted">Loading…</td></tr>}
-              {returns !== null && returns.length === 0 && <tr><td colSpan={7} className="muted">No returns tracked yet.</td></tr>}
+              {returns === null && <tr><td colSpan={8} className="muted">Loading…</td></tr>}
+              {returns !== null && returns.length === 0 && <tr><td colSpan={8} className="muted">No returns tracked yet.</td></tr>}
               {returns?.map((r) => (
                 <tr key={r.tax_return_id}>
                   <td>{r.tax_year}</td>
@@ -3066,6 +3075,7 @@ function TaxReturnProductionSection({ clientId, defaultReturnType }: { clientId:
                     </select>
                     {r.status === "Rejected" && r.rejection_reason && <div className="muted" style={{ fontSize: 11 }}>{r.rejection_reason}</div>}
                   </td>
+                  <td className="muted"><ModifiedStamp at={r.updated_at} by={r.updated_by} /></td>
                   <td><button type="button" className="link-button" onClick={() => handleDelete(r)}>Delete</button></td>
                 </tr>
               ))}
@@ -3394,7 +3404,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes, reloadKey, h
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th scope="col">Form</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
+          <thead><tr><th scope="col">Form</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Modified</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {filteredFilings.map((f) => (
               <Fragment key={f.filing_id}>
@@ -3421,6 +3431,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes, reloadKey, h
                   <td className="muted">
                     {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${fmtDateTime(f.submitted_at)}` : ""}` : "—"}
                   </td>
+                  <td className="muted"><ModifiedStamp at={f.updated_at} /></td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
@@ -3463,7 +3474,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes, reloadKey, h
                 </tr>
                 {signInPersonFor === f.filing_id && (
                   <tr>
-                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                    <td colSpan={6} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
                           <label htmlFor={`cd-gf-signer-name-${f.filing_id}`}>Signer's Full Legal Name</label>
@@ -3490,7 +3501,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes, reloadKey, h
                 )}
                 {submitFor === f.filing_id && (
                   <tr>
-                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                    <td colSpan={6} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 200 }}>
                           <label htmlFor={`cd-gf-submitted-via-${f.filing_id}`}>Sent Via</label>
@@ -4229,7 +4240,7 @@ function ClientBillingSection({ client }: { client: Client }) {
       ) : (
         <div className="table-scroll card-table">
           <table>
-            <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Due</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead>
+            <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Due</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Balance</th><th scope="col">Status</th><th scope="col">Modified</th></tr></thead>
             <tbody>
               {filteredInvoices.map((inv) => (
                 <tr key={inv.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/billing/${inv.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${inv.invoice_id}`); } }}>
@@ -4240,6 +4251,7 @@ function ClientBillingSection({ client }: { client: Client }) {
                   <td data-label="Amount">{fmtMoney(inv.total_amount)}</td>
                   <td data-label="Balance">{fmtMoney(inv.balance_due)}</td>
                   <td data-label="Status"><StatusBadge status={inv.status} /></td>
+                  <td className="muted" data-label="Modified"><ModifiedStamp at={inv.updated_at} /></td>
                 </tr>
               ))}
             </tbody>

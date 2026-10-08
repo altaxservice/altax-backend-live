@@ -1,3 +1,4 @@
+import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
@@ -428,7 +429,7 @@ export function DocumentsListPage() {
                 <thead>
                   <tr>
                     {canManage && <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={openRequests.length > 0 && selected.size === openRequests.length} onChange={toggleSelectAll} /></th>}
-                    <th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th><th scope="col">Action</th>
+                    <th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th><th scope="col">Modified</th><th scope="col">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -448,6 +449,7 @@ export function DocumentsListPage() {
                         ) : <StatusBadge status={r.status} />}
                       </td>
                       <td data-label="Files"><FilesCell request={r} onRemove={handleRemoveUpload} /></td>
+                      <td className="muted" data-label="Modified"><ModifiedStamp at={r.updated_at} /></td>
                       <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
@@ -466,7 +468,7 @@ export function DocumentsListPage() {
             <div style={{ overflowX: "auto" }}>
               <div className="table-scroll card-table">
               <table>
-                <thead><tr><th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th></tr></thead>
+                <thead><tr><th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th><th scope="col">Modified</th></tr></thead>
                 <tbody>
                   {receivedRequests.map((r) => (
                     <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
@@ -477,6 +479,7 @@ export function DocumentsListPage() {
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status"><StatusBadge status={r.status} /></td>
                       <td data-label="Files"><FilesCell request={r} /></td>
+                      <td className="muted" data-label="Modified"><ModifiedStamp at={r.updated_at} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -494,7 +497,7 @@ export function DocumentsListPage() {
             <div style={{ overflowX: "auto" }}>
               <div className="table-scroll card-table">
               <table>
-                <thead><tr><th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th></tr></thead>
+                <thead><tr><th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th><th scope="col">Modified</th></tr></thead>
                 <tbody>
                   {sentRequests.map((r) => (
                     <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
@@ -505,6 +508,7 @@ export function DocumentsListPage() {
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status"><StatusBadge status={r.status} /></td>
                       <td data-label="Files"><FilesCell request={r} /></td>
+                      <td className="muted" data-label="Modified"><ModifiedStamp at={r.updated_at} /></td>
                     </tr>
                   ))}
                 </tbody>

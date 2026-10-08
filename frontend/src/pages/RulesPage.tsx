@@ -1,3 +1,4 @@
+import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -245,7 +246,7 @@ export function RulesPage() {
           </div>
           <div className="table-scroll">
           <table>
-            <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Agent</th><th scope="col">Actions</th></tr></thead>
+            <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Agent</th><th scope="col">Modified</th><th scope="col">Actions</th></tr></thead>
             <tbody>
               {filteredRules.map((r) => (
                 <tr key={r.rule_id} onClick={() => navigate(`/rules/${r.rule_id}`)} style={{ cursor: "pointer" }}>
@@ -260,6 +261,7 @@ export function RulesPage() {
                   <td className="muted">{String(r.warning_days || "—")}</td>
                   <td><span className={`status-pill ${r.active ? "status-green" : "status-gray"}`}>{r.active ? "Active" : "Inactive"}</span></td>
                   <td><span className={`status-pill ${r.agent_enabled ? "status-green" : "status-gray"}`}>{r.agent_enabled ? "Included" : "Excluded"}</span></td>
+                  <td className="muted"><ModifiedStamp at={r.updated_at} by={typeof r.updated_by === "string" ? r.updated_by : null} /></td>
                   <td style={{ display: "flex", gap: 6 }}>
                     {r.active && <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openBatchModal(r.rule_id); }}>Run Batch</button>}
                     <button className="btn btn-sm btn-danger" disabled={deletingId === r.rule_id} onClick={(e) => handleDelete(r, e)}>{deletingId === r.rule_id ? "…" : "Delete"}</button>

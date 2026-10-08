@@ -116,7 +116,7 @@ contractsRouter.get("/client/:clientId", requireAuth, asyncHandler(async (req: A
 
   const contracts = await query<any>(
     `SELECT contract_id, client_id, service_key, title, fee_amount, fee_description, effective_date, status,
-            share_token, signer_name, signed_at, sent_at, signature_method, created_at
+            share_token, signer_name, signed_at, sent_at, signature_method, created_at, updated_at
        FROM altax.v3_client_contracts WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );

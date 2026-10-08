@@ -12,7 +12,7 @@ import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
 import { useToast } from "../components/Toast";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { METHODS, ACCOUNT_TYPES, MANUAL_PROFILE, PaymentProfileField } from "./InvoicesListPage";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
@@ -356,6 +356,7 @@ export function InvoiceDetailPage() {
             <DetailField label="Invoice Date" value={invoice.invoice_date ? fmtDateOnly(invoice.invoice_date) : null} />
             <DetailField label="Due Date" value={invoice.due_date ? fmtDateOnly(invoice.due_date) : null} />
             <DetailField label="Terms" value={invoice.terms} />
+            <DetailField label="Last Modified" value={invoice.updated_at ? fmtDateTime(invoice.updated_at) : null} />
             <DetailField label="Bill To" value={invoice.bill_to} multiline wide />
             {invoice.ship_to && invoice.ship_to !== invoice.bill_to && <DetailField label="Ship To" value={invoice.ship_to} multiline wide />}
           </div>

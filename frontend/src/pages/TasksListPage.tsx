@@ -1,3 +1,4 @@
+import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -10,7 +11,7 @@ import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useSelectedTask } from "../context/SelectedTaskContext";
 import { useAuth } from "../auth/AuthContext";
-import { fmtDateOnly, fmtDateTime } from "../utils/date";
+import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
 import { TASK_STATUSES, statusOptionsForTaskType, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
@@ -34,7 +35,7 @@ const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "Pa
 const LIVE_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "Parked", "All Active"] as const;
 const HISTORY_TABS = ["Completed", "Archived", "All History"] as const;
 type QuickTab = typeof QUICK_TABS[number];
-type SortKey = "client_name" | "service_line" | "task_name" | "agency_due_date" | "assigned_to";
+type SortKey = "client_name" | "service_line" | "task_name" | "agency_due_date" | "assigned_to" | "updated_at";
 
 // PERF-010 (Hard Audit, 2026-08-13) — live tabs (the fastest-growing, most-
 // visited view) are now server-paginated/filtered/sorted instead of the page
@@ -700,6 +701,7 @@ export function TasksListPage() {
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("agency_due_date")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("agency_due_date"); } }}>Due{sortArrow("agency_due_date")}</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("assigned_to")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("assigned_to"); } }}>Owner{sortArrow("assigned_to")}</th>
                 <th scope="col">Status</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Modified{sortArrow("updated_at")}</th>
                 {isArchivedView && <th scope="col">Archived</th>}
                 <th scope="col">Action</th>
               </tr>
@@ -767,8 +769,6 @@ export function TasksListPage() {
                   <td className="muted" data-label="Owner">
                     <div>
                       <div>{t.assigned_to || "Unassigned"}</div>
-                      <div style={{ fontSize: 11 }}>{t.updated_at ? `Upd. ${fmtDateTime(t.updated_at)}` : "Not updated"}</div>
-                      {t.updated_by && <div style={{ fontSize: 11 }}>by {t.updated_by}</div>}
                     </div>
                   </td>
                   <td data-label="Status" onClick={(e) => e.stopPropagation()}>
@@ -778,6 +778,7 @@ export function TasksListPage() {
                       </select>
                     ) : <StatusBadge status={t.status} />}
                   </td>
+                  <td className="muted" data-label="Modified"><ModifiedStamp at={t.updated_at} by={t.updated_by} /></td>
                   {isArchivedView && <td className="muted" data-label="Archived">{t.archived_at ? new Date(String(t.archived_at)).toLocaleDateString() : "—"}</td>}
                   {/* Files folded in here rather than owning a column of its own —
                       most rows have no attachment, so a whole column was spent

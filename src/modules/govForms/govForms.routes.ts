@@ -233,7 +233,7 @@ govFormsRouter.get("/client/:clientId", requireAuth, requireRole("admin", "staff
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const rows = await query<any>(
     `SELECT filing_id, client_id, form_type, form_data, status, signed_at, signer_name, signer_title,
-            submitted_via, submitted_at, submitted_note, created_at,
+            submitted_via, submitted_at, submitted_note, created_at, updated_at,
             review_status, review_requested_by, review_requested_at, reviewed_by, reviewed_at, review_note
        FROM altax.v3_gov_form_filings WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
@@ -281,7 +281,7 @@ govFormsRouter.get("/employee/:employeeId", requireAuth, requireRole("admin", "s
   if (!(await canAccessClient(req.user!, employee.client_id))) return res.status(403).json({ error: "You do not have access to this employee." });
   const rows = await query<any>(
     `SELECT filing_id, employee_id, form_type, form_data, status, signed_at, signer_name, signer_title,
-            sent_to_employee_at, attached_upload_id, submitted_via, submitted_at, submitted_note, created_at,
+            sent_to_employee_at, attached_upload_id, submitted_via, submitted_at, submitted_note, created_at, updated_at,
             review_status, review_requested_by, review_requested_at, reviewed_by, reviewed_at, review_note
        FROM altax.v3_gov_form_filings WHERE employee_id = $1 ORDER BY created_at DESC`,
     [employeeId]

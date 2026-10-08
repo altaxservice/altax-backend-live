@@ -207,7 +207,8 @@ clientsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(
                               payroll_enabled, company_contact_name, company_contact_ssn, individual_ssn, ein,
                               payroll_system, eftps_enabled, md_withholding_frequency, mdui_enabled,
                               md_annual_report_enabled, business_return_type, sms_allowed, email_allowed,
-                              w21099_enabled, preferred_language, address, street_address, city, zip_code
+                              w21099_enabled, preferred_language, address, street_address, city, zip_code,
+                              updated_at, updated_by
                          FROM altax.v3_clients`;
 
   let rows: any[];

@@ -166,7 +166,7 @@ poaFormsRouter.get("/client/:clientId", requireAuth, requireRole("admin", "staff
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const rows = await query<any>(
     `SELECT filing_id, client_id, form_type, representatives, tax_matters, status,
-            signed_at, signer_name, signer_title, submitted_via, submitted_at, submitted_note, created_at
+            signed_at, signer_name, signer_title, submitted_via, submitted_at, submitted_note, created_at, updated_at
        FROM altax.v3_poa_filings WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );

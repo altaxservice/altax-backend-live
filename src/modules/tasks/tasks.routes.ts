@@ -217,7 +217,7 @@ const LIVE_TAB_CONDITIONS: Record<string, string> = {
   "Parked": `t.is_parked = true`,
 };
 const TASK_SORT_COLUMNS: Record<string, string> = {
-  client_name: "t.client_name", task_name: "t.task_name", agency_due_date: "t.agency_due_date", assigned_to: "t.assigned_to",
+  client_name: "t.client_name", task_name: "t.task_name", agency_due_date: "t.agency_due_date", assigned_to: "t.assigned_to", updated_at: "t.updated_at",
 };
 
 /** Shared by both the paginated and summary routes below — same role scoping as the unpaginated GET / (admin sees all, staff sees only their own assigned work, client/employee see nothing). */

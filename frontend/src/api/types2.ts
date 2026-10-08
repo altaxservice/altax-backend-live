@@ -89,6 +89,7 @@ export interface Invoice {
   balance_due: string | number;
   status: string;
   pdf_link: string | null;
+  updated_at?: string | null;
   /** Delivery trail, present on the staff invoices list. */
   first_sent_at?: string | null;
   first_viewed_at?: string | null;
@@ -149,6 +150,7 @@ export interface DocumentRequest {
   client_name: string;
   employee_id?: string | null;
   requested_item: string;
+  updated_at?: string | null;
   request_date: string | null;
   due_from_client: string | null;
   status: string;

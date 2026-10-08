@@ -1,3 +1,4 @@
+import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
@@ -53,7 +54,7 @@ const QUICK_TABS: { key: string; label: string; test: (c: Client) => boolean }[]
   { key: "portal", label: "Portal", test: (c) => Boolean(c.portal_enabled) },
 ];
 
-type SortKey = "client_name" | "client_type" | "assigned_to" | "status";
+type SortKey = "client_name" | "client_type" | "assigned_to" | "status" | "updated_at";
 
 function maskedSsnDisplay(v: unknown): string {
   const s = String(v || "").trim();
@@ -1198,6 +1199,7 @@ export function ClientsListPage() {
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("assigned_to")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("assigned_to"); } }}>Owner{sortArrow("assigned_to")}</th>
                 <th scope="col">Compliance</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("status")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("status"); } }}>Status{sortArrow("status")}</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Modified{sortArrow("updated_at")}</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
@@ -1253,6 +1255,7 @@ export function ClientsListPage() {
                         <div className="cell-sub">{c.portal_enabled ? "Portal on" : "No portal"}</div>
                       </div>
                     </td>
+                    <td className="muted" data-label="Modified"><ModifiedStamp at={c.updated_at} by={c.updated_by} /></td>
                     <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu options={actionOptions(c)} onSelect={(action) => handleAction(c, action)} />
                     </td>

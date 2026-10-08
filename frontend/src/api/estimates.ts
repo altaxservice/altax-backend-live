@@ -92,6 +92,7 @@ export interface Estimate {
   client_id: string | null;
   invoice_id: string | null;
   converted_at: string | null;
+  updated_at?: string | null;
   totals?: EstimateTotals;
   line_count?: number;
 }

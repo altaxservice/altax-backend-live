@@ -37,6 +37,7 @@ export interface PoaFiling {
   submitted_at: string | null;
   submitted_note: string | null;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface PoaRepresentativeOption {
