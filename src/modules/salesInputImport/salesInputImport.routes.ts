@@ -137,8 +137,11 @@ salesInputImportRouter.post("/preview", requireAuth, requireRole("admin", "staff
   }
 
   const rateMap = await loadCategoryRateMap(client.state);
-  const existing = await query<any>(`SELECT sale_date::date::text AS sale_date FROM altax.v3_sales_input WHERE client_id = $1`, [client.client_id]);
-  const existingDates = new Set(existing.map((r: any) => r.sale_date));
+  const existing = await query<any>(
+    `SELECT sale_id, sale_date::date::text AS sale_date, gross_sales, total_tax_due, source_system FROM altax.v3_sales_input WHERE client_id = $1`,
+    [client.client_id]
+  );
+  const existingByDate = new Map<string, any>(existing.map((r: any) => [r.sale_date, r]));
 
   const previewRows = [];
   for (const row of parsed.rows) {
@@ -150,11 +153,17 @@ salesInputImportRouter.post("/preview", requireAuth, requireRole("admin", "staff
     } catch {
       // Leave totalTaxDue at 0 rather than fail the whole preview over one row's category mismatch.
     }
+    const roundedTax = Math.round(totalTaxDue * 100) / 100;
+    const onFile = existingByDate.get(row.saleDate);
+    // A date already on file is "duplicate" when the amounts match, but "differs" when they don't — a
+    // wrong figure keyed in by hand used to be skipped silently, leaving the books wrong with no hint why.
+    const sameAmounts = onFile && Math.abs(Number(onFile.gross_sales) - row.grossSales) < 0.005 && Math.abs(Number(onFile.total_tax_due) - roundedTax) < 0.005;
     previewRows.push({
       rowNumber: row.rowNumber, saleDate: row.saleDate, rawDate: row.rawDate, grossSales: row.grossSales,
       adjustments: row.adjustments, paymentDate: row.paymentDate, notes: row.notes,
-      categoryLines: lines, unmappedCategories: unmapped, totalTaxDue: Math.round(totalTaxDue * 100) / 100,
-      action: existingDates.has(row.saleDate) ? "duplicate" : "create",
+      categoryLines: lines, unmappedCategories: unmapped, totalTaxDue: roundedTax,
+      action: !onFile ? "create" : sameAmounts ? "duplicate" : "differs",
+      existing: onFile ? { saleId: onFile.sale_id, grossSales: Number(onFile.gross_sales), totalTaxDue: Number(onFile.total_tax_due), source: onFile.source_system } : null,
     });
   }
 
@@ -190,8 +199,9 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
 
   const sorted = rows.map((row, index) => ({ row, index })).sort((a, b) => String(a.row.saleDate || "").localeCompare(String(b.row.saleDate || "")));
 
-  const existing = await query<any>(`SELECT sale_date::date::text AS sale_date FROM altax.v3_sales_input WHERE client_id = $1`, [client.client_id]);
+  const existing = await query<any>(`SELECT sale_id, sale_date::date::text AS sale_date, gross_sales, total_tax_due FROM altax.v3_sales_input WHERE client_id = $1`, [client.client_id]);
   const existingDates = new Set(existing.map((r: any) => r.sale_date));
+  const existingByDate = new Map<string, any>(existing.map((r: any) => [r.sale_date, r]));
 
   // One ID for the whole commit, not per row — tags every row this request
   // creates so the entire import can be reversed in one action later (see
@@ -208,9 +218,28 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
       results.push({ index, saleDate, ok: false, error: "Missing sale date — skipped." });
       continue;
     }
+    let replacedFrom: { saleId: string; grossSales: number; totalTaxDue: number } | null = null;
     if (existingDates.has(saleDate)) {
-      results.push({ index, saleDate, ok: false, error: "A sales record already exists for this date — skipped." });
-      continue;
+      if (row.replace !== true) {
+        results.push({ index, saleDate, ok: false, error: "A sales record already exists for this date — skipped. If its amounts are wrong, run the preview again and use Replace." });
+        continue;
+      }
+      // Replacing deletes a posted sale and its ledger entries, so it carries the same admin-only rule as the single-sale delete.
+      if (req.user!.role !== "admin") {
+        results.push({ index, saleDate, ok: false, error: "Only an admin can replace a sale that is already on file." });
+        continue;
+      }
+      const old = existingByDate.get(saleDate);
+      const filed = await queryOne<any>(
+        `SELECT 1 FROM altax.v3_md_filing_payments WHERE client_id = $1 AND $2::date BETWEEN period_start AND period_end LIMIT 1`,
+        [client.client_id, saleDate]
+      );
+      if (filed) {
+        results.push({ index, saleDate, ok: false, error: "This sale's period is already marked Filed — it was not replaced. Reopen the filing first if the correction is real." });
+        continue;
+      }
+      replacedFrom = { saleId: old.sale_id, grossSales: Number(old.gross_sales), totalTaxDue: Number(old.total_tax_due) };
+      existingDates.delete(saleDate);
     }
     try {
       const categoryLines: SalesCategoryLineInput[] = Array.isArray(row.categoryLines) ? row.categoryLines : [];
@@ -218,8 +247,16 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
         saleDate, grossSales: row.grossSales, adjustments: row.adjustments,
         paymentDate: row.paymentDate, notes: row.notes, categoryLines,
       }, req.user!.email, "Sales Input Import");
-      await query(`UPDATE altax.v3_sales_input SET import_batch_id = $2 WHERE sale_id = $1`, [result.saleId, importBatchId]);
-      results.push({ index, saleDate, ok: true, saleId: result.saleId, totalTaxDue: result.totalTaxDue });
+      if (replacedFrom) {
+        // The corrected sale is created first and the old one removed only after that succeeded, so a failure can never leave the period empty.
+        await deleteSalesInputRecord(replacedFrom.saleId);
+        // Not tagged with the batch: "Undo this import" must never delete a corrected sale and leave the period empty.
+        await logAudit("Accounting", "REPLACE_SALES_INPUT", result.saleId, "GrossSales", String(replacedFrom.grossSales), String(row.grossSales),
+          `Sales input for ${saleDate} replaced from the Excel import by ${req.user!.email}: was gross ${replacedFrom.grossSales}, tax ${replacedFrom.totalTaxDue}; now gross ${row.grossSales}, tax ${result.totalTaxDue}.`, req.user!.email);
+      } else {
+        await query(`UPDATE altax.v3_sales_input SET import_batch_id = $2 WHERE sale_id = $1`, [result.saleId, importBatchId]);
+      }
+      results.push({ index, saleDate, ok: true, saleId: result.saleId, totalTaxDue: result.totalTaxDue, replaced: Boolean(replacedFrom) });
       existingDates.add(saleDate);
     } catch (err) {
       // Hard Audit finding, 2026-08-29: createSalesInputRecord's real INSERT/GL
@@ -241,7 +278,7 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
     `Sales Input import: ${succeeded}/${rows.length} rows by ${req.user!.email}.`, req.user!.email);
   res.status(succeeded > 0 ? 201 : 400).json({
     ok: succeeded > 0, succeeded, failed: rows.length - succeeded, results,
-    batchId: succeeded > 0 ? importBatchId : null,
+    batchId: results.some((r) => r.ok && !r.replaced) ? importBatchId : null,
   });
 }));
 

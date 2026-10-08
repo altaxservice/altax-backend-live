@@ -2004,14 +2004,16 @@ interface SalesInputPreviewRow {
   rowNumber: number; saleDate: string; rawDate: string; grossSales: number;
   adjustments: number; paymentDate: string | null; notes: string;
   categoryLines: { categoryId: string; taxableAmount: number }[];
-  unmappedCategories: string[]; totalTaxDue: number; action: "create" | "duplicate";
+  unmappedCategories: string[]; totalTaxDue: number; action: "create" | "duplicate" | "differs";
+  /** The sale already on file for this date, when there is one. */
+  existing?: { saleId: string; grossSales: number; totalTaxDue: number; source: string | null } | null;
 }
 interface SalesInputPreviewResponse {
   ok: boolean; rows: SalesInputPreviewRow[]; skipped: { rowNumber: number; reason: string }[]; sheetName: string;
   /** True when the file's header had no recognizable "N%" rate columns at all — every row below will import as fully non-taxable regardless of Gross Sales. */
   noRateColumnsFound: boolean;
 }
-interface SalesInputCommitResult { index: number; saleDate: string; ok: boolean; saleId?: string; totalTaxDue?: number; error?: string }
+interface SalesInputCommitResult { index: number; saleDate: string; ok: boolean; saleId?: string; totalTaxDue?: number; error?: string; replaced?: boolean }
 
 /**
  * Reads a client's own reusable multi-sheet workbook and imports only its Sales_Input
@@ -2094,7 +2096,16 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
     if (!preview) return;
     setBusy(true); setError(null);
     try {
-      const rows = preview.rows.filter((_, i) => selected.has(i));
+      const rows = preview.rows.filter((_, i) => selected.has(i)).map((r) => ({ ...r, replace: r.action === "differs" }));
+      const replacing = rows.filter((r) => r.replace);
+      if (replacing.length > 0) {
+        const ok = await confirmDialog({
+          title: `Replace ${replacing.length} sale${replacing.length === 1 ? "" : "s"} already on file?`,
+          message: `${replacing.map((r) => `${fmtDate(r.saleDate)}: on file ${fmtMoney(r.existing?.grossSales ?? 0)} / tax ${fmtMoney(r.existing?.totalTaxDue ?? 0)} → spreadsheet ${fmtMoney(r.grossSales)} / tax ${fmtMoney(r.totalTaxDue)}`).join("\n")}\n\nThe old sale and its ledger entries are removed and the spreadsheet's figures are posted instead. The change is recorded in the audit log.`,
+          confirmLabel: "Replace", danger: true,
+        });
+        if (!ok) { setBusy(false); return; }
+      }
       const res = await api.post<{ results: SalesInputCommitResult[]; batchId: string | null }>("/sales-input-import/commit", { clientId, rows });
       setResults(res.results);
       setBatchId(res.batchId);
@@ -2174,7 +2185,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
                 <tbody>
                   {preview.rows.map((row, i) => (
                     <tr key={i} style={{ opacity: row.action === "duplicate" ? 0.6 : 1 }}>
-                      <td><input type="checkbox" checked={selected.has(i)} onChange={() => toggleRow(i)} /></td>
+                      <td><input type="checkbox" checked={selected.has(i)} disabled={row.action === "duplicate"} title={row.action === "duplicate" ? "Already on file with the same amounts" : undefined} onChange={() => toggleRow(i)} /></td>
                       <td>{fmtDate(row.saleDate)}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(row.grossSales)}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(row.totalTaxDue)}</td>
@@ -2195,8 +2206,14 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
                           </div>
                         )}
                       </td>
-                      <td style={{ fontSize: 12, fontWeight: 600, color: row.action === "duplicate" ? "var(--muted)" : "var(--teal)" }}>
-                        {row.action === "duplicate" ? "Already exists" : "New"}
+                      <td style={{ fontSize: 12, fontWeight: 600, color: row.action === "duplicate" ? "var(--muted)" : row.action === "differs" ? "var(--amber)" : "var(--teal)" }}>
+                        {row.action === "duplicate" ? "Already on file (same amounts)" : row.action === "differs" ? "On file but different" : "New"}
+                        {row.action === "differs" && row.existing && (
+                          <div style={{ fontWeight: 400 }}>
+                            On file: {fmtMoney(row.existing.grossSales)} gross · tax {fmtMoney(row.existing.totalTaxDue)}{row.existing.source ? ` (${row.existing.source})` : ""}.
+                            Check this row to replace it with the spreadsheet's figures.
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -2204,7 +2221,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
               </table>
             </div>
             <p className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-              {selected.size} of {preview.rows.length} row(s) selected. Rows already on file for this client are unchecked by default — check one to re-import it anyway.
+              {selected.size} of {preview.rows.length} row(s) selected. Rows already on file are unchecked by default. A row marked "On file but different" can be checked to replace the old figures with the spreadsheet's (admin only).
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="button" className="btn" onClick={reset}>Cancel</button>
@@ -2227,7 +2244,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
                       <td>{fmtDate(r.saleDate)}</td>
                       <td>
                         {r.ok
-                          ? <span style={{ color: "var(--teal)" }}>Created{r.totalTaxDue != null ? ` — tax ${fmtMoney(r.totalTaxDue)}` : ""}</span>
+                          ? <span style={{ color: "var(--teal)" }}>{r.replaced ? "Replaced" : "Created"}{r.totalTaxDue != null ? ` — tax ${fmtMoney(r.totalTaxDue)}` : ""}</span>
                           : <span style={{ color: "var(--red)" }}>{r.error || "Failed"}</span>}
                       </td>
                     </tr>
