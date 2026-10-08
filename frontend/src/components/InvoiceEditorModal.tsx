@@ -97,6 +97,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   });
 
   const [paymentInstructions, setPaymentInstructions] = useState(String(editing?.payment_instructions || ""));
+  const [cardPaymentLink, setCardPaymentLink] = useState(String(editing?.card_payment_link || ""));
   const [clientNote, setClientNote] = useState(String(editing?.client_note || "We appreciate your business and look forward to helping you again soon."));
   const [internalNote, setInternalNote] = useState(String(editing?.internal_note || ""));
 
@@ -271,7 +272,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
           serviceDate: r.serviceDate || undefined, productId: r.productId || undefined, productName: r.productName || undefined,
           description: r.description, quantity: Number(r.quantity) || 1, rate: Number(r.rate) || 0, taxable: r.taxable,
         })),
-        paymentInstructions, clientNote, internalNote,
+        paymentInstructions, cardPaymentLink: cardPaymentLink.trim(), clientNote, internalNote,
         discountPercent: discountMode === "percent" ? Number(discountPercent) || 0 : 0,
         discountAmount: discountMode === "amount" ? Number(discountAmountInput) || 0 : 0,
         autoTax: taxMode === "auto", salesTaxRate: taxMode === "manual" ? Number(manualTaxRate) || 0 : 0,
@@ -422,6 +423,11 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
 
         <div className="form-grid">
           <div className="field"><label htmlFor="inv-ed-payment-instructions">Payment Instructions</label><textarea id="inv-ed-payment-instructions" rows={2} value={paymentInstructions} onChange={(e) => setPaymentInstructions(e.target.value)} placeholder="Tell your client how you want to get paid." /></div>
+          <div className="field">
+            <label htmlFor="inv-ed-card-link">Card Payment Link</label>
+            <input id="inv-ed-card-link" type="url" inputMode="url" value={cardPaymentLink} onChange={(e) => setCardPaymentLink(e.target.value)} placeholder="https://… (paste the Chase payment link for this invoice)" />
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Create the link in Chase for this invoice's amount. If you change the total later, create a new link and paste it here.</div>
+          </div>
           <div className="field"><label htmlFor="inv-ed-client-note">Note to Client</label><textarea id="inv-ed-client-note" rows={2} value={clientNote} onChange={(e) => setClientNote(e.target.value)} /></div>
           <div className="field"><label htmlFor="inv-ed-internal-note">Internal Notes (hidden)</label><textarea id="inv-ed-internal-note" rows={2} value={internalNote} onChange={(e) => setInternalNote(e.target.value)} placeholder="Only visible to staff." /></div>
         </div>

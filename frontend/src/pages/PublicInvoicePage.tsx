@@ -11,7 +11,7 @@ interface PublicLineItem {
 interface PublicInvoice {
   invoice_id: string; invoice_date: string | null; due_date: string | null; description: string | null;
   total_amount: string | number; amount_paid: string | number; balance_due: string | number; status: string;
-  terms: string | null; bill_to: string | null; payment_instructions: string | null; client_note: string | null;
+  terms: string | null; bill_to: string | null; payment_instructions: string | null; card_payment_link?: string | null; client_note: string | null;
   subtotal_amount: string | number | null; discount_amount: string | number | null; sales_tax_amount: string | number | null;
   shipping_amount: string | number | null; lineItems: PublicLineItem[];
 }
@@ -146,6 +146,15 @@ export function PublicInvoicePage() {
           <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
             Secure checkout by Stripe — your card details never touch our servers.
           </div>
+        </div>
+      )}
+
+      {!cardPaymentsEnabled && invoice.card_payment_link && Number(invoice.balance_due) > 0 && (
+        <div className="card" style={{ marginBottom: 20, textAlign: "center" }}>
+          <a className="btn btn-primary" style={{ fontSize: 15, padding: "10px 28px" }} href={invoice.card_payment_link} target="_blank" rel="noopener noreferrer">
+            Pay {fmtMoney(invoice.balance_due)} by Card
+          </a>
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>You will be taken to a secure payment page.</div>
         </div>
       )}
 

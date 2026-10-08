@@ -63,7 +63,7 @@ publicInvoiceRouter.get("/:token", invoiceLimiter, asyncHandler(async (req: Requ
       invoice_id: invoice.invoice_id, invoice_date: invoice.invoice_date, due_date: invoice.due_date,
       description: invoice.description, total_amount: invoice.total_amount, amount_paid: invoice.amount_paid,
       balance_due: invoice.balance_due, status: invoice.status, terms: invoice.terms, bill_to: invoice.bill_to,
-      payment_instructions: invoice.payment_instructions, client_note: invoice.client_note,
+      payment_instructions: invoice.payment_instructions, card_payment_link: invoice.card_payment_link || null, client_note: invoice.client_note,
       subtotal_amount: invoice.subtotal_amount, discount_amount: invoice.discount_amount,
       sales_tax_amount: invoice.sales_tax_amount, shipping_amount: invoice.shipping_amount,
       lineItems: items,

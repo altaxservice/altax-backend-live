@@ -99,6 +99,7 @@ export interface Invoice {
   ship_to?: string | null;
   ship_from?: string | null;
   payment_instructions?: string | null;
+  card_payment_link?: string | null;
   client_note?: string | null;
   internal_note?: string | null;
   subtotal_amount?: string | number | null;

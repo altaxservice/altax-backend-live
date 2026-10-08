@@ -58,6 +58,15 @@ function idSuffix(): string {
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
+/** A pasted card-payment link must be a plain https URL; anything else is ignored rather than stored. */
+function cleanPaymentLink(v: unknown): string | null {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" && s.length <= 2000 ? u.toString() : null;
+  } catch { return null; }
+}
 function nextInvoiceId(): string {
   return newInvoiceId();
 }
@@ -257,8 +266,8 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
           payment_instructions, client_note, internal_note, subtotal_amount, discount_percent,
           discount_amount, taxable_subtotal, sales_tax_rate, sales_tax_amount, shipping_amount,
           deposit_amount, ship_via, shipping_date, tracking_number, source_system, source_record_id,
-          ship_to_street, ship_to_city, ship_to_state, ship_to_zip)
-       VALUES ($1,$2,COALESCE($3,now()),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'Node Web App',$1,$30,$31,$32,$33)`,
+          ship_to_street, ship_to_city, ship_to_state, ship_to_zip, card_payment_link)
+       VALUES ($1,$2,COALESCE($3,now()),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'Node Web App',$1,$30,$31,$32,$33,$34)`,
       [
         invoiceId, clientId, invoiceDate, dueDate, description, total, paid, balance, status,
         String(body.pdfLink || "").trim() || null, terms,
@@ -269,7 +278,7 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
         salesTaxRate || null, salesTaxAmount || null, money(body.shippingAmount) || null, deposit || null,
         String(body.shipVia || "").trim() || null, String(body.shippingDate || "").trim() || null,
         String(body.trackingNumber || "").trim() || null,
-        shipToStreet, shipToCity, shipToState, shipToZip,
+        shipToStreet, shipToCity, shipToState, shipToZip, cleanPaymentLink(body.cardPaymentLink),
       ]
     );
 
@@ -473,7 +482,7 @@ export async function buildInvoicePdf(invoiceId: string): Promise<{ invoice: any
     clientName: client?.client_name || invoice.client_id, clientAddress: client?.address || null,
     clientEmail: client?.email || null, clientPhone: client?.phone || null,
     payments: payments.map((p) => ({ paymentDate: p.payment_date, actualAmount: Number(p.actual_amount), method: p.method })),
-    terms: invoice.terms, billTo: invoice.bill_to, shipTo: invoice.ship_to, paymentInstructions: invoice.payment_instructions, clientNote: invoice.client_note,
+    terms: invoice.terms, billTo: invoice.bill_to, shipTo: invoice.ship_to, paymentInstructions: invoice.payment_instructions, cardPaymentLink: invoice.card_payment_link, clientNote: invoice.client_note,
     shipVia: invoice.ship_via, shippingDate: invoice.shipping_date, trackingNumber: invoice.tracking_number,
     lineItems: lineItems.map((li) => ({
       serviceDate: li.service_date, productName: li.product_name, productCategory: li.product_category, description: li.description,
@@ -524,6 +533,7 @@ async function invoiceEmailHtml(opts: {
   const { wrapEmailHtml } = await import("../../common/emailTemplate");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const zellePhone = (await getFirmProfile()).zellePhone;
+  const cardLink = (await queryOne<any>(`SELECT card_payment_link FROM altax.v3_invoices WHERE invoice_id = $1`, [opts.invoiceId]).catch(() => null))?.card_payment_link as string | null;
   const fmtDate = (v: string | null) => {
     if (!v) return "—";
     const d = new Date(v);
@@ -548,6 +558,7 @@ async function invoiceEmailHtml(opts: {
       </td></tr>
     </table>
     ${zellePhone ? `<p style="margin:0 0 14px; font-size:14px;"><strong>Pay by Zelle</strong><br/>Zelle by phone number: <strong>${esc(zellePhone)}</strong></p>` : ""}
+    ${cardLink && opts.balanceDue > 0 ? `<p style="margin:0 0 14px;"><a href="${esc(cardLink)}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:600; font-size:14px; padding:10px 22px; border-radius:6px;">Pay by card</a></p>` : ""}
     <p style="margin:0; color:#6b7280; font-size:12.5px;">The full invoice is attached to this email as a PDF. <bdi dir="rtl">الفاتورة الكاملة مرفقة بهذه الرسالة بصيغة PDF.</bdi></p>`;
   return wrapEmailHtml(body, opts.req);
 }
@@ -1030,7 +1041,8 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
          sales_tax_amount = COALESCE($23, sales_tax_amount), shipping_amount = COALESCE($24, shipping_amount),
          deposit_amount = $25, ship_via = COALESCE($26, ship_via), shipping_date = COALESCE($27, shipping_date),
          tracking_number = COALESCE($28, tracking_number),
-         ship_to_street = $29, ship_to_city = $30, ship_to_state = $31, ship_to_zip = $32, updated_at = now()
+         ship_to_street = $29, ship_to_city = $30, ship_to_state = $31, ship_to_zip = $32,
+         card_payment_link = CASE WHEN $33::boolean THEN $34 ELSE card_payment_link END, updated_at = now()
        WHERE invoice_id = $1`,
       [
         req.params.invoiceId, String(body.invoiceDate || "").trim() || null, String(body.dueDate || "").trim() || null,
@@ -1044,6 +1056,7 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
         String(body.shipVia || "").trim() || null, String(body.shippingDate || "").trim() || null,
         String(body.trackingNumber || "").trim() || null,
         shipToStreet, shipToCity, shipToState, shipToZip,
+        body.cardPaymentLink !== undefined, cleanPaymentLink(body.cardPaymentLink),
       ]
     );
 
