@@ -65,6 +65,16 @@ const money = (n: unknown) => `$${Number(n || 0).toLocaleString(undefined, { min
 export const INVOICE_STATUS_COLUMNS = `
   (SELECT MIN(e.occurred_at) FROM altax.v3_invoice_events e WHERE e.invoice_id = i.invoice_id AND e.event_type = 'sent') AS first_sent_at,
   (SELECT MIN(e.occurred_at) FROM altax.v3_invoice_events e WHERE e.invoice_id = i.invoice_id AND e.event_type = 'viewed') AS first_viewed_at,
+  (SELECT row_to_json(y) FROM (
+     SELECT * FROM (
+       SELECT 'Payment of $' || trim(to_char(p.actual_amount, 'FM999,999,990.00')) || ' received' AS label, p.payment_date::timestamptz AS at, NULL::text AS by
+         FROM altax.v3_payments p WHERE p.invoice_id = i.invoice_id AND lower(coalesce(p.status, '')) NOT LIKE 'revers%'
+       UNION ALL SELECT CASE e.event_type WHEN 'sent' THEN 'Sent by ' || coalesce(e.channel, 'email') WHEN 'viewed' THEN 'Opened by the client' ELSE 'Sending failed' END, e.occurred_at, e.actor
+         FROM altax.v3_invoice_events e WHERE e.invoice_id = i.invoice_id
+       UNION ALL SELECT CASE WHEN c.subject ILIKE '[Urgent]%' THEN 'Urgent reminder sent' ELSE 'Payment reminder sent' END, c.sent_at, c.sent_by
+         FROM altax.v3_communications c WHERE c.source_system = 'Reminders' AND (c.source_record_id = 'PAYREM-' || i.invoice_id OR c.source_record_id LIKE 'PAYREM-MANUAL-' || i.invoice_id || '-%')
+       UNION ALL SELECT CASE WHEN lower(i.status) = 'void' THEN 'Invoice voided' ELSE 'Invoice ' || lower(coalesce(i.status, 'updated')) END, i.updated_at, NULL
+     ) x WHERE x.at IS NOT NULL ORDER BY x.at DESC LIMIT 1) y) AS last_activity,
   (SELECT COUNT(*)::int FROM altax.v3_communications c WHERE c.source_system = 'Reminders'
       AND (c.source_record_id = 'PAYREM-' || i.invoice_id OR c.source_record_id LIKE 'PAYREM-MANUAL-' || i.invoice_id || '-%')) AS reminder_count`;
 

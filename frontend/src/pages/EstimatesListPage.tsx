@@ -1,4 +1,4 @@
-import { ModifiedStamp } from "../components/ModifiedStamp";
+import { LastActivityCell } from "../components/WorkTrail";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -145,7 +145,7 @@ export function EstimatesListPage() {
                 <th scope="col">Valid Until</th>
                 <th scope="col" style={{ textAlign: "right" }}>Total</th>
                 <th scope="col" style={{ textAlign: "right" }}>Balance</th>
-                <th scope="col">Modified</th>
+                <th scope="col">Last activity</th>
               </tr>
             </thead>
             <tbody>
@@ -171,7 +171,7 @@ export function EstimatesListPage() {
                   <td data-label="Valid Until" className="muted">{est.valid_until || "—"}</td>
                   <td data-label="Total" style={{ textAlign: "right", fontWeight: 700 }}>{money(est.totals?.total)}</td>
                   <td data-label="Balance" style={{ textAlign: "right" }}>{money(est.totals?.balanceDue)}</td>
-                  <td data-label="Modified" className="muted"><ModifiedStamp at={est.updated_at} /></td>
+                  <td data-label="Last activity" className="muted"><LastActivityCell a={est.updated_at ? { at: est.updated_at, by: null, label: est.client_id ? "Converted to client" : `Status: ${est.status}` } : undefined} me="" /></td>
                 </tr>
               ))}
               {!filtered.length && (

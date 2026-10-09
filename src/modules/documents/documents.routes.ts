@@ -349,7 +349,13 @@ const REQUEST_FILE_COLUMNS = `
   (SELECT COUNT(*) FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced'))::int AS file_count,
   (SELECT u.file_name FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_file_name,
   (SELECT u.file_url FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_file_url,
-  (SELECT u.upload_id FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_upload_id
+  (SELECT u.upload_id FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_upload_id,
+  (SELECT row_to_json(y) FROM (
+     SELECT * FROM (
+       SELECT 'File uploaded: ' || u.file_name AS label, u.uploaded_at AS at, u.uploaded_by AS by
+         FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced')
+       UNION ALL SELECT 'Status: ' || coalesce(r.status, 'Requested'), r.updated_at, NULL
+     ) x WHERE x.at IS NOT NULL ORDER BY x.at DESC LIMIT 1) y) AS last_activity
 `;
 
 documentsRouter.get("/requests", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {

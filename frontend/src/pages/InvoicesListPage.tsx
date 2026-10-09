@@ -1,4 +1,4 @@
-import { ModifiedStamp } from "../components/ModifiedStamp";
+import { LastActivityCell } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -480,7 +480,7 @@ export function InvoicesListPage() {
           <div className="table-scroll card-table">
           <table>
             <thead>
-              <tr><th scope="col">{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th scope="col">Client</th>}<th scope="col">{canManage ? "Date" : t("billing.client.colDate")}</th><th scope="col">{canManage ? "Due" : t("billing.client.colDue")}</th><th scope="col">{canManage ? "Description" : t("billing.client.colDescription")}</th><th scope="col">{canManage ? "Amount" : t("billing.client.colAmount")}</th><th scope="col">{canManage ? "Balance" : t("billing.client.colBalance")}</th><th scope="col">{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th scope="col">Modified</th>}{canManage && <th scope="col">Action</th>}</tr>
+              <tr><th scope="col">{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th scope="col">Client</th>}<th scope="col">{canManage ? "Date" : t("billing.client.colDate")}</th><th scope="col">{canManage ? "Due" : t("billing.client.colDue")}</th><th scope="col">{canManage ? "Description" : t("billing.client.colDescription")}</th><th scope="col">{canManage ? "Amount" : t("billing.client.colAmount")}</th><th scope="col">{canManage ? "Balance" : t("billing.client.colBalance")}</th><th scope="col">{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th scope="col">Last activity</th>}{canManage && <th scope="col">Action</th>}</tr>
             </thead>
             <tbody>
               {filteredInvoices.map((inv) => (
@@ -502,7 +502,7 @@ export function InvoicesListPage() {
                       </div>
                     )}
                   </td>
-                  {canManage && <td className="muted" data-label="Modified"><ModifiedStamp at={inv.updated_at} /></td>}
+                  {canManage && <td className="muted" data-label="Last activity"><LastActivityCell a={inv.last_activity ? { at: inv.last_activity.at, by: inv.last_activity.by, label: inv.last_activity.label } : undefined} me={(user?.email || "").toLowerCase()} fallbackAt={inv.updated_at} /></td>}
                   {canManage && (
                     <td data-label="" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu

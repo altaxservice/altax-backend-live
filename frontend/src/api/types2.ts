@@ -92,6 +92,7 @@ export interface Invoice {
   updated_at?: string | null;
   /** Delivery trail, present on the staff invoices list. */
   first_sent_at?: string | null;
+  last_activity?: { label: string; at: string; by: string | null } | null;
   first_viewed_at?: string | null;
   reminder_count?: number | null;
   terms?: string | null;
@@ -150,6 +151,7 @@ export interface DocumentRequest {
   client_name: string;
   employee_id?: string | null;
   requested_item: string;
+  last_activity?: { label: string; at: string; by: string | null } | null;
   updated_at?: string | null;
   request_date: string | null;
   due_from_client: string | null;
