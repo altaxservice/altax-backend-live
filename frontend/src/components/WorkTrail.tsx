@@ -169,7 +169,7 @@ interface PageActivityItem { at: string; by: string | null; label: string; clien
  * The strip at the top of a main page: the latest thing done on this page's records (by anyone), and the latest thing
  * you did here — so on coming back the first thing you see is where work stopped. Staff/admin pages only.
  */
-export function PageActivityBanner({ page }: { page: "clients" | "tasks" | "invoices" | "documents" | "estimates" | "communications" | "notes" }) {
+export function PageActivityBanner({ page }: { page: "clients" | "tasks" | "invoices" | "documents" | "estimates" | "communications" | "notes" | "rules" | "labels" | "calendar" | "permits" | "timetracking" | "users" }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const allowed = user?.role === "admin" || user?.role === "staff";

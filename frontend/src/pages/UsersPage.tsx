@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { EmployeeOption, PortalUser, WebOptions } from "../api/types2";
@@ -317,6 +318,7 @@ export function UsersPage() {
         onExportCsv={handleExport}
       />
 
+      <PageActivityBanner page="users" />
       {error && <ErrorBanner error={error} />}
 
       {inviteInfo && (

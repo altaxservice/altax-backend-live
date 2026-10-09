@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -339,6 +340,7 @@ export function TimeTrackingPage() {
 
   return (
     <div>
+      <PageActivityBanner page="timetracking" />
       <SelfClockButton onPunched={load} />
       {isAdmin && <ClockedInBoard />}
 

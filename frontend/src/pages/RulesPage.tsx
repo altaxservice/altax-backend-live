@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -125,6 +126,7 @@ export function RulesPage() {
         <h2>Task Rules</h2>
         <p>Use rules to create batch work for clients with the same service, frequency, and filing/payment requirements.</p>
       </div>
+      <PageActivityBanner page="rules" />
       {error && <ErrorBanner error={error} />}
 
       <TaskRulesAgentPanel onBatchCreated={load} />

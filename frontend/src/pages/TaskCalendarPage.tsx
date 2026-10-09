@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Clock, CalendarPlus } from "lucide-react";
@@ -429,6 +430,7 @@ export function TaskCalendarPage() {
         </div>
       </div>
 
+      <PageActivityBanner page="calendar" />
       {view === "Calendar" && (
         <>
           <LiveAppointmentClock />

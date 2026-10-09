@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -104,6 +105,7 @@ export function LabelsPage() {
 
   return (
     <div>
+      <PageActivityBanner page="labels" />
       <p className="muted" style={{ marginBottom: 16, maxWidth: 720 }}>
         Colored labels you can attach to Tasks and Clients — helpful for anything a status field doesn't cover
         (e.g. "VIP", "Needs Callback", "New Client"). Everyone shares this same list of label types, but which

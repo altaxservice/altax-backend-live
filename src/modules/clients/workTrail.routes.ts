@@ -73,7 +73,7 @@ export async function loadWorkTrail(clientId: string, limit = 25): Promise<Trail
     q(`SELECT channel, subject, status, sent_by, sent_at FROM altax.v3_communications WHERE client_id = $1 AND direction = 'Outbound' AND sent_at > ${since} AND sent_by NOT ILIKE 'System%' ORDER BY sent_at DESC LIMIT 12`),
     q(`SELECT file_name, direction, uploaded_by, uploaded_at FROM altax.v3_document_uploads WHERE client_id = $1 AND uploaded_at > ${since} AND lower(coalesce(status,'')) NOT IN ('removed','replaced') ORDER BY uploaded_at DESC LIMIT 12`),
     q(`SELECT invoice_id, status, total_amount, updated_at FROM altax.v3_invoices WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
-    q(`SELECT updated_at, updated_by FROM altax.v3_clients WHERE client_id = $1`),
+    q(`SELECT updated_at, updated_by, created_at FROM altax.v3_clients WHERE client_id = $1`),
     q(`SELECT form_type, status, signer_name, updated_at FROM altax.v3_gov_form_filings WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
     q(`SELECT title, status, updated_at FROM altax.v3_client_contracts WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
     q(`SELECT tax_year, return_type, status, updated_at FROM altax.v3_tax_returns WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
@@ -100,7 +100,7 @@ export async function loadWorkTrail(clientId: string, limit = 25): Promise<Trail
   for (const r of contracts) events.push({ at: iso(r.updated_at), by: null, kind: "contract", label: `Contract “${r.title}”`, detail: r.status || undefined, page: "client", tab: "Contracts" });
   for (const r of returns) events.push({ at: iso(r.updated_at), by: null, kind: "return", label: `${r.tax_year} ${r.return_type || "tax return"}`, detail: r.status || undefined, page: "client", tab: "Tax Return Production" });
   if (client[0]?.updated_at && new Date(client[0].updated_at).getTime() > Date.now() - 180 * 86400000) {
-    events.push({ at: iso(client[0].updated_at), by: client[0].updated_by || null, kind: "profile", label: "Client profile edited", page: "client", tab: "Profile" });
+    events.push({ at: iso(client[0].updated_at), by: client[0].updated_by || null, kind: "profile", label: client[0].created_at && new Date(client[0].updated_at).getTime() - new Date(client[0].created_at).getTime() < 120000 ? "New client created" : "Client profile edited", page: "client", tab: "Profile" });
   }
 
   events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
@@ -137,7 +137,7 @@ const CLIENT_EVENTS_SQL = `
        UNION ALL SELECT client_id, updated_at, NULL, 'Government form ' || form_type, status, 'client', 'Gov Forms' FROM altax.v3_gov_form_filings WHERE client_id IS NOT NULL
        UNION ALL SELECT client_id, updated_at, NULL, 'Contract: ' || title, status, 'client', 'Contracts' FROM altax.v3_client_contracts
        UNION ALL SELECT client_id, updated_at, NULL, tax_year::text || ' ' || coalesce(return_type, 'tax return'), status, 'client', 'Tax Return Production' FROM altax.v3_tax_returns
-       UNION ALL SELECT client_id, updated_at, updated_by, 'Profile edited', '', 'client', 'Profile' FROM altax.v3_clients
+       UNION ALL SELECT client_id, updated_at, updated_by, CASE WHEN created_at IS NOT NULL AND updated_at - created_at < interval '2 minutes' THEN 'New client created' ELSE 'Profile edited' END, '', 'client', 'Profile' FROM altax.v3_clients
 `;
 
 /**
@@ -198,15 +198,73 @@ const PAGE_ACTIVITY_SQL: Record<string, string> = {
     SELECT client_id, NULL::text AS client_name, updated_at AS at, author_email AS by, 'Note: ' || left(body, 60) AS label, '/notes' AS link FROM altax.v3_staff_notes`,
 };
 
+/**
+ * Pages whose activity also comes from the audit log — which records nearly everything staff do (creating a client,
+ * editing, deleting, sending, filing …). `where` selects that page's audit entries. System jobs and client self-service
+ * entries are left out: this strip is about work people did.
+ */
+const AUDIT_PAGES: Record<string, string> = {
+  clients: `(module IN ('Clients','Contracts','Haccp','Secure Vault') OR (module = 'Tools' AND (action ILIKE '%GOV_FORM%' OR action ILIKE '%POA%')) OR (module = 'Accounting' AND action NOT ILIKE 'CREATE_COA' AND action NOT ILIKE '%_COA'))`,
+  tasks: `(module = 'Tasks' OR (module = 'Communications' AND action IN ('TASK_NOTE','TASK_MESSAGE')))`,
+  invoices: `module = 'Billing'`,
+  documents: `module = 'Documents'`,
+  estimates: `(module = 'Tools' AND action ILIKE '%ESTIMATE%')`,
+  communications: `(module = 'Communications' AND action NOT IN ('DAILY_OPERATIONS_ALERT','STAFF_DAILY_ALERT','AUTO_REMINDERS','REMINDER_AUTOMATION_RUN','STAFF_TASK_NOTICE','STAFF_BATCH_TASK_NOTICE','PORTAL_NOTE_NOTICE'))`,
+  notes: `module = 'Notes'`,
+  rules: `module = 'Rules'`,
+  labels: `module = 'Labels'`,
+  calendar: `module = 'Calendar'`,
+  permits: `module = 'Haccp'`,
+  timetracking: `module = 'Time Tracking'`,
+  users: `(module IN ('Staff','Portal Users') OR (module = 'Security' AND action IN ('CLIENT_INVITE','RESEND_INVITE','RESET_INVITE','TEMP_PASSWORD')))`,
+};
+
+const ACTION_WORDS: Record<string, string> = {
+  CLIENT_CREATED: "New client created", CREATE: "Created", EDIT: "Edited", ARCHIVE: "Archived", HARD_DELETE: "Deleted", DELETE: "Deleted",
+  STATUS: "Status changed", BULK_COMPLETE: "Completed in bulk", BATCH_CREATE: "Batch of tasks created", UPLOAD: "File uploaded",
+  CREATE_APPOINTMENT: "Appointment created", UPDATE_APPOINTMENT: "Appointment changed", DELETE_APPOINTMENT: "Appointment deleted",
+  GENERATE: "Generated", REGENERATE: "Regenerated", SEND: "Sent", SIGN: "Signed", VOID: "Voided",
+};
+const NOUN_BY_MODULE: Record<string, string> = { Communications: "message", Calendar: "appointment", Billing: "invoice", Haccp: "health permit plan", Clients: "client", Tasks: "task", Documents: "document", Notes: "note", Rules: "rule", Labels: "label", Staff: "staff member", "Time Tracking": "time entry" };
+
+function humanize(action: string): string {
+  const t = action.toLowerCase().replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function auditLabel(r: { module: string; action: string; field: string | null; note: string | null }): string {
+  const base = ACTION_WORDS[r.action];
+  const noun = NOUN_BY_MODULE[r.module];
+  if (r.module === "Clients" && (r.action === "CREATE" || r.action === "CLIENT_CREATED")) return "New client created";
+  if (base && noun && ["CREATE", "EDIT", "ARCHIVE", "DELETE", "HARD_DELETE", "STATUS"].includes(r.action)) {
+    const verb = r.action === "CREATE" ? "created" : r.action === "EDIT" ? "edited" : r.action === "ARCHIVE" ? "archived" : r.action === "STATUS" ? "status changed" : "deleted";
+    return `${noun.charAt(0).toUpperCase() + noun.slice(1)} ${verb}${r.action === "EDIT" && r.field ? ` (${r.field})` : ""}`;
+  }
+  return base ? `${base}${r.field && r.action === "EDIT" ? ` (${r.field})` : ""}` : humanize(r.action);
+}
+
+function auditLink(recordId: string, action: string): string | null {
+  if (/DELETE|ARCHIVE/.test(action) || !recordId) return null;
+  if (/^C-\w+/.test(recordId)) return `/clients/${recordId}`;
+  if (/^T-/.test(recordId)) return `/tasks/${recordId}`;
+  if (/^INV-/.test(recordId)) return `/billing/${recordId}`;
+  if (/^EST-/.test(recordId)) return `/estimates/${recordId}`;
+  return null;
+}
+
 workTrailRouter.get("/page-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const page = String(req.query.page || "");
   const body = PAGE_ACTIVITY_SQL[page];
-  if (!body) return res.status(400).json({ error: "Unknown page." });
-  const sql = body.replace("${CLIENT_EVENTS_SQL}", CLIENT_EVENTS_SQL);
+  const auditWhere = AUDIT_PAGES[page];
+  if (!body && !auditWhere) return res.status(400).json({ error: "Unknown page." });
+  const sql = body ? body.replace("${CLIENT_EVENTS_SQL}", CLIENT_EVENTS_SQL) : "";
   const email = req.user!.email.toLowerCase();
   const isAdmin = req.user!.role === "admin";
   const aliases = isAdmin || page === "notes" ? [] : Array.from(await getUserAliases(req.user!.email));
-  const pick = async (mineOnly: boolean) => {
+
+  type Item = { at: string; by: string | null; label: string; clientId: string | null; clientName: string | null; link: string | null };
+  const fromData = async (mineOnly: boolean): Promise<Item | null> => {
+    if (!sql) return null;
     // Only the parameters the SQL actually references are sent (Postgres rejects extras).
     const params: any[] = [];
     const conds: string[] = ["at IS NOT NULL"];
@@ -219,8 +277,25 @@ workTrailRouter.get("/page-activity", requireAuth, requireRole("admin", "staff")
     const r = rows[0];
     return r ? { at: new Date(r.at).toISOString(), by: r.by, label: r.label, clientId: r.client_id, clientName: r.client_name, link: r.link } : null;
   };
-  const [latest, mine] = await Promise.all([pick(false), pick(true)]);
-  res.json({ latest, mine, me: email });
+  const fromAudit = async (mineOnly: boolean): Promise<Item | null> => {
+    if (!auditWhere) return null;
+    const params: any[] = [];
+    const conds = [auditWhere, `user_email NOT ILIKE 'system%'`, `user_email NOT IN ('Public Manage Link','Client','system')`];
+    // Staff see only their own audited actions (the audit log has no client link to scope by).
+    if (!isAdmin || mineOnly) { params.push(email); conds.push(`lower(user_email) = $${params.length}`); }
+    const rows = await query<any>(`SELECT module, action, record_id, field, note, user_email, created_at FROM altax.v3_audit_log WHERE ${conds.join(" AND ")} ORDER BY created_at DESC LIMIT 1`, params);
+    const r = rows[0];
+    if (!r) return null;
+    let clientName: string | null = null;
+    if (/^C-\w+/.test(r.record_id || "")) {
+      const c = await query<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [r.record_id]);
+      clientName = c[0]?.client_name || null;
+    }
+    return { at: new Date(r.created_at).toISOString(), by: r.user_email, label: auditLabel(r), clientId: /^C-\w+/.test(r.record_id || "") ? r.record_id : null, clientName, link: auditLink(r.record_id || "", r.action) };
+  };
+  const newest = (a: Item | null, b: Item | null) => (a && b ? (new Date(a.at) >= new Date(b.at) ? a : b) : a || b);
+  const [dLatest, aLatest, dMine, aMine] = await Promise.all([fromData(false), fromAudit(false), fromData(true), fromAudit(true)]);
+  res.json({ latest: newest(dLatest, aLatest), mine: newest(dMine, aMine), me: email });
 }));
 
 /** Latest activity per TASK (status change, task note, uploaded file, message) for the ids shown on the Tasks list. */
