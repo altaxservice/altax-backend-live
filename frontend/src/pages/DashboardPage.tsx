@@ -1,3 +1,4 @@
+import { PickUpWhereYouLeftOff } from "../components/WorkTrail";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
@@ -792,6 +793,7 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { clientId: activeBusinessId } = useSelectedBusiness();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -834,6 +836,12 @@ export function DashboardPage() {
   return (
     <>
       <SinceLastLoginBanner />
+      <PickUpWhereYouLeftOff
+        onOpen={(clientId, e) => {
+          if (e?.page === "accounting") navigate(`/accounting?client=${clientId}&tab=${encodeURIComponent(e.tab || "Sales")}`);
+          else navigate(`/clients/${clientId}${e?.tab ? `?tab=${encodeURIComponent(e.tab)}` : ""}`);
+        }}
+      />
       {user?.role === "staff"
         ? <StaffCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />
         : <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />}

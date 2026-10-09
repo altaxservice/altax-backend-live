@@ -1,3 +1,4 @@
+import { LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Download } from "lucide-react";
@@ -38,6 +39,7 @@ function fmtMoney(v: unknown): string {
 }
 
 export function AccountingPage() {
+  const { user } = useAuth();
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
   const [searchParams, setSearchParams] = useSearchParams();
   // ?tab=<name> lets other pages deep-link a specific tab — the Sales & Tax
@@ -58,6 +60,8 @@ export function AccountingPage() {
 
   const client = clients.find((c) => c.client_id === clientId);
   const needsClient = CLIENT_SCOPED_TABS.includes(tab);
+  const trailAllowed = user?.role === "admin" || user?.role === "staff";
+  const workTrail = useWorkTrail(trailAllowed && clientId ? clientId : undefined);
 
   // ?client= is allowed to win over the globally-selected client (see above),
   // but the sidebar ClientContextPanel reads only the global context — so a
@@ -130,6 +134,7 @@ export function AccountingPage() {
       </div>
 
       {needsClient && !clientId && <p className="muted">Pick a client above to work in their books.</p>}
+      {clientId && <LastDoneHere trail={workTrail} page="accounting" tab={tab} />}
       {tab === "Sales" && clientId && (
         <SalesTab clientId={clientId} clientState={client?.state} initialFrom={searchParams.get("from")} initialTo={searchParams.get("to")} />
       )}

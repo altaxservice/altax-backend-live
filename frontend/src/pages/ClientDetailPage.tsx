@@ -1,3 +1,4 @@
+import { WorkTrailCard, LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { ModifiedStamp } from "../components/ModifiedStamp";
 import { PermitTrackerSection } from "../components/PermitTrackerSection";
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
@@ -326,6 +327,8 @@ export function ClientDetailPage() {
   const notify = useNotify();
   const [searchParams, setSearchParams] = useSearchParams();
   const [client, setClient] = useState<Client | null>(null);
+  const canSeeStaffForTrail = user?.role === "admin" || user?.role === "staff";
+  const workTrail = useWorkTrail(canSeeStaffForTrail ? clientId : undefined);
   const [summary, setSummary] = useState<ClientSummary | null>(null);
   const [flags, setFlags] = useState<ClientFlag[] | null>(null);
   const [complianceScore, setComplianceScore] = useState<ClientComplianceScore | null>(null);
@@ -1058,6 +1061,15 @@ export function ClientDetailPage() {
         </form>
       ) : (
         <>
+          {canSeeStaffTabs && (
+            <WorkTrailCard
+              trail={workTrail}
+              onOpen={(e) => {
+                if (e.page === "accounting") navigate(`/accounting?client=${client.client_id}&tab=${encodeURIComponent(e.tab || "Sales")}`);
+                else if (e.tab) { setTab(e.tab as DetailTab); setSearchParams({ tab: e.tab }, { replace: true }); }
+              }}
+            />
+          )}
           <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
             {visibleTabs.map((t) => (
               <button
@@ -1089,6 +1101,7 @@ export function ClientDetailPage() {
             )}
           </div>
 
+          {canSeeStaffTabs && tab !== "At a Glance" && <LastDoneHere trail={workTrail} page="client" tab={tab} />}
           {tab === "At a Glance" && canSeeStaffTabs && (
             <ClientAtAGlance
               clientId={client.client_id}

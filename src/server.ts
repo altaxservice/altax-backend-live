@@ -14,6 +14,7 @@ import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.rou
 import { permitsRouter } from "./modules/clients/permits.routes";
 import { noticesRouter } from "./modules/clients/notices.routes";
 import { taxReturnsRouter } from "./modules/clients/taxReturns.routes";
+import { workTrailRouter } from "./modules/clients/workTrail.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
 import { usersRouter } from "./modules/users/users.routes";
@@ -339,6 +340,7 @@ app.use("/clients", ownershipTransferRouter);
 app.use("/clients", permitsRouter);
 app.use("/clients", noticesRouter);
 app.use("/clients", taxReturnsRouter);
+app.use("/clients", workTrailRouter);
 app.use("/clients", clientsRouter);
 app.use("/users", usersRouter);
 app.use("/kiosk", kioskRouter);
