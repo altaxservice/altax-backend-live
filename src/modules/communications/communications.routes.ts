@@ -206,6 +206,26 @@ function isClientVisibleCommunication(row: any, clientEmail: string): boolean {
  * comment). Any authenticated role may call this; access is enforced per-client via
  * canAccessClient (client role can only log against their own client).
  */
+/** How far back "you already sent this" looks. Long enough to catch a re-click or a colleague repeating the request, short enough that a genuine next-month reminder is never blocked. */
+const DUPLICATE_WINDOW_DAYS = 7;
+
+/**
+ * The most recent outbound message to this client on this channel with the same subject, inside the window — a
+ * delivered or logged one (a failed send doesn't count, so retrying after an error is never blocked). Monthly
+ * templates carry their period in the subject, so the same subject means the same request for the same period.
+ */
+async function findRecentDuplicate(clientId: string, channel: string, subject: string): Promise<{ sentAt: string; sentBy: string; status: string } | null> {
+  const row = await queryOne<any>(
+    `SELECT sent_at, sent_by, status FROM altax.v3_communications
+      WHERE client_id = $1 AND lower(channel) = lower($2) AND lower(btrim(subject)) = lower(btrim($3))
+        AND direction = 'Outbound' AND status IN ('Saved + Sent', 'Saved')
+        AND sent_at > now() - ($4 || ' days')::interval
+      ORDER BY sent_at DESC LIMIT 1`,
+    [clientId, channel, subject, String(DUPLICATE_WINDOW_DAYS)]
+  );
+  return row ? { sentAt: row.sent_at, sentBy: row.sent_by, status: row.status } : null;
+}
+
 communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const clientId = String(body.clientId || "").trim();
@@ -227,6 +247,28 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   const channel = String(body.channel || "Portal Note").trim();
   const direction = String(body.direction || "Outbound").trim();
   const isStaffOrAdmin = req.user!.role === "admin" || req.user!.role === "staff";
+
+  if (isStaffOrAdmin && direction === "Outbound") {
+    // An empty message used to go out as a blank email (the composer clears its text after each send while keeping
+    // the subject, so a second click re-sent the same subject with nothing in it).
+    const reportTemplate = REPORT_TEMPLATE_NAMES.has(String(body.templateName || "").trim());
+    if (!messageEnglish && !messageArabic && !body.attachment && !reportTemplate) {
+      return res.status(400).json({ error: "The message is empty — choose a template or type a message first." });
+    }
+    // The same request already sent (or logged) to this client on this channel recently: stop and say so, unless
+    // the caller confirmed they really want it again.
+    // Opt-in: only the Client Message composer asks for this check (other senders — reports, flag notices — may legitimately repeat).
+    if (body.checkDuplicate === true && body.allowDuplicate !== true) {
+      const dup = await findRecentDuplicate(client.client_id, channel, subject);
+      if (dup) {
+        const when = new Date(dup.sentAt).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" });
+        return res.status(409).json({
+          error: `You already sent "${subject}" to this client by ${channel} on ${when} ET (by ${dup.sentBy}). Send it again only if that is intended.`,
+          duplicate: true, channel, sentAt: dup.sentAt, sentBy: dup.sentBy,
+        });
+      }
+    }
+  }
   // The client/employee self-service composer (CommunicationsPage.tsx's
   // SelfMessages) only ever creates a Portal Note for the firm to review —
   // it never sets sendNow or a custom sentTo. Without this gate, though,
@@ -693,6 +735,14 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
         else if (!client.sms_allowed) skip = "Client has not opted in to SMS/WhatsApp.";
       } else {
         skip = `"${channel}" isn't supported for bulk send — use Portal Note individually if needed.`;
+      }
+
+      if (!skip && body.allowDuplicates !== true) {
+        const dup = await findRecentDuplicate(client.client_id, channel, subject);
+        if (dup) {
+          const when = new Date(dup.sentAt).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" });
+          skip = `Already sent by ${channel} on ${when} ET (by ${dup.sentBy}) — skipped to avoid a duplicate.`;
+        }
       }
 
       if (skip) {

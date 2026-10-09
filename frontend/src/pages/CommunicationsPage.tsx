@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm } from "../components/ConfirmProvider";
 import { exportCsv } from "../components/FilterBar";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -522,6 +523,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<BulkResult[] | null>(null);
@@ -602,7 +604,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         clientIds: Array.from(selected), subject, messageEnglish, messageArabic, channels, sendNow,
         templateName: templateName || undefined, periodStart: period.start, periodEnd: period.end,
         attachment: attachment ? await fileToAttachment(attachment) : undefined,
-        sensitiveAttachment,
+        sensitiveAttachment, allowDuplicates,
       });
       setResults(res.results);
       setMessageEnglish("");
@@ -627,7 +629,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         {error && <ErrorBanner error={error} />}
         {results && (
           <div className="card" style={{ marginBottom: 12, fontSize: 12, padding: 10 }}>
-            <div><strong>{sentCount}</strong> sent &middot; <strong>{skippedCount}</strong> skipped (no consent or contact info) &middot; <strong>{failedCount}</strong> failed</div>
+            <div><strong>{sentCount}</strong> sent &middot; <strong>{skippedCount}</strong> skipped (no consent, no contact info, or already sent) &middot; <strong>{failedCount}</strong> failed</div>
             <button type="button" className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => setShowDetails((s) => !s)}>
               {showDetails ? "Hide details" : "Show details"}
             </button>
@@ -720,7 +722,11 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
           </label>
         )}
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} options={BULK_CHANNELS} />
-        <p className="muted" style={{ fontSize: 11, margin: "4px 0 12px" }}>Save and Send attempts real delivery to every selected, opted-in client; Save and Close just logs the message.</p>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, margin: "4px 0" }}>
+          <input type="checkbox" checked={allowDuplicates} onChange={(e) => setAllowDuplicates(e.target.checked)} />
+          Send even if the same message already went to a client in the last 7 days
+        </label>
+        <p className="muted" style={{ fontSize: 11, margin: "4px 0 12px" }}>Save and Send attempts real delivery to every selected, opted-in client; Save and Close just logs the message. Clients who already received this exact message this week are skipped unless the box above is checked.</p>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="submit" data-action="close" className="btn" disabled={saving}>{saving ? "Saving…" : `Save and Close (${selected.size})`}</button>
           <button type="submit" data-action="send" className="btn btn-primary" disabled={saving}>{saving ? `Sending to ${selected.size}…` : `Save and Send (${selected.size})`}</button>
@@ -749,6 +755,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<{ channel: string; sent?: boolean; sendError?: string }[]>([]);
+  const confirmDialog = useConfirm();
   const [period, setPeriod] = useState(() => {
     const now = new Date();
     return {
@@ -756,6 +763,17 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
       end: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10),
     };
   });
+  // Messages already sent (or logged) to this client with the same subject in the last week — same rule the server
+  // enforces. Monthly templates carry their period in the subject, so a match means the same request for the same period.
+  const recentSame = useMemo(() => {
+    const key = subject.trim().toLowerCase();
+    if (!key) return [] as Communication[];
+    const cutoff = Date.now() - 7 * 86400000;
+    return messages.filter((m) =>
+      m.direction === "Outbound" && String(m.subject || "").trim().toLowerCase() === key
+      && (m.status === "Saved + Sent" || m.status === "Saved") && m.sent_at && new Date(m.sent_at).getTime() >= cutoff
+    );
+  }, [messages, subject]);
   const composeResize = useResizableWidth({ storageKey: "altax_comms_compose_width", defaultWidth: 560, min: 380, max: 900 });
   const historyResize = useResizableWidth({ storageKey: "altax_comms_history_width", defaultWidth: 480, min: 320, max: 900 });
 
@@ -809,6 +827,23 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
     const targetChannels = channelsOverride || channels;
     if (targetChannels.length === 0) { setError("Choose at least one channel."); return; }
     if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
+    if (!messageEnglish.trim() && !messageArabic.trim() && !attachment && !REPORT_TEMPLATE_NAMES.has(templateName)) {
+      setError("The message is empty — choose a template (or type a message) before sending. After each send the message box is cleared so the same text can't go out twice.");
+      return;
+    }
+    // Same request already sent on one of the chosen channels: show exactly what and when, and ask before repeating it.
+    const repeats = recentSame.filter((m) => targetChannels.some((c) => c.toLowerCase() === String(m.channel).toLowerCase()));
+    let allowDuplicate = false;
+    if (repeats.length > 0) {
+      const lines = repeats.slice(0, 6).map((m) => `• ${m.channel} — ${new Date(m.sent_at as string).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} by ${m.sent_by}`).join("\n");
+      const ok = await confirmDialog({
+        title: "You already sent this",
+        message: `"${subject}" was already ${sendNow ? "sent or logged" : "saved"} for this client:\n${lines}\n\nSend it again?`,
+        confirmLabel: "Send Again", danger: true,
+      });
+      if (!ok) return;
+      allowDuplicate = true;
+    }
     setSaving(true);
     setError(null);
     setResults([]);
@@ -823,7 +858,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
           // report templates when no file was manually chosen — see
           // generateAutoReportAttachment in communications.routes.ts.
           templateName: templateName || undefined, periodStart: period.start, periodEnd: period.end,
-          sensitiveAttachment,
+          sensitiveAttachment, checkDuplicate: true, allowDuplicate,
         });
         outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
       }
@@ -832,6 +867,9 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
       setMessageArabic("");
       setAttachment(null);
       setSensitiveAttachment(false);
+      // Back to a blank draft so the same request can't be re-sent by clicking again.
+      setTemplateName("");
+      setSubject("Client message");
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save this message.");
@@ -907,6 +945,15 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
 
           <div style={sectionHeadingStyle}>Content</div>
           <div className="field"><label htmlFor="cm-subject">Subject</label><input id="cm-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+          {recentSame.length > 0 && (
+            <div role="status" style={{ background: "var(--amber-soft)", color: "var(--amber)", border: "1px solid var(--amber)", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, margin: "-4px 0 12px" }}>
+              <strong>Already sent to this client in the last 7 days:</strong>
+              {recentSame.slice(0, 5).map((m) => (
+                <div key={m.communication_id}>{m.channel} — {new Date(m.sent_at as string).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} by {m.sent_by}{m.status === "Saved" ? " (saved only)" : ""}</div>
+              ))}
+              <div style={{ marginTop: 2 }}>Sending again will ask you to confirm.</div>
+            </div>
+          )}
           <div className="field"><label htmlFor="cm-message-english">English Message</label><textarea id="cm-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
           <div className="field"><label htmlFor="cm-message-arabic">Arabic Message</label><textarea id="cm-message-arabic" rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
 
