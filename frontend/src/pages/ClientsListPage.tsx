@@ -1,4 +1,4 @@
-import { LastActivityCell, useClientLastActivity } from "../components/WorkTrail";
+import { LastActivityCell, useClientLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
@@ -593,6 +593,7 @@ export function ClientsListPage() {
         </div>
       )}
 
+      <PageActivityBanner page="clients" />
       {error && <ErrorBanner error={error} />}
 
       {inviteInfo && (

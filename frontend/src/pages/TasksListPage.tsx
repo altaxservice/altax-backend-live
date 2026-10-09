@@ -1,4 +1,4 @@
-import { LastActivityCell, useTaskLastActivity } from "../components/WorkTrail";
+import { LastActivityCell, useTaskLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -665,6 +665,7 @@ export function TasksListPage() {
         </div>
       )}
 
+      <PageActivityBanner page="tasks" />
       {error && <ErrorBanner error={error} />}
 
       {!ready && <div className="spinner-wrap">Loading tasks…</div>}

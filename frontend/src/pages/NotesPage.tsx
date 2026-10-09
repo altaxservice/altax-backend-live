@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -207,6 +208,7 @@ export function NotesPage() {
           </button>
         </div>
 
+        <div style={{ padding: "12px 16px 0" }}><PageActivityBanner page="notes" /></div>
         {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
 
         {selected.size > 0 && (

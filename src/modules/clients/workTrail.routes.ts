@@ -121,20 +121,7 @@ async function touchVisit(email: string, clientId: string): Promise<string | nul
   return rows[0]?.prev_visit_at ? new Date(rows[0].prev_visit_at).toISOString() : null;
 }
 
-/**
- * The latest thing done on EVERY client the caller can see, in one query — for the Clients list's "Last activity"
- * column, so nobody has to open each client to find where work stopped. One UNION over the same sources loadWorkTrail
- * reads, newest row per client. Registered before the /:clientId routes.
- */
-workTrailRouter.get("/last-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const params: any[] = [];
-  let scope = "";
-  if (req.user!.role !== "admin") {
-    params.push(Array.from(await getUserAliases(req.user!.email)));
-    scope = `AND client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
-  }
-  const rows = await query<any>(
-    `SELECT DISTINCT ON (client_id) client_id, at, by, label, detail, page, tab FROM (
+const CLIENT_EVENTS_SQL = `
        SELECT client_id, created_at AS at, NULL::text AS by, 'Sales entered' AS label, 'for ' || to_char(sale_date, 'Mon FMDD, YYYY') AS detail, 'accounting' AS page, 'Sales' AS tab FROM altax.v3_sales_input
        UNION ALL SELECT client_id, created_at, NULL, 'Payroll recorded', 'pay date ' || to_char(pay_date, 'Mon FMDD, YYYY'), 'accounting', 'Payroll' FROM altax.v3_payroll_input
        UNION ALL SELECT client_id, filed_at, filed_by, 'MD sales tax filed', CASE WHEN paid_date IS NULL THEN 'payment not recorded yet' ELSE 'paid ' || to_char(paid_date, 'Mon FMDD') END, 'accounting', 'Sales' FROM altax.v3_md_filing_payments
@@ -151,7 +138,23 @@ workTrailRouter.get("/last-activity", requireAuth, requireRole("admin", "staff")
        UNION ALL SELECT client_id, updated_at, NULL, 'Contract: ' || title, status, 'client', 'Contracts' FROM altax.v3_client_contracts
        UNION ALL SELECT client_id, updated_at, NULL, tax_year::text || ' ' || coalesce(return_type, 'tax return'), status, 'client', 'Tax Return Production' FROM altax.v3_tax_returns
        UNION ALL SELECT client_id, updated_at, updated_by, 'Profile edited', '', 'client', 'Profile' FROM altax.v3_clients
-     ) a
+`;
+
+/**
+ * The latest thing done on EVERY client the caller can see, in one query — for the Clients list's "Last activity"
+ * column, so nobody has to open each client to find where work stopped. One UNION over the same sources loadWorkTrail
+ * reads, newest row per client. Registered before the /:clientId routes.
+ */
+workTrailRouter.get("/last-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params: any[] = [];
+  let scope = "";
+  if (req.user!.role !== "admin") {
+    params.push(Array.from(await getUserAliases(req.user!.email)));
+    scope = `AND client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
+  }
+  const rows = await query<any>(
+    `SELECT DISTINCT ON (client_id) client_id, at, by, label, detail, page, tab FROM (
+${CLIENT_EVENTS_SQL}     ) a
      WHERE at IS NOT NULL AND client_id IS NOT NULL ${scope}
      ORDER BY client_id, at DESC`,
     params
@@ -159,6 +162,65 @@ workTrailRouter.get("/last-activity", requireAuth, requireRole("admin", "staff")
   const out: Record<string, { at: string; by: string | null; label: string; detail: string; page: string; tab: string }> = {};
   for (const r of rows) out[r.client_id] = { at: new Date(r.at).toISOString(), by: r.by, label: r.label, detail: r.detail || "", page: r.page, tab: r.tab };
   res.json({ activity: out, me: req.user!.email.toLowerCase() });
+}));
+
+/**
+ * "Last activity" banner for the top of a main page: the latest thing done on that page's records by anyone, and the
+ * latest by the caller — so on returning to Tasks, Invoices, Documents, etc. the first thing visible is where work stopped.
+ * Staff only see activity on clients they work with (same assigned-task rule as the Clients list).
+ */
+const PAGE_ACTIVITY_SQL: Record<string, string> = {
+  clients: `
+    SELECT e.client_id, c.client_name, e.at, e.by, e.label || CASE WHEN e.detail <> '' THEN ' — ' || e.detail ELSE '' END AS label,
+           CASE WHEN e.page = 'accounting' THEN '/accounting?client=' || e.client_id || '&tab=' || e.tab ELSE '/clients/' || e.client_id END AS link
+      FROM (${"${CLIENT_EVENTS_SQL}"}) e JOIN altax.v3_clients c ON c.client_id = e.client_id`,
+  tasks: `
+    SELECT client_id, client_name, updated_at AS at, updated_by AS by, 'Task “' || task_name || '” → ' || coalesce(status, '—') AS label, '/tasks/' || task_id AS link FROM altax.v3_tasks
+    UNION ALL SELECT t.client_id, t.client_name, n.created_at, n.author_email, 'Note on task “' || t.task_name || '”', '/tasks/' || t.task_id FROM altax.v3_staff_notes n JOIN altax.v3_tasks t ON t.task_id = n.task_id
+    UNION ALL SELECT t.client_id, t.client_name, u.uploaded_at, u.uploaded_by, 'File on task “' || t.task_name || '”: ' || u.file_name, '/tasks/' || t.task_id FROM altax.v3_document_uploads u JOIN altax.v3_tasks t ON t.task_id = u.task_id WHERE lower(coalesce(u.status, '')) NOT IN ('removed','replaced')`,
+  invoices: `
+    SELECT i.client_id, c.client_name, p.payment_date::timestamptz AS at, NULL::text AS by, 'Payment of $' || trim(to_char(p.actual_amount, 'FM999,999,990.00')) || ' on ' || i.invoice_id AS label, '/billing/' || i.invoice_id AS link
+      FROM altax.v3_payments p JOIN altax.v3_invoices i ON i.invoice_id = p.invoice_id JOIN altax.v3_clients c ON c.client_id = i.client_id WHERE lower(coalesce(p.status, '')) NOT LIKE 'revers%'
+    UNION ALL SELECT i.client_id, c.client_name, e.occurred_at, e.actor, CASE e.event_type WHEN 'sent' THEN 'Invoice ' || i.invoice_id || ' sent by ' || coalesce(e.channel, 'email') WHEN 'viewed' THEN 'Invoice ' || i.invoice_id || ' opened by the client' ELSE 'Sending failed for ' || i.invoice_id END, '/billing/' || i.invoice_id
+      FROM altax.v3_invoice_events e JOIN altax.v3_invoices i ON i.invoice_id = e.invoice_id JOIN altax.v3_clients c ON c.client_id = i.client_id
+    UNION ALL SELECT i.client_id, c.client_name, i.updated_at, NULL, 'Invoice ' || i.invoice_id || ' ' || lower(coalesce(i.status, 'updated')), '/billing/' || i.invoice_id
+      FROM altax.v3_invoices i JOIN altax.v3_clients c ON c.client_id = i.client_id`,
+  documents: `
+    SELECT u.client_id, u.client_name, u.uploaded_at AS at, u.uploaded_by AS by, 'File uploaded: ' || u.file_name AS label, CASE WHEN u.request_id IS NOT NULL THEN '/documents/' || u.request_id ELSE '/documents' END AS link
+      FROM altax.v3_document_uploads u WHERE u.client_id IS NOT NULL AND lower(coalesce(u.status, '')) NOT IN ('removed','replaced')
+    UNION ALL SELECT r.client_id, r.client_name, r.updated_at, NULL, 'Request “' || r.requested_item || '” → ' || coalesce(r.status, 'Requested'), '/documents/' || r.request_id FROM altax.v3_document_requests r WHERE r.client_id IS NOT NULL`,
+  estimates: `
+    SELECT e.client_id, e.business_name AS client_name, e.updated_at AS at, NULL::text AS by, 'Estimate ' || e.estimate_number || ' · ' || coalesce(e.status, '') AS label, '/estimates/' || e.estimate_id AS link FROM altax.v3_estimates e`,
+  communications: `
+    SELECT client_id, client_name, sent_at AS at, sent_by AS by, channel || ': ' || subject || CASE WHEN status LIKE 'Saved +%' THEN ' (sent)' ELSE ' (logged)' END AS label, '/clients/' || client_id || '?tab=Communications' AS link
+      FROM altax.v3_communications WHERE direction = 'Outbound' AND sent_by NOT ILIKE 'System%'`,
+  notes: `
+    SELECT client_id, NULL::text AS client_name, updated_at AS at, author_email AS by, 'Note: ' || left(body, 60) AS label, '/notes' AS link FROM altax.v3_staff_notes`,
+};
+
+workTrailRouter.get("/page-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const page = String(req.query.page || "");
+  const body = PAGE_ACTIVITY_SQL[page];
+  if (!body) return res.status(400).json({ error: "Unknown page." });
+  const sql = body.replace("${CLIENT_EVENTS_SQL}", CLIENT_EVENTS_SQL);
+  const email = req.user!.email.toLowerCase();
+  const isAdmin = req.user!.role === "admin";
+  const aliases = isAdmin || page === "notes" ? [] : Array.from(await getUserAliases(req.user!.email));
+  const pick = async (mineOnly: boolean) => {
+    // Only the parameters the SQL actually references are sent (Postgres rejects extras).
+    const params: any[] = [];
+    const conds: string[] = ["at IS NOT NULL"];
+    if (!isAdmin) {
+      if (page === "notes") { params.push(email); conds.push(`lower(by) = $${params.length}`); }
+      else { params.push(aliases); conds.push(`client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($${params.length}::text[]))`); }
+    }
+    if (mineOnly && !(page === "notes" && !isAdmin)) { params.push(email); conds.push(`lower(by) = $${params.length}`); }
+    const rows = await query<any>(`SELECT at, by, label, client_id, client_name, link FROM (${sql}) a WHERE ${conds.join(" AND ")} ORDER BY at DESC LIMIT 1`, params);
+    const r = rows[0];
+    return r ? { at: new Date(r.at).toISOString(), by: r.by, label: r.label, clientId: r.client_id, clientName: r.client_name, link: r.link } : null;
+  };
+  const [latest, mine] = await Promise.all([pick(false), pick(true)]);
+  res.json({ latest, mine, me: email });
 }));
 
 /** Latest activity per TASK (status change, task note, uploaded file, message) for the ids shown on the Tasks list. */

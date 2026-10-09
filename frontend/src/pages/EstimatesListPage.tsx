@@ -1,4 +1,4 @@
-import { LastActivityCell } from "../components/WorkTrail";
+import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -87,6 +87,7 @@ export function EstimatesListPage() {
 
   return (
     <div>
+      <PageActivityBanner page="estimates" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>

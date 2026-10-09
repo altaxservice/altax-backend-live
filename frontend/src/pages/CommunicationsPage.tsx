@@ -1,3 +1,4 @@
+import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { RefreshCw, Download } from "lucide-react";
 import { api, ApiError } from "../api/client";
@@ -316,6 +317,7 @@ export function CommunicationsPage() {
         </p>
       )}
 
+      <PageActivityBanner page="communications" />
       {error && <ErrorBanner error={error} />}
 
       {comms === null && !error && <div className="spinner-wrap">Loading…</div>}

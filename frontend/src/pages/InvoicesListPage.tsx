@@ -1,4 +1,4 @@
-import { LastActivityCell } from "../components/WorkTrail";
+import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -401,6 +401,7 @@ export function InvoicesListPage() {
         />
       )}
 
+      <PageActivityBanner page="invoices" />
       {error && <ErrorBanner error={error} style={{ marginTop: 12 }} />}
 
       {canManage && (

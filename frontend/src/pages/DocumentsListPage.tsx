@@ -1,4 +1,4 @@
-import { LastActivityCell } from "../components/WorkTrail";
+import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
@@ -324,6 +324,7 @@ export function DocumentsListPage() {
         </div>
       )}
 
+      <PageActivityBanner page="documents" />
       {error && <ErrorBanner error={error} />}
 
       {canManage && ready && (

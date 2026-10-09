@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
@@ -158,6 +159,45 @@ export function LastActivityCell({ a, me, fallbackAt }: { a?: LastActivity; me: 
     <div title={`${new Date(a.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}${w ? ` · by ${w}` : ""}`}>
       <div className="cell-primary" style={{ fontSize: 12.5 }}>{a.label}</div>
       <div className="cell-sub">{[a.detail, w ? `by ${w}` : "", ago(a.at)].filter(Boolean).join(" · ")}</div>
+    </div>
+  );
+}
+
+interface PageActivityItem { at: string; by: string | null; label: string; clientId: string | null; clientName: string | null; link: string | null }
+
+/**
+ * The strip at the top of a main page: the latest thing done on this page's records (by anyone), and the latest thing
+ * you did here — so on coming back the first thing you see is where work stopped. Staff/admin pages only.
+ */
+export function PageActivityBanner({ page }: { page: "clients" | "tasks" | "invoices" | "documents" | "estimates" | "communications" | "notes" }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const allowed = user?.role === "admin" || user?.role === "staff";
+  const [data, setData] = useState<{ latest: PageActivityItem | null; mine: PageActivityItem | null; me: string } | null>(null);
+  useEffect(() => {
+    if (!allowed) return;
+    api.get<{ latest: PageActivityItem | null; mine: PageActivityItem | null; me: string }>(`/clients/page-activity?page=${page}`).then(setData).catch(() => {});
+  }, [page, allowed]);
+  if (!allowed || !data || (!data.latest && !data.mine)) return null;
+  const render = (title: string, a: PageActivityItem | null) => {
+    if (!a) return null;
+    const w = who(a.by, data.me);
+    return (
+      <div style={{ minWidth: 0 }}>
+        <span className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>{title}</span>
+        <div style={{ fontSize: 13 }}>
+          {a.link ? (
+            <button type="button" className="link-button" style={{ textAlign: "left", fontSize: 13, fontWeight: 600 }} onClick={() => navigate(a.link as string)}>{a.label}</button>
+          ) : <strong>{a.label}</strong>}
+          <span className="muted"> {a.clientName ? `· ${a.clientName} ` : ""}{w ? `· by ${w} ` : ""}· {ago(a.at)}</span>
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div className="card" style={{ margin: "0 0 14px", padding: "8px 14px", display: "flex", gap: 28, flexWrap: "wrap", alignItems: "flex-start" }} role="status" aria-label="Last activity on this page">
+      {render("Last activity on this page", data.latest)}
+      {data.mine && data.mine.at !== data.latest?.at && render("Your last", data.mine)}
     </div>
   );
 }
