@@ -1,4 +1,4 @@
-import { ModifiedStamp } from "../components/ModifiedStamp";
+import { LastActivityCell, useClientLastActivity } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
@@ -130,6 +130,7 @@ export function ClientsListPage() {
   const [industryFilter, setIndustryFilter] = useStickyState("clients.industry", "all");
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
+  const lastActivity = useClientLastActivity();
   const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1" || Boolean(prospectPrefillRef.current));
@@ -456,13 +457,13 @@ export function ClientsListPage() {
       return true;
     });
     rows = [...rows].sort((a, b) => {
-      const av = String(a[sortKey] || "").toLowerCase();
-      const bv = String(b[sortKey] || "").toLowerCase();
+      const av = String(sortKey === "updated_at" ? (lastActivity.activity[a.client_id]?.at || a.updated_at || "") : (a[sortKey] || "")).toLowerCase();
+      const bv = String(sortKey === "updated_at" ? (lastActivity.activity[b.client_id]?.at || b.updated_at || "") : (b[sortKey] || "")).toLowerCase();
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, stateFilter, industryFilter, clientLabels, quickTab, sortKey, sortDir]);
+  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, stateFilter, industryFilter, clientLabels, quickTab, sortKey, sortDir, lastActivity]);
 
   // Lets ClientDetailPage's Previous/Next paging step through whatever
   // filtered/sorted order is currently on screen — see utils/listNav.ts.
@@ -1199,7 +1200,7 @@ export function ClientsListPage() {
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("assigned_to")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("assigned_to"); } }}>Owner{sortArrow("assigned_to")}</th>
                 <th scope="col">Compliance</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("status")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("status"); } }}>Status{sortArrow("status")}</th>
-                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Modified{sortArrow("updated_at")}</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Last activity{sortArrow("updated_at")}</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
@@ -1255,7 +1256,7 @@ export function ClientsListPage() {
                         <div className="cell-sub">{c.portal_enabled ? "Portal on" : "No portal"}</div>
                       </div>
                     </td>
-                    <td className="muted" data-label="Modified"><ModifiedStamp at={c.updated_at} by={c.updated_by} /></td>
+                    <td className="muted" data-label="Last activity"><LastActivityCell a={lastActivity.activity[c.client_id]} me={lastActivity.me} fallbackAt={c.updated_at} /></td>
                     <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu options={actionOptions(c)} onSelect={(action) => handleAction(c, action)} />
                     </td>

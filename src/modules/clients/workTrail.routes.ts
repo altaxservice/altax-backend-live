@@ -9,7 +9,7 @@ import { Router, Response } from "express";
 import { query } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
-import { canAccessClient } from "../../common/assignment";
+import { canAccessClient, getUserAliases } from "../../common/assignment";
 
 export const workTrailRouter = Router();
 
@@ -58,7 +58,8 @@ function mergeBursts(events: TrailEvent[]): TrailEvent[] {
 
 export async function loadWorkTrail(clientId: string, limit = 25): Promise<TrailEvent[]> {
   const since = "now() - interval '180 days'";
-  const q = (sql: string) => query<any>(sql, [clientId]).catch(() => [] as any[]);
+  // One broken source must not hide the rest of the trail, but it must not fail silently either.
+  const q = (sql: string) => query<any>(sql, [clientId]).catch((err) => { console.error("[workTrail] source query failed:", err?.message); return [] as any[]; });
   const [sales, payroll, mdTax, withholding, ui, annual, f941, eftps, tasks, comms, docs, invoices, client, govForms, contracts, returns] = await Promise.all([
     q(`SELECT sale_date, gross_sales, created_at FROM altax.v3_sales_input WHERE client_id = $1 AND created_at > ${since} ORDER BY created_at DESC LIMIT 40`),
     q(`SELECT pay_date, employee, created_at FROM altax.v3_payroll_input WHERE client_id = $1 AND created_at > ${since} ORDER BY created_at DESC LIMIT 60`),
@@ -75,7 +76,7 @@ export async function loadWorkTrail(clientId: string, limit = 25): Promise<Trail
     q(`SELECT updated_at, updated_by FROM altax.v3_clients WHERE client_id = $1`),
     q(`SELECT form_type, status, signer_name, updated_at FROM altax.v3_gov_form_filings WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
     q(`SELECT title, status, updated_at FROM altax.v3_client_contracts WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
-    q(`SELECT tax_year, return_type, status, updated_at, updated_by FROM altax.v3_tax_returns WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
+    q(`SELECT tax_year, return_type, status, updated_at FROM altax.v3_tax_returns WHERE client_id = $1 AND updated_at > ${since} ORDER BY updated_at DESC LIMIT 8`),
   ]);
 
   const paidText = (paid: unknown, filed: unknown) => `filed ${shortDate(filed)} · ${paid ? `paid ${shortDate(paid)}` : "payment not recorded yet"}`;
@@ -97,7 +98,7 @@ export async function loadWorkTrail(clientId: string, limit = 25): Promise<Trail
   for (const r of invoices) events.push({ at: iso(r.updated_at), by: null, kind: "invoice", label: `Invoice ${r.invoice_id} · ${r.status}`, detail: usd(r.total_amount), page: "client", tab: "Billing" });
   for (const r of govForms) events.push({ at: iso(r.updated_at), by: null, kind: "form", label: `Government form ${r.form_type}`, detail: r.status || undefined, page: "client", tab: "Gov Forms" });
   for (const r of contracts) events.push({ at: iso(r.updated_at), by: null, kind: "contract", label: `Contract “${r.title}”`, detail: r.status || undefined, page: "client", tab: "Contracts" });
-  for (const r of returns) events.push({ at: iso(r.updated_at), by: r.updated_by, kind: "return", label: `${r.tax_year} ${r.return_type || "tax return"}`, detail: r.status || undefined, page: "client", tab: "Tax Return Production" });
+  for (const r of returns) events.push({ at: iso(r.updated_at), by: null, kind: "return", label: `${r.tax_year} ${r.return_type || "tax return"}`, detail: r.status || undefined, page: "client", tab: "Tax Return Production" });
   if (client[0]?.updated_at && new Date(client[0].updated_at).getTime() > Date.now() - 180 * 86400000) {
     events.push({ at: iso(client[0].updated_at), by: client[0].updated_by || null, kind: "profile", label: "Client profile edited", page: "client", tab: "Profile" });
   }
@@ -119,6 +120,64 @@ async function touchVisit(email: string, clientId: string): Promise<string | nul
   );
   return rows[0]?.prev_visit_at ? new Date(rows[0].prev_visit_at).toISOString() : null;
 }
+
+/**
+ * The latest thing done on EVERY client the caller can see, in one query — for the Clients list's "Last activity"
+ * column, so nobody has to open each client to find where work stopped. One UNION over the same sources loadWorkTrail
+ * reads, newest row per client. Registered before the /:clientId routes.
+ */
+workTrailRouter.get("/last-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params: any[] = [];
+  let scope = "";
+  if (req.user!.role !== "admin") {
+    params.push(Array.from(await getUserAliases(req.user!.email)));
+    scope = `AND client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
+  }
+  const rows = await query<any>(
+    `SELECT DISTINCT ON (client_id) client_id, at, by, label, detail, page, tab FROM (
+       SELECT client_id, created_at AS at, NULL::text AS by, 'Sales entered' AS label, 'for ' || to_char(sale_date, 'Mon FMDD, YYYY') AS detail, 'accounting' AS page, 'Sales' AS tab FROM altax.v3_sales_input
+       UNION ALL SELECT client_id, created_at, NULL, 'Payroll recorded', 'pay date ' || to_char(pay_date, 'Mon FMDD, YYYY'), 'accounting', 'Payroll' FROM altax.v3_payroll_input
+       UNION ALL SELECT client_id, filed_at, filed_by, 'MD sales tax filed', CASE WHEN paid_date IS NULL THEN 'payment not recorded yet' ELSE 'paid ' || to_char(paid_date, 'Mon FMDD') END, 'accounting', 'Sales' FROM altax.v3_md_filing_payments
+       UNION ALL SELECT client_id, filed_at, filed_by, state || ' withholding filed', CASE WHEN paid_date IS NULL THEN 'payment not recorded yet' ELSE 'paid ' || to_char(paid_date, 'Mon FMDD') END, 'accounting', 'Withholding' FROM altax.v3_withholding_filings
+       UNION ALL SELECT client_id, filed_at, filed_by, 'Unemployment (UI) filed', CASE WHEN paid_date IS NULL THEN 'payment not recorded yet' ELSE 'paid ' || to_char(paid_date, 'Mon FMDD') END, 'accounting', 'MD UI' FROM altax.v3_md_ui_filings
+       UNION ALL SELECT client_id, filed_at, filed_by, 'Annual report filed', CASE WHEN paid_date IS NULL THEN 'payment not recorded yet' ELSE 'paid ' || to_char(paid_date, 'Mon FMDD') END, 'accounting', 'Annual Report' FROM altax.v3_annual_report_filings
+       UNION ALL SELECT client_id, filed_at, filed_by, 'Form 941 filed', CASE WHEN paid_date IS NULL THEN 'payment not recorded yet' ELSE 'paid ' || to_char(paid_date, 'Mon FMDD') END, 'accounting', 'Form 941' FROM altax.v3_form941_filings
+       UNION ALL SELECT client_id, updated_at, created_by, 'EFTPS deposit', coalesce(status, ''), 'accounting', 'EFTPS Deposits' FROM altax.v3_eftps_deposits
+       UNION ALL SELECT client_id, updated_at, updated_by, 'Task: ' || task_name, status, 'client', 'Tasks' FROM altax.v3_tasks
+       UNION ALL SELECT client_id, sent_at, sent_by, 'Message: ' || subject, CASE WHEN status LIKE 'Saved +%' THEN 'sent' ELSE 'logged' END, 'client', 'Communications' FROM altax.v3_communications WHERE direction = 'Outbound' AND sent_by NOT ILIKE 'System%'
+       UNION ALL SELECT client_id, uploaded_at, uploaded_by, 'Document: ' || file_name, direction, 'client', 'Documents' FROM altax.v3_document_uploads WHERE lower(coalesce(status,'')) NOT IN ('removed','replaced') AND client_id IS NOT NULL
+       UNION ALL SELECT client_id, updated_at, NULL, 'Invoice ' || invoice_id, status, 'client', 'Billing' FROM altax.v3_invoices
+       UNION ALL SELECT client_id, updated_at, NULL, 'Government form ' || form_type, status, 'client', 'Gov Forms' FROM altax.v3_gov_form_filings WHERE client_id IS NOT NULL
+       UNION ALL SELECT client_id, updated_at, NULL, 'Contract: ' || title, status, 'client', 'Contracts' FROM altax.v3_client_contracts
+       UNION ALL SELECT client_id, updated_at, NULL, tax_year::text || ' ' || coalesce(return_type, 'tax return'), status, 'client', 'Tax Return Production' FROM altax.v3_tax_returns
+       UNION ALL SELECT client_id, updated_at, updated_by, 'Profile edited', '', 'client', 'Profile' FROM altax.v3_clients
+     ) a
+     WHERE at IS NOT NULL AND client_id IS NOT NULL ${scope}
+     ORDER BY client_id, at DESC`,
+    params
+  );
+  const out: Record<string, { at: string; by: string | null; label: string; detail: string; page: string; tab: string }> = {};
+  for (const r of rows) out[r.client_id] = { at: new Date(r.at).toISOString(), by: r.by, label: r.label, detail: r.detail || "", page: r.page, tab: r.tab };
+  res.json({ activity: out, me: req.user!.email.toLowerCase() });
+}));
+
+/** Latest activity per TASK (status change, task note, uploaded file, message) for the ids shown on the Tasks list. */
+workTrailRouter.get("/task-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ids = String(req.query.ids || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 300);
+  if (ids.length === 0) return res.json({ activity: {}, me: req.user!.email.toLowerCase() });
+  const rows = await query<any>(
+    `SELECT DISTINCT ON (task_id) task_id, at, by, label FROM (
+       SELECT task_id, updated_at AS at, updated_by AS by, 'Status: ' || coalesce(status, '—') AS label FROM altax.v3_tasks WHERE task_id = ANY($1::text[])
+       UNION ALL SELECT task_id, created_at, author_name, 'Note added' FROM altax.v3_staff_notes WHERE task_id = ANY($1::text[])
+       UNION ALL SELECT task_id, uploaded_at, uploaded_by, 'File: ' || file_name FROM altax.v3_document_uploads WHERE task_id = ANY($1::text[]) AND lower(coalesce(status,'')) NOT IN ('removed','replaced')
+       UNION ALL SELECT related_task_id, sent_at, sent_by, 'Message: ' || subject FROM altax.v3_communications WHERE related_task_id = ANY($1::text[]) AND direction = 'Outbound'
+     ) a WHERE at IS NOT NULL ORDER BY task_id, at DESC`,
+    [ids]
+  );
+  const out: Record<string, { at: string; by: string | null; label: string }> = {};
+  for (const r of rows) out[r.task_id] = { at: new Date(r.at).toISOString(), by: r.by, label: r.label };
+  res.json({ activity: out, me: req.user!.email.toLowerCase() });
+}));
 
 /** The clients this person worked on most recently, each with what was last done there — the Command Center's "pick up where you left off". Registered before /:clientId/... routes. */
 workTrailRouter.get("/recent-work", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

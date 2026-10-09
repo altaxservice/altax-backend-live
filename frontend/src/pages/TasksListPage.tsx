@@ -1,4 +1,4 @@
-import { ModifiedStamp } from "../components/ModifiedStamp";
+import { LastActivityCell, useTaskLastActivity } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -301,6 +301,8 @@ export function TasksListPage() {
   }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, period.start, period.end, taskLabels, search, sortKey, sortDir, isArchivedView]);
 
   const visibleRows: Task[] = isLiveTab(quickTab) ? (pageTasks || []) : historyFiltered;
+  // Latest activity (status change, note, file, message) for just the rows on screen.
+  const taskActivity = useTaskLastActivity(useMemo(() => visibleRows.slice(0, 300).map((t) => t.task_id), [visibleRows]));
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   // Lets TaskDetailPage's Previous/Next paging step through whatever
@@ -701,7 +703,7 @@ export function TasksListPage() {
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("agency_due_date")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("agency_due_date"); } }}>Due{sortArrow("agency_due_date")}</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("assigned_to")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("assigned_to"); } }}>Owner{sortArrow("assigned_to")}</th>
                 <th scope="col">Status</th>
-                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Modified{sortArrow("updated_at")}</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Last activity{sortArrow("updated_at")}</th>
                 {isArchivedView && <th scope="col">Archived</th>}
                 <th scope="col">Action</th>
               </tr>
@@ -778,7 +780,7 @@ export function TasksListPage() {
                       </select>
                     ) : <StatusBadge status={t.status} />}
                   </td>
-                  <td className="muted" data-label="Modified"><ModifiedStamp at={t.updated_at} by={t.updated_by} /></td>
+                  <td className="muted" data-label="Last activity"><LastActivityCell a={taskActivity.activity[t.task_id]} me={taskActivity.me} fallbackAt={t.updated_at} /></td>
                   {isArchivedView && <td className="muted" data-label="Archived">{t.archived_at ? new Date(String(t.archived_at)).toLocaleDateString() : "—"}</td>}
                   {/* Files folded in here rather than owning a column of its own —
                       most rows have no attachment, so a whole column was spent

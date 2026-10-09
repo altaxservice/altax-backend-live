@@ -122,3 +122,42 @@ export function PickUpWhereYouLeftOff({ onOpen }: { onOpen: (clientId: string, e
     </div>
   );
 }
+
+export interface LastActivity { at: string; by: string | null; label: string; detail?: string; page?: "client" | "accounting"; tab?: string }
+
+/** Loads the latest activity of every client the caller can see (one request), keyed by client id. */
+export function useClientLastActivity(): { activity: Record<string, LastActivity>; me: string } {
+  const [state, setState] = useState<{ activity: Record<string, LastActivity>; me: string }>({ activity: {}, me: "" });
+  useEffect(() => {
+    api.get<{ activity: Record<string, LastActivity>; me: string }>("/clients/last-activity").then(setState).catch(() => {});
+  }, []);
+  return state;
+}
+
+/** Loads the latest activity of each task id shown on the page. */
+export function useTaskLastActivity(taskIds: string[]): { activity: Record<string, LastActivity>; me: string } {
+  const [state, setState] = useState<{ activity: Record<string, LastActivity>; me: string }>({ activity: {}, me: "" });
+  const key = taskIds.join(",");
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    api.get<{ activity: Record<string, LastActivity>; me: string }>(`/clients/task-activity?ids=${encodeURIComponent(key)}`).then((r) => { if (live) setState(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [key]);
+  return state;
+}
+
+/** Table cell: what was last done, by whom and when — so the list itself shows where work stopped. */
+export function LastActivityCell({ a, me, fallbackAt }: { a?: LastActivity; me: string; fallbackAt?: unknown }) {
+  if (!a) {
+    if (!fallbackAt) return <span className="muted">—</span>;
+    return <span className="muted">{new Date(fallbackAt as string).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>;
+  }
+  const w = who(a.by, me);
+  return (
+    <div title={`${new Date(a.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}${w ? ` · by ${w}` : ""}`}>
+      <div className="cell-primary" style={{ fontSize: 12.5 }}>{a.label}</div>
+      <div className="cell-sub">{[a.detail, w ? `by ${w}` : "", ago(a.at)].filter(Boolean).join(" · ")}</div>
+    </div>
+  );
+}
