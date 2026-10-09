@@ -736,7 +736,19 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   );
 }
 
+/** Channels a client message can actually be delivered on. Phone and Portal Note are log-only and live in the separate "Log a call or note" card. */
+const SEND_CHANNELS = ["Email", "SMS"];
+
+/**
+ * Two separate actions, each in its own card that stays closed until asked for:
+ *  - "Send a message" delivers a templated/typed message by Email or SMS. After a successful send the card closes and a
+ *    result banner stays on screen, so it is obvious the message went out and the same text can't be sent twice by accident.
+ *  - "Log a call or note" only records something in the client's history (a phone call, or a note shown in their portal).
+ *    Nothing is delivered.
+ */
 export function ClientMessages({ client, messages, onSent }: { client: Client; messages: Communication[]; onSent: () => void }) {
+  const confirmDialog = useConfirm();
+  const [mode, setMode] = useState<null | "send" | "log">(null);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [templateName, setTemplateName] = useState("");
   const [subject, setSubject] = useState("Client message");
@@ -746,16 +758,18 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
   const [phone, setPhone] = useState(client.phone || "");
   // Businesses with more than one owner/contact carry a second email/phone
   // (company_contact_email/phone, shown as "Owner Email/Phone" on the client
-  // profile) — previously only used by a few PDF/tax-form flows, never by an
-  // actual send. This lets staff pick it as the send target instead of only
+  // profile) — this lets staff pick it as the send target instead of only
   // ever reaching the primary contact on file.
   const [sendToEmail, setSendToEmail] = useState(client.email || "");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<{ channel: string; sent?: boolean; sendError?: string }[]>([]);
-  const confirmDialog = useConfirm();
+  // Outcome of the last send/log, shown above the history after its card closes, until dismissed or replaced.
+  const [lastOutcome, setLastOutcome] = useState<{ kind: "send" | "log"; at: Date; subject: string; results: { channel: string; sent?: boolean; sendError?: string }[] } | null>(null);
+  const [logChannel, setLogChannel] = useState<"Phone" | "Portal Note">("Phone");
+  const [logSubject, setLogSubject] = useState("");
+  const [logMessage, setLogMessage] = useState("");
   const [period, setPeriod] = useState(() => {
     const now = new Date();
     return {
@@ -798,6 +812,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
       setMessageArabic(handoff.bodyArabic || "");
       setPeriod({ start: handoff.periodStart, end: handoff.periodEnd });
       setTemplateName("Client Tax and Payroll Update");
+      setMode("send");
     } catch {
       // Malformed stash — ignore and leave the composer at its defaults.
     }
@@ -823,22 +838,27 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
     setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
 
-  async function send(sendNow: boolean, channelsOverride?: string[]) {
-    const targetChannels = channelsOverride || channels;
-    if (targetChannels.length === 0) { setError("Choose at least one channel."); return; }
+  function openCard(next: "send" | "log") {
+    setError(null);
+    setMode(next);
+  }
+
+  async function handleSend(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (channels.length === 0) { setError("Choose at least one channel."); return; }
     if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
     if (!messageEnglish.trim() && !messageArabic.trim() && !attachment && !REPORT_TEMPLATE_NAMES.has(templateName)) {
-      setError("The message is empty — choose a template (or type a message) before sending. After each send the message box is cleared so the same text can't go out twice.");
+      setError("The message is empty — choose a template (or type a message) before sending.");
       return;
     }
     // Same request already sent on one of the chosen channels: show exactly what and when, and ask before repeating it.
-    const repeats = recentSame.filter((m) => targetChannels.some((c) => c.toLowerCase() === String(m.channel).toLowerCase()));
+    const repeats = recentSame.filter((m) => channels.some((c) => c.toLowerCase() === String(m.channel).toLowerCase()));
     let allowDuplicate = false;
     if (repeats.length > 0) {
       const lines = repeats.slice(0, 6).map((m) => `• ${m.channel} — ${new Date(m.sent_at as string).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} by ${m.sent_by}`).join("\n");
       const ok = await confirmDialog({
         title: "You already sent this",
-        message: `"${subject}" was already ${sendNow ? "sent or logged" : "saved"} for this client:\n${lines}\n\nSend it again?`,
+        message: `"${subject}" was already sent for this client:\n${lines}\n\nSend it again?`,
         confirmLabel: "Send Again", danger: true,
       });
       if (!ok) return;
@@ -846,14 +866,13 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
     }
     setSaving(true);
     setError(null);
-    setResults([]);
     try {
       const attachmentPayload = attachment ? await fileToAttachment(attachment) : undefined;
       const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
-      for (const channel of targetChannels) {
-        const sentTo = ["SMS", "WhatsApp", "Phone"].includes(channel) ? (phone || undefined) : (sendToEmail || undefined);
+      for (const channel of channels) {
+        const sentTo = channel === "SMS" ? (phone || undefined) : (sendToEmail || undefined);
         const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
-          clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: channel === "Portal Note" ? false : sendNow, attachment: attachmentPayload,
+          clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: true, attachment: attachmentPayload,
           // Lets the backend auto-generate and attach the real PDF for the three
           // report templates when no file was manually chosen — see
           // generateAutoReportAttachment in communications.routes.ts.
@@ -862,127 +881,211 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
         });
         outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
       }
-      setResults(outcomes);
+      setLastOutcome({ kind: "send", at: new Date(), subject, results: outcomes });
+      // Close the card and go back to a blank draft: the result banner now shows what went out, and the same
+      // request can't be re-sent by clicking again.
       setMessageEnglish("");
       setMessageArabic("");
       setAttachment(null);
       setSensitiveAttachment(false);
-      // Back to a blank draft so the same request can't be re-sent by clicking again.
       setTemplateName("");
       setSubject("Client message");
+      setMode(null);
       onSent();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not save this message.");
+      setError(err instanceof ApiError ? err.message : "Could not send this message.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleLog(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const action = submitAction(e);
-    if (action === "portal-note") await send(false, ["Portal Note"]);
-    else await send(action !== "close");
+    if (!logMessage.trim()) { setError("Write what happened (or the note) before saving."); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const subjectToSave = logSubject.trim() || (logChannel === "Phone" ? "Phone call" : "Portal note");
+      await api.post("/communications", {
+        clientId: client.client_id, subject: subjectToSave, channel: logChannel, messageEnglish: logMessage, messageArabic: "",
+        sentTo: logChannel === "Phone" ? (phone || undefined) : undefined, sendNow: false,
+      });
+      setLastOutcome({ kind: "log", at: new Date(), subject: subjectToSave, results: [{ channel: logChannel }] });
+      setLogSubject("");
+      setLogMessage("");
+      setMode(null);
+      onSent();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this entry.");
+    } finally {
+      setSaving(false);
+    }
   }
 
+  const smsOk = Boolean(client.sms_allowed && client.phone);
+
   return (
-    <div className="compose-split" style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
-      <Panel
-        title="Send / Save Client Message" note={sendToEmail || undefined}
-        resize={{ width: composeResize.width, resizing: composeResize.resizing, onResizeStart: composeResize.startResize }}
-      >
-        <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
-          {error && <ErrorBanner error={error} />}
-          <SendResults results={results} />
-          <div style={sectionHeadingStyle}>Message</div>
-          <div className="field">
-            <label htmlFor="cm-template">Template</label>
-            <select id="cm-template" value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
-              <option value="">Custom</option>
-              <TemplateOptions templates={templates} />
-            </select>
-          </div>
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="cm-period-start">Period Start</label>
-              <input id="cm-period-start" type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
-            </div>
-            <div className="field">
-              <label htmlFor="cm-period-end">Period End</label>
-              <input id="cm-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
-            </div>
-          </div>
-          <button
-            type="button" className="link-button" style={{ fontSize: 12, margin: "-6px 0 12px" }}
-            onClick={() => { const next = thisQuarterRange(); setPeriod(next); if (templateName) applyTemplate(templateName, next); }}
-          >
-            Use this quarter
-          </button>
+    <div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+        <button type="button" className="btn btn-primary" disabled={mode === "send"} onClick={() => openCard("send")}>Send a message</button>
+        <button type="button" className="btn" disabled={mode === "log"} onClick={() => openCard("log")}>Log a call or note</button>
+        <span className="muted" style={{ fontSize: 12 }}>Sending delivers an email or text. Logging only records it in the history — nothing is delivered.</span>
+      </div>
 
-          <div style={sectionHeadingStyle}>Recipient</div>
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="cm-send-to">Send To (Email)</label>
-              {client.company_contact_email ? (
-                <select id="cm-send-to" value={sendToEmail} onChange={(e) => setSendToEmail(e.target.value)}>
-                  {client.email && <option value={client.email}>{client.email} (primary)</option>}
-                  <option value={client.company_contact_email}>{client.company_contact_email} ({client.company_contact_name || "Owner"})</option>
-                </select>
-              ) : (
-                <input id="cm-send-to" value={sendToEmail} readOnly />
-              )}
-            </div>
-            <div className="field">
-              <label htmlFor="cm-phone">Phone Number <span className="muted">(for SMS/WhatsApp/Phone)</span></label>
-              <input id="cm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" />
-              {client.company_contact_phone && client.company_contact_phone !== phone && (
-                <button type="button" className="link-button" style={{ fontSize: 12, marginTop: 4 }} onClick={() => setPhone(client.company_contact_phone || "")}>
-                  Use {client.company_contact_name || "owner"}'s phone ({client.company_contact_phone})
-                </button>
-              )}
-            </div>
+      {lastOutcome && (
+        <div role="status" className="card" style={{ marginBottom: 14, borderLeft: "4px solid var(--green)", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ fontSize: 13 }}>
+            <strong>{lastOutcome.kind === "send" ? "Message sent" : "Saved to history"}</strong>
+            <span className="muted"> — “{lastOutcome.subject}” · {lastOutcome.at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+            {lastOutcome.kind === "send" && lastOutcome.results.map((r, i) => (
+              <div key={i}>
+                <strong>{r.channel}:</strong>{" "}
+                {r.sent ? <span style={{ color: "var(--green)" }}>Sent.</span>
+                  : r.sendError ? <span style={{ color: "var(--red)" }}>Saved, not sent — {r.sendError}</span>
+                  : <span className="muted">Saved to history.</span>}
+              </div>
+            ))}
+            {lastOutcome.kind === "log" && <div>{lastOutcome.results[0].channel} entry recorded. Nothing was delivered.</div>}
           </div>
-
-          <div style={sectionHeadingStyle}>Content</div>
-          <div className="field"><label htmlFor="cm-subject">Subject</label><input id="cm-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-          {recentSame.length > 0 && (
-            <div role="status" style={{ background: "var(--amber-soft)", color: "var(--amber)", border: "1px solid var(--amber)", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, margin: "-4px 0 12px" }}>
-              <strong>Already sent to this client in the last 7 days:</strong>
-              {recentSame.slice(0, 5).map((m) => (
-                <div key={m.communication_id}>{m.channel} — {new Date(m.sent_at as string).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} by {m.sent_by}{m.status === "Saved" ? " (saved only)" : ""}</div>
-              ))}
-              <div style={{ marginTop: 2 }}>Sending again will ask you to confirm.</div>
-            </div>
-          )}
-          <div className="field"><label htmlFor="cm-message-english">English Message</label><textarea id="cm-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
-          <div className="field"><label htmlFor="cm-message-arabic">Arabic Message</label><textarea id="cm-message-arabic" rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
-
-          <div style={sectionHeadingStyle}>Delivery</div>
-          <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
-          {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
-              <input type="checkbox" checked={sensitiveAttachment} onChange={(e) => setSensitiveAttachment(e.target.checked)} />
-              Sensitive document — on SMS/WhatsApp, only offer the client-portal login, not a direct download link
-            </label>
-          )}
-          <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
-          <p className="muted" style={{ fontSize: 11, margin: "4px 0 12px" }}>Save and Send attempts real delivery on Email; Phone and Portal Note always just save a log entry either way.</p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="submit" data-action="close" className="btn" disabled={saving}>{saving ? "Saving…" : "Save and Close"}</button>
-            <button type="submit" data-action="send" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Save and Send"}</button>
-            <button type="submit" data-action="portal-note" className="btn" disabled={saving}>Save Portal Note Only</button>
-          </div>
-        </form>
-      </Panel>
-      <Panel
-        title="History" note={`${messages.length} messages`}
-        resize={{ width: historyResize.width, resizing: historyResize.resizing, onResizeStart: historyResize.startResize }}
-      >
-        {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No messages for this client yet.</p>}
-        <div className="scroll-list" style={{ padding: messages.length ? "0 16px 16px" : 0 }}>
-          {messages.map((m) => <CommunicationCard key={m.communication_id} c={m} />)}
+          <button type="button" className="btn btn-sm" onClick={() => setLastOutcome(null)}>Dismiss</button>
         </div>
-      </Panel>
+      )}
+
+      <div className="compose-split" style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+        {mode === "send" && (
+          <Panel
+            title="Send a message" note={sendToEmail || undefined}
+            action={<button type="button" className="btn btn-sm" onClick={() => setMode(null)}>Close</button>}
+            resize={{ width: composeResize.width, resizing: composeResize.resizing, onResizeStart: composeResize.startResize }}
+          >
+            <form onSubmit={handleSend} style={{ padding: "0 16px 16px" }}>
+              {error && <ErrorBanner error={error} />}
+              <div style={sectionHeadingStyle}>Message</div>
+              <div className="field">
+                <label htmlFor="cm-template">Template</label>
+                <select id="cm-template" value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
+                  <option value="">Custom</option>
+                  <TemplateOptions templates={templates} />
+                </select>
+              </div>
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="cm-period-start">Period Start</label>
+                  <input id="cm-period-start" type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+                </div>
+                <div className="field">
+                  <label htmlFor="cm-period-end">Period End</label>
+                  <input id="cm-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+                </div>
+              </div>
+              <button
+                type="button" className="link-button" style={{ fontSize: 12, margin: "-6px 0 12px" }}
+                onClick={() => { const next = thisQuarterRange(); setPeriod(next); if (templateName) applyTemplate(templateName, next); }}
+              >
+                Use this quarter
+              </button>
+
+              <div style={sectionHeadingStyle}>Recipient</div>
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="cm-send-to">Send To (Email)</label>
+                  {client.company_contact_email ? (
+                    <select id="cm-send-to" value={sendToEmail} onChange={(e) => setSendToEmail(e.target.value)}>
+                      {client.email && <option value={client.email}>{client.email} (primary)</option>}
+                      <option value={client.company_contact_email}>{client.company_contact_email} ({client.company_contact_name || "Owner"})</option>
+                    </select>
+                  ) : (
+                    <input id="cm-send-to" value={sendToEmail} readOnly />
+                  )}
+                </div>
+                <div className="field">
+                  <label htmlFor="cm-phone">Phone Number <span className="muted">(for SMS)</span></label>
+                  <input id="cm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" />
+                  {client.company_contact_phone && client.company_contact_phone !== phone && (
+                    <button type="button" className="link-button" style={{ fontSize: 12, marginTop: 4 }} onClick={() => setPhone(client.company_contact_phone || "")}>
+                      Use {client.company_contact_name || "owner"}'s phone ({client.company_contact_phone})
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div style={sectionHeadingStyle}>Content</div>
+              <div className="field"><label htmlFor="cm-subject">Subject</label><input id="cm-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+              {recentSame.length > 0 && (
+                <div role="status" style={{ background: "var(--amber-soft)", color: "var(--amber)", border: "1px solid var(--amber)", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, margin: "-4px 0 12px" }}>
+                  <strong>Already sent to this client in the last 7 days:</strong>
+                  {recentSame.slice(0, 5).map((m) => (
+                    <div key={m.communication_id}>{m.channel} — {new Date(m.sent_at as string).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} by {m.sent_by}{m.status === "Saved" ? " (saved only)" : ""}</div>
+                  ))}
+                  <div style={{ marginTop: 2 }}>Sending again will ask you to confirm.</div>
+                </div>
+              )}
+              <div className="field"><label htmlFor="cm-message-english">English Message</label><textarea id="cm-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
+              <div className="field"><label htmlFor="cm-message-arabic">Arabic Message</label><textarea id="cm-message-arabic" rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+
+              <div style={sectionHeadingStyle}>Delivery</div>
+              <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
+              {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
+                  <input type="checkbox" checked={sensitiveAttachment} onChange={(e) => setSensitiveAttachment(e.target.checked)} />
+                  Sensitive document — on SMS, only offer the client-portal login, not a direct download link
+                </label>
+              )}
+              <div className="field">
+                <label>Send by</label>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
+                  {SEND_CHANNELS.map((c) => (
+                    <label key={c} style={{ display: "flex", alignItems: "center", gap: 6, opacity: c === "SMS" && !smsOk ? 0.55 : 1 }}>
+                      <input type="checkbox" checked={channels.includes(c)} disabled={c === "SMS" && !smsOk} onChange={() => toggleChannel(c)} />
+                      {c === "SMS" ? "Text message (SMS)" : c}
+                    </label>
+                  ))}
+                </div>
+                {!smsOk && <span className="muted" style={{ fontSize: 11.5 }}>Text messages are off: this client has not agreed to texts or has no phone number.</span>}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send"}</button>
+                <button type="button" className="btn" disabled={saving} onClick={() => setMode(null)}>Cancel</button>
+              </div>
+            </form>
+          </Panel>
+        )}
+
+        {mode === "log" && (
+          <Panel
+            title="Log a call or note" note="Recorded in the history only — nothing is sent"
+            action={<button type="button" className="btn btn-sm" onClick={() => setMode(null)}>Close</button>}
+            resize={{ width: composeResize.width, resizing: composeResize.resizing, onResizeStart: composeResize.startResize }}
+          >
+            <form onSubmit={handleLog} style={{ padding: "0 16px 16px" }}>
+              {error && <ErrorBanner error={error} />}
+              <div className="field">
+                <label htmlFor="cm-log-channel">What are you recording?</label>
+                <select id="cm-log-channel" value={logChannel} onChange={(e) => setLogChannel(e.target.value === "Portal Note" ? "Portal Note" : "Phone")}>
+                  <option value="Phone">A phone call with the client</option>
+                  <option value="Portal Note">A note the client sees in their portal</option>
+                </select>
+              </div>
+              <div className="field"><label htmlFor="cm-log-subject">Subject <span className="muted">(optional)</span></label><input id="cm-log-subject" value={logSubject} onChange={(e) => setLogSubject(e.target.value)} placeholder={logChannel === "Phone" ? "e.g. Called about September sales" : "e.g. Your documents were received"} /></div>
+              <div className="field"><label htmlFor="cm-log-message">{logChannel === "Phone" ? "What was discussed" : "Note"}</label><textarea id="cm-log-message" rows={4} value={logMessage} onChange={(e) => setLogMessage(e.target.value)} /></div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save to history"}</button>
+                <button type="button" className="btn" disabled={saving} onClick={() => setMode(null)}>Cancel</button>
+              </div>
+            </form>
+          </Panel>
+        )}
+
+        <Panel
+          title="History" note={`${messages.length} messages`}
+          resize={{ width: historyResize.width, resizing: historyResize.resizing, onResizeStart: historyResize.startResize }}
+        >
+          {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No messages for this client yet.</p>}
+          <div className="scroll-list" style={{ padding: messages.length ? "0 16px 16px" : 0 }}>
+            {messages.map((m) => <CommunicationCard key={m.communication_id} c={m} />)}
+          </div>
+        </Panel>
+      </div>
     </div>
   );
 }
