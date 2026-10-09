@@ -263,8 +263,8 @@ workTrailRouter.get("/page-activity", requireAuth, requireRole("admin", "staff")
   const aliases = isAdmin || page === "notes" ? [] : Array.from(await getUserAliases(req.user!.email));
 
   type Item = { at: string; by: string | null; label: string; clientId: string | null; clientName: string | null; link: string | null };
-  const fromData = async (mineOnly: boolean): Promise<Item | null> => {
-    if (!sql) return null;
+  const fromData = async (mineOnly: boolean, limit: number): Promise<Item[]> => {
+    if (!sql) return [];
     // Only the parameters the SQL actually references are sent (Postgres rejects extras).
     const params: any[] = [];
     const conds: string[] = ["at IS NOT NULL"];
@@ -273,29 +273,28 @@ workTrailRouter.get("/page-activity", requireAuth, requireRole("admin", "staff")
       else { params.push(aliases); conds.push(`client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($${params.length}::text[]))`); }
     }
     if (mineOnly && !(page === "notes" && !isAdmin)) { params.push(email); conds.push(`lower(by) = $${params.length}`); }
-    const rows = await query<any>(`SELECT at, by, label, client_id, client_name, link FROM (${sql}) a WHERE ${conds.join(" AND ")} ORDER BY at DESC LIMIT 1`, params);
-    const r = rows[0];
-    return r ? { at: new Date(r.at).toISOString(), by: r.by, label: r.label, clientId: r.client_id, clientName: r.client_name, link: r.link } : null;
+    const rows = await query<any>(`SELECT at, by, label, client_id, client_name, link FROM (${sql}) a WHERE ${conds.join(" AND ")} ORDER BY at DESC LIMIT ${limit}`, params);
+    return rows.map((r) => ({ at: new Date(r.at).toISOString(), by: r.by, label: r.label, clientId: r.client_id, clientName: r.client_name, link: r.link }));
   };
-  const fromAudit = async (mineOnly: boolean): Promise<Item | null> => {
-    if (!auditWhere) return null;
+  const fromAudit = async (mineOnly: boolean, limit: number): Promise<Item[]> => {
+    if (!auditWhere) return [];
     const params: any[] = [];
     const conds = [auditWhere, `user_email NOT ILIKE 'system%'`, `user_email NOT IN ('Public Manage Link','Client','system')`];
     // Staff see only their own audited actions (the audit log has no client link to scope by).
     if (!isAdmin || mineOnly) { params.push(email); conds.push(`lower(user_email) = $${params.length}`); }
-    const rows = await query<any>(`SELECT module, action, record_id, field, note, user_email, created_at FROM altax.v3_audit_log WHERE ${conds.join(" AND ")} ORDER BY created_at DESC LIMIT 1`, params);
-    const r = rows[0];
-    if (!r) return null;
-    let clientName: string | null = null;
-    if (/^C-\w+/.test(r.record_id || "")) {
-      const c = await query<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [r.record_id]);
-      clientName = c[0]?.client_name || null;
-    }
-    return { at: new Date(r.created_at).toISOString(), by: r.user_email, label: auditLabel(r), clientId: /^C-\w+/.test(r.record_id || "") ? r.record_id : null, clientName, link: auditLink(r.record_id || "", r.action) };
+    const rows = await query<any>(`SELECT module, action, record_id, field, note, user_email, created_at FROM altax.v3_audit_log WHERE ${conds.join(" AND ")} ORDER BY created_at DESC LIMIT ${limit}`, params);
+    const ids = Array.from(new Set(rows.map((r) => String(r.record_id || "")).filter((id) => /^C-\w+/.test(id))));
+    const names = new Map<string, string>();
+    if (ids.length) for (const c of await query<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = ANY($1::text[])`, [ids])) names.set(c.client_id, c.client_name);
+    return rows.map((r) => {
+      const isClient = /^C-\w+/.test(r.record_id || "");
+      return { at: new Date(r.created_at).toISOString(), by: r.user_email, label: auditLabel(r), clientId: isClient ? r.record_id : null, clientName: isClient ? names.get(r.record_id) || null : null, link: auditLink(r.record_id || "", r.action) };
+    });
   };
-  const newest = (a: Item | null, b: Item | null) => (a && b ? (new Date(a.at) >= new Date(b.at) ? a : b) : a || b);
-  const [dLatest, aLatest, dMine, aMine] = await Promise.all([fromData(false), fromAudit(false), fromData(true), fromAudit(true)]);
-  res.json({ latest: newest(dLatest, aLatest), mine: newest(dMine, aMine), me: email });
+  const merge = (...lists: Item[][]) => lists.flat().sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime());
+  const [dRecent, aRecent, dMine, aMine] = await Promise.all([fromData(false, 8), fromAudit(false, 8), fromData(true, 1), fromAudit(true, 1)]);
+  const recent = merge(dRecent, aRecent).slice(0, 8);
+  res.json({ latest: recent[0] || null, mine: merge(dMine, aMine)[0] || null, recent, me: email });
 }));
 
 /** Latest activity per TASK (status change, task note, uploaded file, message) for the ids shown on the Tasks list. */

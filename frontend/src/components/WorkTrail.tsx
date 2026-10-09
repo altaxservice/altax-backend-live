@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Activity, CheckCircle2, ChevronDown, CircleDollarSign, FileText, Pencil, Plus, Send, Trash2, type LucideIcon } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
@@ -148,6 +149,31 @@ export function useTaskLastActivity(taskIds: string[]): { activity: Record<strin
   return state;
 }
 
+type Tone = "green" | "teal" | "blue" | "amber" | "red" | "gray";
+
+/** Picks an icon and colour for an activity from its wording, so the same kind of work always looks the same everywhere. */
+function kindOf(label: string): { Icon: LucideIcon; tone: Tone } {
+  const t = label.toLowerCase();
+  if (/delet|remov|void|archiv|unmark/.test(t)) return { Icon: Trash2, tone: "red" };
+  if (/payment|paid|\$/.test(t)) return { Icon: CircleDollarSign, tone: "green" };
+  if (/filed|submitted|complete|signed|approved|confirmed/.test(t)) return { Icon: CheckCircle2, tone: "green" };
+  if (/new client|created|added|new /.test(t)) return { Icon: Plus, tone: "teal" };
+  if (/sent|send|message|email|sms|reminder|opened|note/.test(t)) return { Icon: Send, tone: "blue" };
+  if (/file|document|upload|form|contract|invoice|estimate|plan/.test(t)) return { Icon: FileText, tone: "teal" };
+  if (/edit|updat|chang|status|import|task/.test(t)) return { Icon: Pencil, tone: "amber" };
+  return { Icon: Activity, tone: "gray" };
+}
+
+function whenClass(iso: string): string {
+  const mins = (Date.now() - new Date(iso).getTime()) / 60000;
+  return mins < 60 ? "fresh" : mins < 1440 ? "today" : "";
+}
+
+function ActIcon({ label, small }: { label: string; small?: boolean }) {
+  const { Icon, tone } = kindOf(label);
+  return <span className={`act-icon${small ? " sm" : ""} act-tone-${tone}`} aria-hidden="true"><Icon size={small ? 14 : 17} strokeWidth={2.2} /></span>;
+}
+
 /** Table cell: what was last done, by whom and when — so the list itself shows where work stopped. */
 export function LastActivityCell({ a, me, fallbackAt }: { a?: LastActivity; me: string; fallbackAt?: unknown }) {
   if (!a) {
@@ -156,9 +182,16 @@ export function LastActivityCell({ a, me, fallbackAt }: { a?: LastActivity; me: 
   }
   const w = who(a.by, me);
   return (
-    <div title={`${new Date(a.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}${w ? ` · by ${w}` : ""}`}>
-      <div className="cell-primary" style={{ fontSize: 12.5 }}>{a.label}</div>
-      <div className="cell-sub">{[a.detail, w ? `by ${w}` : "", ago(a.at)].filter(Boolean).join(" · ")}</div>
+    <div className="act-cell" title={`${new Date(a.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}${w ? ` · by ${w}` : ""}`}>
+      <ActIcon label={a.label} small />
+      <div className="act-text">
+        <div className="act-title">{a.label}</div>
+        <div className="act-sub">
+          {a.detail ? <span>{a.detail}</span> : null}
+          {w ? <span>· {w === "you" ? "you" : `by ${w}`}</span> : null}
+          <span className={`act-when ${whenClass(a.at)}`}>{ago(a.at)}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -166,38 +199,84 @@ export function LastActivityCell({ a, me, fallbackAt }: { a?: LastActivity; me: 
 interface PageActivityItem { at: string; by: string | null; label: string; clientId: string | null; clientName: string | null; link: string | null }
 
 /**
- * The strip at the top of a main page: the latest thing done on this page's records (by anyone), and the latest thing
- * you did here — so on coming back the first thing you see is where work stopped. Staff/admin pages only.
+ * The ribbon at the top of a main page: the latest thing done on this page (by anyone), your own last action, a count of
+ * what others did since, and a tap-to-open timeline of the last eight actions. Staff/admin pages only.
  */
 export function PageActivityBanner({ page }: { page: "clients" | "tasks" | "invoices" | "documents" | "estimates" | "communications" | "notes" | "rules" | "labels" | "calendar" | "permits" | "timetracking" | "users" }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const allowed = user?.role === "admin" || user?.role === "staff";
-  const [data, setData] = useState<{ latest: PageActivityItem | null; mine: PageActivityItem | null; me: string } | null>(null);
+  const [data, setData] = useState<{ latest: PageActivityItem | null; mine: PageActivityItem | null; recent: PageActivityItem[]; me: string } | null>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!allowed) return;
-    api.get<{ latest: PageActivityItem | null; mine: PageActivityItem | null; me: string }>(`/clients/page-activity?page=${page}`).then(setData).catch(() => {});
+    api.get<{ latest: PageActivityItem | null; mine: PageActivityItem | null; recent: PageActivityItem[]; me: string }>(`/clients/page-activity?page=${page}`).then(setData).catch(() => {});
   }, [page, allowed]);
-  if (!allowed || !data || (!data.latest && !data.mine)) return null;
-  const render = (title: string, a: PageActivityItem | null) => {
-    if (!a) return null;
-    const w = who(a.by, data.me);
+  if (!allowed || !data || !data.latest) return null;
+  const { latest, mine, recent, me } = data;
+  const othersSince = mine ? recent.filter((r) => new Date(r.at) > new Date(mine.at) && (r.by || "").toLowerCase() !== me).length : 0;
+
+  const go = (link: string | null) => { if (link) navigate(link); };
+  const meta = (a: PageActivityItem) => {
+    const w = who(a.by, me);
     return (
-      <div style={{ minWidth: 0 }}>
-        <span className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>{title}</span>
-        <div style={{ fontSize: 13 }}>
-          {a.link ? (
-            <button type="button" className="link-button" style={{ textAlign: "left", fontSize: 13, fontWeight: 600 }} onClick={() => navigate(a.link as string)}>{a.label}</button>
-          ) : <strong>{a.label}</strong>}
-          <span className="muted"> {a.clientName ? `· ${a.clientName} ` : ""}{w ? `· by ${w} ` : ""}· {ago(a.at)}</span>
-        </div>
+      <div className="act-sub">
+        {a.clientName ? <span>{a.clientName}</span> : null}
+        {w ? <span>{a.clientName ? "·" : ""} {w === "you" ? "by you" : `by ${w}`}</span> : null}
+        <span className={`act-when ${whenClass(a.at)}`}>{ago(a.at)}</span>
       </div>
     );
   };
+  const live = Date.now() - new Date(latest.at).getTime() < 15 * 60000;
+
   return (
-    <div className="card" style={{ margin: "0 0 14px", padding: "8px 14px", display: "flex", gap: 28, flexWrap: "wrap", alignItems: "flex-start" }} role="status" aria-label="Last activity on this page">
-      {render("Last activity on this page", data.latest)}
-      {data.mine && data.mine.at !== data.latest?.at && render("Your last", data.mine)}
+    <div className="act-ribbon" role="region" aria-label="Last activity on this page">
+      <div className="act-ribbon-main">
+        <div>
+          <div className="act-eyebrow">{live ? <span className="act-live" aria-hidden="true" /> : null}Last activity on this page</div>
+          <div className="act-row">
+            <ActIcon label={latest.label} />
+            <div className="act-text">
+              {latest.link ? <button type="button" className="act-title" onClick={() => go(latest.link)}>{latest.label}</button> : <div className="act-title">{latest.label}</div>}
+              {meta(latest)}
+            </div>
+          </div>
+        </div>
+        {mine && mine.at !== latest.at ? (
+          <div>
+            <div className="act-eyebrow">Your last</div>
+            <div className="act-row">
+              <ActIcon label={mine.label} small />
+              <div className="act-text">
+                {mine.link ? <button type="button" className="act-title" style={{ fontSize: 13 }} onClick={() => go(mine.link)}>{mine.label}</button> : <div className="act-title" style={{ fontSize: 13 }}>{mine.label}</div>}
+                {meta(mine)}
+              </div>
+            </div>
+          </div>
+        ) : <div />}
+        <div className="act-side">
+          {othersSince > 0 ? <span className="act-chip">{othersSince} by others since</span> : null}
+          {recent.length > 1 ? (
+            <button type="button" className="act-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+              Recent <ChevronDown size={14} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {open ? (
+        <div className="act-timeline">
+          {recent.map((r, i) => (
+            <div className="act-tl-item" key={`${r.at}-${i}`}>
+              <ActIcon label={r.label} small />
+              <div>
+                <div className="act-tl-title">{r.link ? <button type="button" onClick={() => go(r.link)}>{r.label}</button> : r.label}</div>
+                <div className="act-tl-sub">{[r.clientName, who(r.by, me) === "you" ? "you" : who(r.by, me) ? `by ${who(r.by, me)}` : ""].filter(Boolean).join(" · ")}</div>
+              </div>
+              <span className={`act-when ${whenClass(r.at)}`}>{ago(r.at)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
