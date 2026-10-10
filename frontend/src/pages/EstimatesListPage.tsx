@@ -1,3 +1,4 @@
+import { Pager } from "../components/Pager";
 import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -23,6 +24,7 @@ export function EstimatesListPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useStickyState("estimates.status", "open");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -62,6 +64,10 @@ export function EstimatesListPage() {
   useEffect(() => {
     saveListOrder("estimates", filtered.map((e) => e.estimate_id));
   }, [filtered]);
+  const PER_PAGE = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const curPage = Math.min(page, totalPages);
+  const pageEstimates = filtered.slice((curPage - 1) * PER_PAGE, curPage * PER_PAGE);
 
   const pipeline = (estimates || [])
     .filter((e) => e.status === "Draft" || e.status === "Contacted" || e.status === "Sent")
@@ -150,7 +156,7 @@ export function EstimatesListPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((est) => (
+              {pageEstimates.map((est) => (
                 <tr key={est.estimate_id} data-row-id={est.estimate_id}
                     style={{ cursor: "pointer" }}
                     onClick={() => navigate(`/estimates/${est.estimate_id}`)}>
@@ -181,6 +187,7 @@ export function EstimatesListPage() {
             </tbody>
           </table>
         </div>
+        <Pager page={curPage} totalPages={totalPages} onPage={setPage} total={filtered.length} pageSize={PER_PAGE} />
       </div>
       )}
 

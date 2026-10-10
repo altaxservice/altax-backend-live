@@ -1,3 +1,4 @@
+import { RecordActivity } from "../components/WorkTrail";
 import { DateInput } from "../components/DateInput";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -282,6 +283,7 @@ export function EstimateDetailPage() {
         <BackLink fallback="/estimates" fallbackLabel="All estimates" />
         <PrevNextNav basePath="/estimates" {...getAdjacentIds("estimates", estimateId)} />
       </div>
+      <RecordActivity id={estimateId} />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, margin: "8px 0 20px" }}>
         <div>

@@ -1,5 +1,6 @@
 import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState } from "react";
+import { Wallet, TrendingUp, TrendingDown, Landmark, ClipboardCheck, type LucideIcon } from "lucide-react";
 import { api, ApiError, viewFile, downloadFile, printFile } from "../api/client";
 import type { CoaAccount } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -78,26 +79,52 @@ export function ClientBooksPage() {
   }
   useEffect(loadOptions, [clientId]);
 
+  // Month-to-date snapshot for the summary tiles (the P&L tab keeps its own date range).
+  const [snap, setSnap] = useState<{ totalIncome: number; totalExpenses: number; netIncome: number; pendingSalesCount: number; pendingPurchasesCount: number } | null>(null);
+  const [taxOwed, setTaxOwed] = useState<{ available: boolean; totalEstimated?: number; dueDate?: string } | null>(null);
+  useEffect(() => {
+    if (!clientId) return;
+    api.get<NonNullable<typeof snap>>(`/accounting/client-books/pl-preview?clientId=${clientId}&from=${monthStartStr()}&to=${todayStr()}`).then(setSnap).catch(() => setSnap(null));
+    api.get<NonNullable<typeof taxOwed>>(`/accounting/client-books/sales-tax-liability?clientId=${clientId}`).then(setTaxOwed).catch(() => setTaxOwed(null));
+  }, [clientId, tab]);
+
   if (error) return <ErrorBanner error={error} />;
   if (!loaded) return <div className="spinner-wrap">{t("books.common.loading")}</div>;
 
+  const pending = (snap?.pendingSalesCount || 0) + (snap?.pendingPurchasesCount || 0);
+  const kpi = (Icon: LucideIcon, tone: string, label: string, value: string, note: string, goTab?: Tab) => (
+    <button type="button" className="cc-kpi" disabled={!goTab} style={goTab ? undefined : { cursor: "default" }} onClick={() => goTab && setTab(goTab)}>
+      <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={20} aria-hidden="true" /></span>
+      <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value"><Num>{value}</Num></div><div className="cc-kpi-note">{note}</div></span>
+    </button>
+  );
+
   return (
     <div dir={dir}>
-      <p className="muted" style={{ margin: "0 0 20px", maxWidth: 760 }}>{t("books.intro")}</p>
-      <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="cc-hero">
+        <div>
+          <div className="cc-date" style={{ marginBottom: 2 }}>{t("books.hero.eyebrow")}</div>
+          <h1 className="cc-hello" style={{ fontSize: 24 }}>{t("books.hero.title")}</h1>
+          <div className="cc-date" style={{ maxWidth: 640 }}>{t("books.intro")}</div>
+        </div>
+        <div className="cc-chips">
+          {pending > 0
+            ? <span className="cc-chip amber"><Num>{pending}</Num> {t("books.kpi.pendingNote")}</span>
+            : <span className="cc-chip green">{t("books.kpi.allReviewed")}</span>}
+        </div>
+      </div>
+
+      <div className="cc-kpis">
+        {kpi(TrendingUp, "green", t("books.kpi.income"), snap ? fmtMoney(snap.totalIncome) : "—", t("books.kpi.monthToDate"), "pl")}
+        {kpi(TrendingDown, "amber", t("books.kpi.expenses"), snap ? fmtMoney(snap.totalExpenses) : "—", t("books.kpi.monthToDate"), "purchases")}
+        {kpi(Wallet, snap && snap.netIncome < 0 ? "red" : "teal", t("books.kpi.net"), snap ? fmtMoney(snap.netIncome) : "—", t("books.kpi.monthToDate"), "pl")}
+        {taxOwed?.available && kpi(Landmark, "blue", t("books.kpi.salesTax"), fmtMoney(taxOwed.totalEstimated || 0), t("books.kpi.estimate"), "pl")}
+        {kpi(ClipboardCheck, pending ? "amber" : "green", t("books.kpi.pending"), String(pending), t("books.kpi.pendingNote"))}
+      </div>
+
+      <div className="cc-tabs" role="tablist">
         {TABS.map((tb) => (
-          <button
-            key={tb}
-            type="button"
-            role="tab"
-            aria-selected={tab === tb}
-            onClick={() => setTab(tb)}
-            style={{
-              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", border: "none", font: "inherit", background: "transparent",
-              color: tab === tb ? "var(--ink)" : "var(--muted)",
-              borderBottom: tab === tb ? "2px solid var(--teal)" : "2px solid transparent",
-            }}
-          >
+          <button key={tb} type="button" role="tab" aria-selected={tab === tb} className={`cc-tab${tab === tb ? " on" : ""}`} onClick={() => setTab(tb)}>
             {t(tb === "sales" ? "books.tab.sales" : tb === "purchases" ? "books.tab.purchases" : "books.tab.pl")}
           </button>
         ))}

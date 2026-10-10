@@ -31,6 +31,14 @@ interface DropdownCategory {
   options: DropdownOption[];
 }
 
+const LIST_GROUP: Record<string, string> = {
+  taskTypes: "Work & tasks", immigrationFormTypes: "Work & tasks", priorities: "Work & tasks", taskStatuses: "Work & tasks",
+  requestTypes: "Documents", requestedItems: "Documents", documentStatuses: "Documents", checklistDocumentTypes: "Documents",
+  invoiceStatuses: "Billing & payments", paymentMethods: "Billing & payments",
+  communicationChannels: "Communication", clientFlagCategories: "Clients",
+};
+const LIST_GROUP_ORDER = ["Work & tasks", "Documents", "Billing & payments", "Communication", "Clients", "Other lists"];
+
 /** General first (applies to every task type), then one group per Task Type present among the given options, alphabetically. */
 function groupTaskStatuses(options: DropdownOption[]): [string, DropdownOption[]][] {
   const general = options.filter((o) => !o.taskType);
@@ -226,7 +234,9 @@ export function ListSettingsPage() {
   const taskTypeValues = categories.find((c) => c.category === "taskTypes")?.options.filter((o) => o.active).map((o) => o.value) || [];
 
   const q = search.trim().toLowerCase();
-  const visibleCategories = categories
+  const groupRank = (c: DropdownCategory) => { const i = LIST_GROUP_ORDER.indexOf(LIST_GROUP[c.category] || "Other lists"); return i === -1 ? 99 : i; };
+  const visibleCategories = [...categories]
+    .sort((a, b) => groupRank(a) - groupRank(b))
     .map((cat) => {
       if (!q) return cat;
       const labelMatch = cat.label.toLowerCase().includes(q);
@@ -248,11 +258,15 @@ export function ListSettingsPage() {
 
       {q && visibleCategories.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No list values match.</p>}
 
-      {visibleCategories.map((cat) => {
+      {visibleCategories.map((cat, idx) => {
+        const grp = LIST_GROUP[cat.category] || "Other lists";
+        const prevGrp = idx > 0 ? (LIST_GROUP[visibleCategories[idx - 1].category] || "Other lists") : null;
         const isOpen = q ? true : open === cat.category;
         const activeCount = cat.options.filter((o) => o.active).length;
         return (
-          <div key={cat.category} className="command-panel" style={{ marginBottom: 10 }}>
+          <div key={cat.category}>
+          {grp !== prevGrp && <div className="ls-group">{grp} <span>{visibleCategories.filter((c) => (LIST_GROUP[c.category] || "Other lists") === grp).length}</span></div>}
+          <div className="command-panel" style={{ marginBottom: 10 }}>
             <div
               className="command-panel-header"
               style={{ cursor: "pointer" }}
@@ -326,6 +340,7 @@ export function ListSettingsPage() {
                 </div>
               </div>
             )}
+          </div>
           </div>
         );
       })}

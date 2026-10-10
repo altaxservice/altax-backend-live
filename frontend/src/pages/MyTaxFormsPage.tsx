@@ -3,7 +3,8 @@ import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from 
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
 import { useNotify } from "../components/ConfirmProvider";
-import { useLanguage } from "../context/LanguageContext";
+import { useLanguage, Num } from "../context/LanguageContext";
+import { FileSignature, CheckCircle2 } from "lucide-react";
 import type { GovFormFiling, GovFormsMeta } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_STATUS_COLOR } from "../api/govForms";
 import { fmtDateTime } from "../utils/date";
@@ -48,9 +49,26 @@ export function MyTaxFormsPage() {
 
   if (error) return <ErrorBanner error={error} />;
 
+  const waiting = (filings || []).filter((f) => f.status === "Draft");
+  const done = (filings || []).filter((f) => f.status !== "Draft");
   return (
     <div dir={dir}>
-      <p className="muted" style={{ margin: "0 0 20px" }}>{t("myTaxForms.subtitle")}</p>
+      <div className="cc-hero">
+        <div>
+          <div className="cc-date" style={{ maxWidth: 640 }}>{t("myTaxForms.subtitle")}</div>
+        </div>
+        <div className="cc-chips">
+          {filings && (waiting.length > 0
+            ? <span className="cc-chip amber"><Num>{waiting.length}</Num> {t("dash.employee.formWaiting")}</span>
+            : <span className="cc-chip green">{t("dash.allSet")}</span>)}
+        </div>
+      </div>
+      {filings && filings.length > 0 && (
+        <div className="cc-kpis">
+          <div className="cc-kpi" style={{ cursor: "default" }}><span className={`cc-kpi-icon act-tone-${waiting.length ? "amber" : "green"}`}><FileSignature size={20} aria-hidden="true" /></span><span><div className="cc-kpi-label">{t("dash.employee.formWaiting")}</div><div className="cc-kpi-value"><Num>{waiting.length}</Num></div></span></div>
+          <div className="cc-kpi" style={{ cursor: "default" }}><span className="cc-kpi-icon act-tone-green"><CheckCircle2 size={20} aria-hidden="true" /></span><span><div className="cc-kpi-label">{t("myTaxForms.signed")}</div><div className="cc-kpi-value"><Num>{done.length}</Num></div></span></div>
+        </div>
+      )}
 
       {!filings ? (
         <p className="muted">{t("common.loading")}</p>

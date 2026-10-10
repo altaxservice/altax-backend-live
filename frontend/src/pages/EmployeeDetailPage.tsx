@@ -1,3 +1,4 @@
+import { RecordActivity } from "../components/WorkTrail";
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
@@ -232,6 +233,7 @@ export function EmployeeDetailPage() {
         />
         <PrevNextNav basePath="/employees" {...getAdjacentIds("employees", employeeId)} />
       </div>
+      <RecordActivity id={employeeId} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{employee.employee_name}</h1>

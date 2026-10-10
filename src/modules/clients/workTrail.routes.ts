@@ -252,6 +252,27 @@ function auditLink(recordId: string, action: string): string | null {
   return null;
 }
 
+/** Record-level activity: what happened to ONE task / document request / estimate / employee / invoice, newest first. Powers the "Last activity" strip on detail pages. */
+workTrailRouter.get("/record-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = String(req.query.id || "").trim();
+  if (!id || id.length > 80) return res.status(400).json({ error: "id is required." });
+  if (req.user!.role !== "admin") {
+    const owner =
+      /^T-/.test(id) ? `SELECT client_id FROM altax.v3_tasks WHERE task_id = $1`
+      : /^INV-/.test(id) ? `SELECT client_id FROM altax.v3_invoices WHERE invoice_id = $1`
+      : /^EST-/.test(id) ? `SELECT client_id FROM altax.v3_estimates WHERE estimate_id = $1`
+      : /^EMP-/.test(id) ? `SELECT client_id FROM altax.v3_employees WHERE employee_id = $1`
+      : `SELECT client_id FROM altax.v3_document_requests WHERE request_id = $1`;
+    const rows = await query<any>(owner, [id]);
+    if (!rows[0] || !(await canAccessClient(req.user!, rows[0].client_id))) return res.status(403).json({ error: "Not allowed." });
+  }
+  const rows = await query<any>(
+    `SELECT module, action, field, note, user_email, created_at FROM altax.v3_audit_log
+      WHERE record_id = $1 AND user_email NOT IN ('Public Manage Link','Client','system') ORDER BY created_at DESC LIMIT 12`, [id]);
+  const events = rows.map((r) => ({ at: new Date(r.created_at).toISOString(), by: r.user_email, label: auditLabel(r) }));
+  res.json({ events, me: req.user!.email.toLowerCase() });
+}));
+
 workTrailRouter.get("/page-activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const page = String(req.query.page || "");
   const body = PAGE_ACTIVITY_SQL[page];

@@ -1,3 +1,4 @@
+import { Pager } from "../components/Pager";
 import { DateInput } from "../components/DateInput";
 import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -68,6 +69,7 @@ export function InvoicesListPage() {
   // unfiltered default.
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [search, setSearch] = useState("");
+  const [invPage, setInvPage] = useState(1);
 
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
   const [showSalesReceipt, setShowSalesReceipt] = useState(false);
@@ -317,6 +319,11 @@ export function InvoicesListPage() {
     return rows;
   }, [invoices, clientIdFilter, statusFilter, search, clients]);
 
+  useEffect(() => setInvPage(1), [clientIdFilter, statusFilter, search]);
+  const INV_PER_PAGE = 10;
+  const invTotalPages = Math.max(1, Math.ceil(filteredInvoices.length / INV_PER_PAGE));
+  const pageInvoices = filteredInvoices.slice((Math.min(invPage, invTotalPages) - 1) * INV_PER_PAGE, Math.min(invPage, invTotalPages) * INV_PER_PAGE);
+
   // Powers InvoiceDetailPage's Previous/Next paging — see utils/listNav.ts.
   useEffect(() => {
     saveListOrder("invoices", filteredInvoices.map((i) => i.invoice_id));
@@ -485,7 +492,7 @@ export function InvoicesListPage() {
               <tr><th scope="col">{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th scope="col">Client</th>}<th scope="col">{canManage ? "Date" : t("billing.client.colDate")}</th><th scope="col">{canManage ? "Due" : t("billing.client.colDue")}</th><th scope="col">{canManage ? "Description" : t("billing.client.colDescription")}</th><th scope="col">{canManage ? "Amount" : t("billing.client.colAmount")}</th><th scope="col">{canManage ? "Balance" : t("billing.client.colBalance")}</th><th scope="col">{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th scope="col">Last activity</th>}{canManage && <th scope="col">Action</th>}</tr>
             </thead>
             <tbody>
-              {filteredInvoices.map((inv) => (
+              {pageInvoices.map((inv) => (
                 <tr key={inv.invoice_id} data-row-id={inv.invoice_id} tabIndex={0} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); } }}>
                   <td>{inv.invoice_id}</td>
                   {canManage && <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>}
@@ -534,6 +541,7 @@ export function InvoicesListPage() {
           </div>
           </div>
           {filteredInvoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{canManage ? "No invoices match." : t("billing.client.noInvoices")}</p>}
+          <Pager page={Math.min(invPage, invTotalPages)} totalPages={invTotalPages} onPage={setInvPage} total={filteredInvoices.length} pageSize={INV_PER_PAGE} />
         </div>
       )}
 

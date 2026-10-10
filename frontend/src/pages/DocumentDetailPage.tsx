@@ -1,3 +1,4 @@
+import { RecordActivity } from "../components/WorkTrail";
 import { DateInput } from "../components/DateInput";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -206,6 +207,7 @@ export function DocumentDetailPage() {
         <BackLink fallback="/documents" fallbackLabel="All documents" />
         <PrevNextNav basePath="/documents" {...getAdjacentIds("documents", requestId)} />
       </div>
+      <RecordActivity id={requestId} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{request.requested_item}</h1>

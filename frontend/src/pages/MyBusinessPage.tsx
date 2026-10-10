@@ -91,49 +91,58 @@ export function MyBusinessPage() {
 
   if (error) return <ErrorBanner error={error} />;
 
+  const allQs = INTAKE_CATEGORIES.flatMap((c) => c.questions);
+  const answered = allQs.filter((q) => String(form[q.key] || "").trim()).length;
+  const pct = Math.round((answered / allQs.length) * 100);
+  const dirty = !!intake && allQs.some((q) => String(form[q.key] || "") !== String((intake as any)[q.key] || ""));
+
   return (
     <div>
-      <p className="muted" style={{ margin: "0 0 20px", maxWidth: 720 }}>
-        These answers help your accountant tailor tax, staffing, marketing, and growth advice to your
-        actual business — not generic tips. Nothing here is shared outside your firm relationship.
-      </p>
+      <div className="cc-hero">
+        <div>
+          <div className="cc-date" style={{ marginBottom: 2 }}>My Business</div>
+          <h1 className="cc-hello" style={{ fontSize: 24 }}>Tell us about your business</h1>
+          <div className="cc-date" style={{ maxWidth: 640 }}>
+            These answers help your accountant tailor tax, staffing, marketing, and growth advice to your actual business — not generic tips. Nothing here is shared outside your firm relationship.
+          </div>
+        </div>
+        <div className="cc-chips">
+          <span className={`cc-chip ${answered === allQs.length ? "green" : "amber"}`}>{answered} of {allQs.length} answered</span>
+          {intake?.updatedAt && <span className="cc-chip">Updated {new Date(intake.updatedAt).toLocaleDateString()}{intake.updatedBy ? ` · ${intake.updatedBy}` : ""}</span>}
+        </div>
+      </div>
 
       {!intake ? (
         <p className="muted">Loading…</p>
       ) : (
-        <div className="card" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {intake.updatedAt && (
-            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-              Last updated {new Date(intake.updatedAt).toLocaleDateString()}
-              {intake.updatedBy ? ` by ${intake.updatedBy}` : ""}.
-            </p>
-          )}
-
-          {INTAKE_CATEGORIES.map((cat) => (
-            <div key={cat.title}>
-              <div className="form-section-title">{cat.title}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                {cat.questions.map((q) => (
-                  <div className="field" key={q.key} style={{ gridColumn: "span 2" }}>
-                    <label htmlFor={`mb-${q.key}`}>{q.label}</label>
-                    <textarea
-                      id={`mb-${q.key}`}
-                      rows={2}
-                      value={form[q.key] as string}
-                      onChange={(e) => set(q.key, e.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div>
-            <button type="button" className="btn btn-primary" disabled={saving} onClick={handleSave}>
+        <>
+          <div className="mb-progress" aria-label={`${pct}% complete`}><span style={{ width: `${pct}%` }} /></div>
+          <div className="mb-grid">
+            {INTAKE_CATEGORIES.map((cat) => {
+              const done = cat.questions.filter((q) => String(form[q.key] || "").trim()).length;
+              return (
+                <section className="mb-card" key={cat.title}>
+                  <header>
+                    <h2>{cat.title}</h2>
+                    <span className={`mb-pill ${done === cat.questions.length ? "done" : ""}`}>{done}/{cat.questions.length}</span>
+                  </header>
+                  {cat.questions.map((q) => (
+                    <div className="field" key={q.key}>
+                      <label htmlFor={`mb-${q.key}`}>{q.label}</label>
+                      <textarea id={`mb-${q.key}`} rows={3} value={form[q.key] as string} onChange={(e) => set(q.key, e.target.value)} />
+                    </div>
+                  ))}
+                </section>
+              );
+            })}
+          </div>
+          <div className="mb-savebar">
+            <span className="muted" style={{ fontSize: 13 }}>{dirty ? "You have unsaved changes." : "All changes saved."}</span>
+            <button type="button" className="btn btn-primary" disabled={saving || !dirty} onClick={handleSave}>
               {saving ? "Saving…" : "Save"}
             </button>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

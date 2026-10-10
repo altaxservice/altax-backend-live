@@ -280,3 +280,42 @@ export function PageActivityBanner({ page }: { page: "clients" | "tasks" | "invo
     </div>
   );
 }
+
+/** Compact "last activity on this record" strip for detail pages: latest event up front, a few more on demand. */
+export function RecordActivity({ id, refreshKey }: { id: string | undefined; refreshKey?: unknown }) {
+  const { user } = useAuth();
+  const allowed = user?.role === "admin" || user?.role === "staff";
+  const [data, setData] = useState<{ events: { at: string; by: string | null; label: string }[]; me: string } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!allowed || !id) return;
+    api.get<{ events: { at: string; by: string | null; label: string }[]; me: string }>(`/clients/record-activity?id=${encodeURIComponent(id)}`).then(setData).catch(() => {});
+  }, [id, allowed, refreshKey]);
+  if (!allowed || !data || data.events.length === 0) return null;
+  const [latest, ...rest] = data.events;
+  const w = who(latest.by, data.me);
+  return (
+    <div className="act-ribbon" role="region" aria-label="Last activity on this record" style={{ marginBottom: 14 }}>
+      <div className="act-ribbon-main">
+        <div>
+          <div className="act-eyebrow">Last activity</div>
+          <div className="act-title">{latest.label}</div>
+          <div className="act-sub">
+            {w ? <span>{w === "you" ? "by you" : `by ${w}`}</span> : null}
+            <span className={`act-when ${whenClass(latest.at)}`}>{ago(latest.at)}</span>
+          </div>
+        </div>
+        {rest.length > 0 && <button type="button" className="ghost-button btn-sm" onClick={() => setOpen(!open)}>{open ? "Hide history" : `History (${data.events.length})`}</button>}
+      </div>
+      {open && (
+        <ul className="act-list" style={{ listStyle: "none", margin: "10px 0 0", padding: 0, display: "grid", gap: 6 }}>
+          {rest.map((e, i) => (
+            <li key={i} style={{ fontSize: 13 }}>
+              <strong>{e.label}</strong> <span className="muted">· {who(e.by, data.me) === "you" ? "you" : who(e.by, data.me)} · {ago(e.at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

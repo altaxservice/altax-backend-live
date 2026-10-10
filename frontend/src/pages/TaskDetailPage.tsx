@@ -1,3 +1,4 @@
+import { RecordActivity } from "../components/WorkTrail";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
@@ -258,6 +259,7 @@ export function TaskDetailPage() {
         <BackLink fallback="/tasks" fallbackLabel="All tasks" />
         <PrevNextNav basePath="/tasks" {...getAdjacentIds("tasks", taskId)} />
       </div>
+      <RecordActivity id={taskId} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{task.task_name}</h1>

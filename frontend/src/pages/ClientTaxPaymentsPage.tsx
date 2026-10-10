@@ -5,7 +5,11 @@ import type { Client } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { fmtDateOnly as fmtDate } from "../utils/date";
+import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
+import { Pager } from "../components/Pager";
+import { Wallet, AlertTriangle, CheckCircle2, ListChecks, type LucideIcon } from "lucide-react";
+
+const PAGE_SIZE = 10;
 
 interface TaxRow {
   task_id: string; task_name: string; client_id: string; client_name: string;
@@ -40,6 +44,8 @@ export function ClientTaxPaymentsPage() {
   const [clientFilter, setClientFilter] = useState(searchParams.get("clientId") || "");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [clientFilter, statusFilter, search, period.start, period.end]);
 
   function load(): Promise<void> {
     const qs = `?start=${period.start}&end=${period.end}`;
@@ -68,6 +74,18 @@ export function ClientTaxPaymentsPage() {
   const statusOptions = Array.from(new Set((rows || []).map((r) => r.status).filter(Boolean))) as string[];
   const unpaid = filtered.filter((r) => !r.paid_date);
   const dueTotal = unpaid.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
+  const overdue = unpaid.filter((r) => (daysUntil(r.agency_due_date) ?? 0) < 0);
+  const overdueTotal = overdue.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
+  const paid = filtered.filter((r) => r.paid_date);
+  const paidTotal = paid.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const kpi = (Icon: LucideIcon, tone: string, label: string, value: string, note: string) => (
+    <div className="cc-kpi" style={{ cursor: "default" }}>
+      <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={20} aria-hidden="true" /></span>
+      <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value">{value}</div><div className="cc-kpi-note">{note}</div></span>
+    </div>
+  );
 
   if (error) return <ErrorBanner error={error} />;
 
@@ -98,17 +116,11 @@ export function ClientTaxPaymentsPage() {
         </label>
       </FilterBar>
 
-      <div className="metric-grid metric-grid-2" style={{ margin: "16px 0 20px" }}>
-        <div className="metric">
-          <div className="metric-label">Client Tax Due</div>
-          <div className="metric-value">{fmtMoney(dueTotal)}</div>
-          <div className="metric-note">{unpaid.length} unpaid</div>
-        </div>
-        <div className="metric">
-          <div className="metric-label">Rows Shown</div>
-          <div className="metric-value">{filtered.length}</div>
-          <div className="metric-note">of {rows?.length ?? 0} total</div>
-        </div>
+      <div className="cc-kpis" style={{ margin: "16px 0 16px" }}>
+        {kpi(Wallet, unpaid.length ? "amber" : "green", "Client tax due", fmtMoney(dueTotal), `${unpaid.length} unpaid`)}
+        {kpi(AlertTriangle, overdue.length ? "red" : "green", "Past due", fmtMoney(overdueTotal), `${overdue.length} filing${overdue.length === 1 ? "" : "s"}`)}
+        {kpi(CheckCircle2, "green", "Paid", fmtMoney(paidTotal), `${paid.length} filing${paid.length === 1 ? "" : "s"}`)}
+        {kpi(ListChecks, "teal", "Rows shown", String(filtered.length), `of ${rows?.length ?? 0} total`)}
       </div>
 
       {rows === null && !error && <div className="spinner-wrap">Loading…</div>}
@@ -132,7 +144,7 @@ export function ClientTaxPaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {pageRows.map((r) => (
                   <tr key={r.task_id} data-row-id={r.task_id} tabIndex={0} style={{ cursor: "pointer" }} onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                     <td>{r.task_name}</td>
                     <td className="muted">{r.client_name}</td>
@@ -148,6 +160,7 @@ export function ClientTaxPaymentsPage() {
               </tbody>
             </table>
           </div>
+          <Pager page={page} totalPages={totalPages} onPage={setPage} total={filtered.length} pageSize={PAGE_SIZE} />
         </div>
       )}
     </div>

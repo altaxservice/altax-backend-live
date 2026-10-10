@@ -1,3 +1,4 @@
+import { Pager } from "../components/Pager";
 import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -88,6 +89,8 @@ export function DocumentsListPage() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [openPage, setOpenPage] = useState(1);
+  const [recvPage, setRecvPage] = useState(1);
   const [period, setPeriod] = useState(activeViewDates());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -207,6 +210,11 @@ export function DocumentsListPage() {
 
   const openRequests = useMemo(() => filteredRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [filteredRequests]);
   const receivedRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Client to Firm" || u.direction === "Employee to Firm")), [filteredRequests, uploadsByRequestId]);
+  const DOC_PER_PAGE = 10;
+  const openTotalPages = Math.max(1, Math.ceil(openRequests.length / DOC_PER_PAGE));
+  const recvTotalPages = Math.max(1, Math.ceil(receivedRequests.length / DOC_PER_PAGE));
+  const curOpenPage = Math.min(openPage, openTotalPages);
+  const curRecvPage = Math.min(recvPage, recvTotalPages);
   const sentRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Firm to Client" || u.direction === "Firm to Employee")), [filteredRequests, uploadsByRequestId]);
 
   function toggleSelected(id: string) {
@@ -434,7 +442,7 @@ export function DocumentsListPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {openRequests.map((r) => (
+                  {openRequests.slice((curOpenPage - 1) * DOC_PER_PAGE, curOpenPage * DOC_PER_PAGE).map((r) => (
                     <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
                       {canManage && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.request_id)} onChange={() => toggleSelected(r.request_id)} /></td>}
                       <td>{r.client_name}</td>
@@ -459,6 +467,7 @@ export function DocumentsListPage() {
               </div>
             </div>
             {openRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No open requests.</p>}
+            <Pager page={curOpenPage} totalPages={openTotalPages} onPage={setOpenPage} total={openRequests.length} pageSize={DOC_PER_PAGE} />
           </div>
 
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
@@ -471,7 +480,7 @@ export function DocumentsListPage() {
               <table>
                 <thead><tr><th scope="col">Client</th><th scope="col">Request</th><th scope="col">Requested</th><th scope="col">Due</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Files</th><th scope="col">Last activity</th></tr></thead>
                 <tbody>
-                  {receivedRequests.map((r) => (
+                  {receivedRequests.slice((curRecvPage - 1) * DOC_PER_PAGE, curRecvPage * DOC_PER_PAGE).map((r) => (
                     <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
                       <td>{r.client_name}</td>
                       <td data-label="Request">{r.requested_item}</td>
@@ -488,6 +497,7 @@ export function DocumentsListPage() {
               </div>
             </div>
             {receivedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No received client documents.</p>}
+            <Pager page={curRecvPage} totalPages={recvTotalPages} onPage={setRecvPage} total={receivedRequests.length} pageSize={DOC_PER_PAGE} />
           </div>
 
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>

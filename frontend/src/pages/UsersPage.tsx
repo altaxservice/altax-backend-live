@@ -1,3 +1,4 @@
+import { Pager } from "../components/Pager";
 import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
@@ -629,7 +630,12 @@ export function UsersPage() {
 }
 
 function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onEditPreparer, onEditSchedule, onEditRate, onLinkPayroll }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void; onEditPreparer?: (u: PortalUser) => void; onEditSchedule?: (u: PortalUser) => void; onEditRate?: (u: PortalUser) => void; onLinkPayroll?: (u: PortalUser) => void }) {
+  const PER_PAGE = 10;
+  const [page, setPage] = useState(1);
   if (users.length === 0) return null;
+  const totalPages = Math.max(1, Math.ceil(users.length / PER_PAGE));
+  const curPage = Math.min(page, totalPages);
+  const pageUsers = users.slice((curPage - 1) * PER_PAGE, curPage * PER_PAGE);
   return (
     <div className="command-panel">
       <div className="command-panel-header"><h2 className="command-panel-title">{title}</h2><div className="command-panel-note">{users.length} users</div></div>
@@ -651,7 +657,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => {
+            {pageUsers.map((u) => {
               const status = inviteStatus(u);
               return (
                 <tr key={u.user_id}>
@@ -711,6 +717,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
         </table>
         </div>
       </div>
+      {users.length > PER_PAGE && <Pager page={curPage} totalPages={totalPages} onPage={setPage} total={users.length} pageSize={PER_PAGE} />}
     </div>
   );
 }
