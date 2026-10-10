@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Pager } from "../components/Pager";
 import { LastActivityCell, useTaskLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -44,7 +44,7 @@ type SortKey = "client_name" | "service_line" | "task_name" | "agency_due_date" 
 // browser on every keystroke. History tabs (Completed/Archived/All History)
 // are unchanged — smaller, slower-growing data, and "All History" genuinely
 // needs the full live+archived union, so pagination doesn't help there.
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 10;
 const isLiveTab = (t: QuickTab): boolean => (LIVE_TABS as readonly string[]).includes(t);
 
 interface TaskSummary {
@@ -301,10 +301,15 @@ export function TasksListPage() {
     return rows;
   }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, period.start, period.end, taskLabels, search, sortKey, sortDir, isArchivedView]);
 
-  const visibleRows: Task[] = isLiveTab(quickTab) ? (pageTasks || []) : historyFiltered;
+  // Live tabs are paged by the server; history tabs (archived etc.) are filtered here, so they are sliced here.
+  const visibleRows: Task[] = isLiveTab(quickTab) ? (pageTasks || []) : historyFiltered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    if (!isLiveTab(quickTab)) setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickTab, search, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, period.start, period.end, sortKey, sortDir]);
   // Latest activity (status change, note, file, message) for just the rows on screen.
   const taskActivity = useTaskLastActivity(useMemo(() => visibleRows.slice(0, 300).map((t) => t.task_id), [visibleRows]));
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil((isLiveTab(quickTab) ? totalCount : historyFiltered.length) / PAGE_SIZE));
 
   // Lets TaskDetailPage's Previous/Next paging step through whatever
   // filtered/sorted order is currently on screen — see utils/listNav.ts. On a
@@ -682,7 +687,7 @@ export function TasksListPage() {
             <span className="muted" style={{ fontSize: 12 }}>
               {isLiveTab(quickTab)
                 ? `${visibleRows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${(page - 1) * PAGE_SIZE + visibleRows.length} of ${totalCount}`
-                : `${visibleRows.length} tasks`}
+                : `${historyFiltered.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${(page - 1) * PAGE_SIZE + visibleRows.length} of ${historyFiltered.length}`}
             </span>
           </div>
           {/* No separate overflow:auto wrapper around .table-scroll — that div computed
@@ -819,21 +824,7 @@ export function TasksListPage() {
           </table>
           </div>
           {visibleRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match.</p>}
-          {isLiveTab(quickTab) && totalPages > 1 && (
-            <div className="pager" role="navigation" aria-label="Pages">
-              <button type="button" aria-label="First page" disabled={page <= 1} onClick={() => setPage(1)}><ChevronsLeft size={15} aria-hidden="true" /></button>
-              <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}><ChevronLeft size={15} aria-hidden="true" /></button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 2).map((n, i, arr) => (
-                <span key={n} style={{ display: "inline-flex", gap: 4 }}>
-                  {i > 0 && n - arr[i - 1] > 1 ? <span className="muted" style={{ alignSelf: "center" }}>…</span> : null}
-                  <button type="button" className={n === page ? "pager-current" : ""} aria-current={n === page ? "page" : undefined} onClick={() => setPage(n)}>{n}</button>
-                </span>
-              ))}
-              <button type="button" aria-label="Next page" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}><ChevronRight size={15} aria-hidden="true" /></button>
-              <button type="button" aria-label="Last page" disabled={page >= totalPages} onClick={() => setPage(totalPages)}><ChevronsRight size={15} aria-hidden="true" /></button>
-              <span className="pager-info">Page {page} of {totalPages}</span>
-            </div>
-          )}
+          <Pager page={page} totalPages={totalPages} onPage={setPage} total={isLiveTab(quickTab) ? totalCount : historyFiltered.length} pageSize={PAGE_SIZE} />
         </div>
       )}
 

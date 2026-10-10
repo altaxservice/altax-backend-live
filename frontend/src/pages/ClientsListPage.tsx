@@ -1,3 +1,4 @@
+import { Pager } from "../components/Pager";
 import { DateInput } from "../components/DateInput";
 import { LastActivityCell, useClientLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -132,6 +133,7 @@ export function ClientsListPage() {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
   const lastActivity = useClientLastActivity();
+  const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1" || Boolean(prospectPrefillRef.current));
@@ -465,6 +467,13 @@ export function ClientsListPage() {
     });
     return rows;
   }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, stateFilter, industryFilter, clientLabels, quickTab, sortKey, sortDir, lastActivity]);
+
+  // 10 clients per page. Anything that changes what is listed sends you back to page 1; the full filtered list still
+  // drives export and the detail page's Previous/Next order.
+  const CLIENTS_PER_PAGE = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / CLIENTS_PER_PAGE));
+  const pageRows = filtered.slice((Math.min(page, totalPages) - 1) * CLIENTS_PER_PAGE, Math.min(page, totalPages) * CLIENTS_PER_PAGE);
+  useEffect(() => { setPage(1); }, [search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, stateFilter, industryFilter, quickTab, sortKey, sortDir]);
 
   // Lets ClientDetailPage's Previous/Next paging step through whatever
   // filtered/sorted order is currently on screen — see utils/listNav.ts.
@@ -1206,7 +1215,7 @@ export function ClientsListPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => {
+              {pageRows.map((c) => {
                 const resp = responsibleCell(c);
                 return (
                   <tr key={c.client_id} data-row-id={c.client_id} tabIndex={0} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
@@ -1268,6 +1277,7 @@ export function ClientsListPage() {
           </table>
           </div>
           {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No clients match.</p>}
+          <Pager page={Math.min(page, totalPages)} totalPages={totalPages} onPage={setPage} total={filtered.length} pageSize={CLIENTS_PER_PAGE} />
         </div>
       )}
     </div>
