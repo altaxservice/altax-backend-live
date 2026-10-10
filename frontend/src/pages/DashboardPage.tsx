@@ -20,7 +20,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { SinceLastLoginBanner } from "../components/SinceLastLoginBanner";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { GOV_FORM_LABELS } from "../api/govForms";
-import type { GovFormType } from "../api/govForms";
+import type { GovFormType, GovFormFiling } from "../api/govForms";
 import { useStickyState } from "../utils/listState";
 import { AlertTriangle, CalendarClock, ClipboardCheck, FileWarning, FolderInput, Wallet, type LucideIcon } from "lucide-react";
 
@@ -799,7 +799,6 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const { clientId: activeBusinessId } = useSelectedBusiness();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -842,14 +841,6 @@ export function DashboardPage() {
   return (
     <>
       <SinceLastLoginBanner />
-      {user?.role === "staff" && (
-        <PickUpWhereYouLeftOff
-          onOpen={(clientId, e) => {
-            if (e?.page === "accounting") navigate(`/accounting?client=${clientId}&tab=${encodeURIComponent(e.tab || "Sales")}`);
-            else navigate(`/clients/${clientId}${e?.tab ? `?tab=${encodeURIComponent(e.tab)}` : ""}`);
-          }}
-        />
-      )}
       {user?.role === "staff"
         ? <StaffCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />
         : <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />}
@@ -909,20 +900,22 @@ function buildNextActions(a: {
   return out.sort((x, y) => y.score - x.score).filter((x) => { const n = perKind.get(x.kind) || 0; if (n >= 3) return false; perKind.set(x.kind, n + 1); return true; }).slice(0, 8);
 }
 
-function NextActionsCard({ actions, loaded }: { actions: NextAction[]; loaded: boolean }) {
+function NextActionsCard({ actions, loaded, title = "Do this next", note, emptyText = "Nothing urgent right now — you're all caught up. 🎉", goLabel = "Open →", sevLabels = { critical: "Critical", high: "Soon", normal: "Review" } }: {
+  actions: NextAction[]; loaded: boolean; title?: string; note?: string; emptyText?: string; goLabel?: string; sevLabels?: { critical: string; high: string; normal: string };
+}) {
   const navigate = useNavigate();
   return (
-    <section className="cc-next" aria-label="Do this next">
-      <div className="cc-next-head"><h2>Do this next</h2><span>{loaded ? (actions.length ? `Top ${actions.length}, most urgent first` : "") : "Looking across the firm…"}</span></div>
-      {loaded && actions.length === 0 && <p className="muted" style={{ padding: 20, margin: 0, textAlign: "center" }}>Nothing urgent right now — you're all caught up. 🎉</p>}
+    <section className="cc-next" aria-label={title}>
+      <div className="cc-next-head"><h2>{title}</h2><span>{loaded ? (actions.length ? (note ?? `Top ${actions.length}, most urgent first`) : "") : "…"}</span></div>
+      {loaded && actions.length === 0 && <p className="muted" style={{ padding: 20, margin: 0, textAlign: "center" }}>{emptyText}</p>}
       {actions.map((a) => (
         <button type="button" className="cc-next-row" key={a.key} onClick={() => navigate(a.link)}>
           <span className={`act-icon sm act-tone-${a.severity === "critical" ? "red" : a.severity === "high" ? "amber" : "blue"}`}><a.Icon size={15} aria-hidden="true" /></span>
           <span>
-            <div className="cc-next-title"><span className={`cc-sev ${a.severity}`}>{a.severity === "critical" ? "Critical" : a.severity === "high" ? "Soon" : "Review"}</span>{a.title}</div>
+            <div className="cc-next-title"><span className={`cc-sev ${a.severity}`}>{sevLabels[a.severity]}</span>{a.title}</div>
             <div className="cc-next-meta">{a.meta}</div>
           </span>
-          <span className="cc-next-go">Open →</span>
+          <span className="cc-next-go">{goLabel}</span>
         </button>
       ))}
     </section>
@@ -1293,84 +1286,104 @@ function TaskRulesAgentCard() {
 function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Task[]; clients: Client[]; docs: DocumentRequest[]; invoices: Invoice[]; onChanged: () => void }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [tab, setTab] = useStickyState<"work" | "waiting" | "docs" | "money">("cc.staff.tab", "work");
   const openTasks = tasks.filter(isOpenTask);
   const overdue = openTasks.filter(isOverdue);
+  const dueToday = openTasks.filter(isDueToday);
   const dueSoon = openTasks.filter(isDueWeek);
   const waiting = openTasks.filter(isWaiting);
-  // clients/docs/invoices are already scoped server-side to this staff member's
-  // assigned clients (same query the Clients/Documents/Billing pages use) —
-  // this data was already being fetched by the shared load() above and simply
-  // discarded before, so surfacing it here costs nothing extra.
+  // clients/docs/invoices are already scoped server-side to this staff member's assigned clients.
   const openDocs = docs.filter((d) => !["closed", "completed", "void", "archived"].includes(String(d.status || "").toLowerCase()));
+  const receivedDocs = openDocs.filter((d) => ["received", "file uploaded", "ready for review"].includes(String(d.status || "").toLowerCase()));
   const unpaidInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
   const overdueInvoices = unpaidInvoices.filter((i) => (daysUntil(i.due_date) ?? 0) < 0);
+  const overdueMoney = overdueInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
   const clientNames = new Map(clients.map((c) => [c.client_id, c.client_name]));
+  const nextActions = buildNextActions({ tasks, invoices, docs, flags: null, reviews: null, clientNames });
+  const kpi = (Icon: LucideIcon, tone: string, label: string, value: string, note: string, onClick: () => void) => (
+    <button type="button" className="cc-kpi" onClick={onClick}>
+      <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={20} aria-hidden="true" /></span>
+      <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value">{value}</div><div className="cc-kpi-note">{note}</div></span>
+    </button>
+  );
+  const tabButton = (key: typeof tab, label: string, count: number, hot = false) => (
+    <button type="button" role="tab" aria-selected={tab === key} className={`cc-tab${tab === key ? " on" : ""}`} onClick={() => setTab(key)}>
+      {label}{count > 0 ? <span className={hot ? "hot" : ""}>{count}</span> : null}
+    </button>
+  );
 
   return (
     <div>
-      <div className="portal-banner">
+      <div className="cc-hero">
         <div>
-          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>Staff Portal</div>
-          <h2>{user?.name || user?.email}</h2>
-          <p>Assigned clients, open work, waiting items, and client messages are filtered to your staff profile.</p>
+          <h1 className="cc-hello">{greeting(user?.name || "")}</h1>
+          <div className="cc-date">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · Staff Portal</div>
         </div>
-        <div className="quick-actions">
-          <Link to="/documents" className="ghost-button">Documents</Link>
-          <Link to="/communications" className="ghost-button">Messages</Link>
-          <Link to="/suggestions" className="ghost-button">+ Suggest an Improvement</Link>
+        <div className="cc-chips">
+          {overdue.length > 0 && <button type="button" className="cc-chip red" onClick={() => navigate("/tasks")}>{overdue.length} overdue</button>}
+          {dueToday.length > 0 && <button type="button" className="cc-chip amber" onClick={() => navigate("/tasks")}>{dueToday.length} due today</button>}
+          {receivedDocs.length > 0 && <button type="button" className="cc-chip amber" onClick={() => setTab("docs")}>{receivedDocs.length} uploads to review</button>}
+          {overdue.length === 0 && dueToday.length === 0 && <span className="cc-chip green">You're on track</span>}
+          <Link to="/daily-log" className="ghost-button">Daily Log</Link>
           <Link to="/accounting" className="action-button">Client Workbooks</Link>
         </div>
       </div>
 
-      <TodaysAppointmentsPanel />
-
-      <div className="metric-grid" style={{ marginBottom: 16 }}>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/clients")}>
-          <div className="metric-label">My Clients</div>
-          <div className="metric-value">{clients.length}</div>
-          <div className="metric-note">assigned to you</div>
-        </button>
-        <button type="button" className={`metric metric-clickable${overdue.length > 0 ? " metric-critical" : ""}`} onClick={() => navigate("/tasks")}>
-          <div className="metric-label">Open Tasks</div>
-          <div className="metric-value">{openTasks.length}</div>
-          <div className="metric-note">{overdue.length} overdue</div>
-        </button>
-        <button type="button" className={`metric metric-clickable${overdueInvoices.length > 0 ? " metric-critical" : ""}`} onClick={() => navigate("/billing")}>
-          <div className="metric-label">Unpaid Balance</div>
-          <div className="metric-value">{fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))}</div>
-          <div className="metric-note">{overdueInvoices.length} overdue · {unpaidInvoices.length} total</div>
-        </button>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
-          <div className="metric-label">Open Requests</div>
-          <div className="metric-value">{openDocs.length}</div>
-          <div className="metric-note">document items</div>
-        </button>
+      <div className="cc-kpis">
+        {kpi(AlertTriangle, overdue.length ? "red" : "green", "My overdue", String(overdue.length), `of ${openTasks.length} open tasks`, () => navigate("/tasks"))}
+        {kpi(CalendarClock, dueToday.length ? "amber" : "teal", "Due today", String(dueToday.length), `${dueSoon.length} due this week`, () => navigate("/tasks"))}
+        {kpi(ClipboardCheck, waiting.length ? "blue" : "green", "Waiting on others", String(waiting.length), "client, docs or pending", () => setTab("waiting"))}
+        {kpi(FolderInput, receivedDocs.length ? "blue" : "green", "Uploads to review", String(receivedDocs.length), `${openDocs.length} open requests`, () => setTab("docs"))}
+        {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${clients.length} clients assigned to you`, () => setTab("money"))}
       </div>
 
-      <div className="command-grid">
-        <CommandPanel title="My Work Queue" note={`${openTasks.length} assigned open tasks`}>
-          <TaskRows tasks={openTasks.slice(0, 12)} empty="No assigned open tasks." onChanged={onChanged} />
-        </CommandPanel>
-        <div className="command-stack">
-          {/* Falls back to showing overdue tasks when nothing is due-soon, so this
-              panel isn't just empty — but that must never happen under the
-              unchanged "Due Soon" heading, or overdue work reads as routine. */}
-          <CommandPanel title={dueSoon.length ? "Due Soon" : "Overdue"} note={`${(dueSoon.length || overdue.length)} visible`}>
-            <AttentionRows tasks={(dueSoon.length ? dueSoon : overdue).slice(0, 6)} empty="No due-soon tasks." />
-          </CommandPanel>
-          <CommandPanel title="Waiting / Pending" note={`${waiting.length} visible`}>
-            <TaskRows tasks={waiting.slice(0, 6)} empty="No waiting or pending tasks." showStaleness onChanged={onChanged} />
-          </CommandPanel>
+      <div className="cc-layout">
+        <div>
+          <NextActionsCard actions={nextActions} loaded />
+          <div className="cc-tabs" role="tablist" aria-label="Staff Command Center sections">
+            {tabButton("work", "My work", openTasks.length, overdue.length > 0)}
+            {tabButton("waiting", "Waiting", waiting.length)}
+            {tabButton("docs", "Documents", openDocs.length)}
+            {tabButton("money", "Billing", unpaidInvoices.length, overdueInvoices.length > 0)}
+          </div>
+          {tab === "work" && (
+            <div className="cc-stack">
+              <CommandPanel title="My Work Queue" note={`${openTasks.length} assigned open tasks`} action={<Link to="/tasks" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
+                <TaskRows tasks={openTasks.slice(0, 12)} empty="No assigned open tasks." onChanged={onChanged} />
+              </CommandPanel>
+            </div>
+          )}
+          {tab === "waiting" && (
+            <div className="cc-stack">
+              <CommandPanel title="Waiting / Pending" note={`${waiting.length} tasks`}>
+                <TaskRows tasks={waiting.slice(0, 12)} empty="Nothing is waiting on anyone." showStaleness onChanged={onChanged} />
+              </CommandPanel>
+            </div>
+          )}
+          {tab === "docs" && (
+            <div className="cc-stack">
+              <CommandPanel title="Document Requests" note={`${openDocs.length} open`} action={<Link to="/documents" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
+                <DocumentRows docs={openDocs.slice(0, 10)} empty="No open document requests." />
+              </CommandPanel>
+            </div>
+          )}
+          {tab === "money" && (
+            <div className="cc-stack">
+              <CommandPanel title="Billing Watch" note={`${unpaidInvoices.length} unpaid · ${overdueInvoices.length} overdue`} action={<Link to="/billing" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
+                <InvoiceRows invoices={unpaidInvoices.slice(0, 12)} empty="No unpaid invoices." clientNames={clientNames} />
+              </CommandPanel>
+            </div>
+          )}
         </div>
-      </div>
-
-      <div className="command-grid command-grid-even" style={{ marginTop: 14 }}>
-        <CommandPanel title="Document Requests" note={`${openDocs.length} visible`} action={<Link to="/documents" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
-          <DocumentRows docs={openDocs.slice(0, 6)} empty="No open document requests." />
-        </CommandPanel>
-        <CommandPanel title="Billing Watch" note={`${unpaidInvoices.length} visible`} action={<Link to="/billing" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
-          <InvoiceRows invoices={unpaidInvoices.slice(0, 8)} empty="No unpaid invoices." clientNames={clientNames} />
-        </CommandPanel>
+        <aside className="cc-rail" aria-label="Today">
+          <TodaysAppointmentsPanel />
+          <PickUpWhereYouLeftOff
+            onOpen={(clientId, e) => {
+              if (e?.page === "accounting") navigate(`/accounting?client=${clientId}&tab=${encodeURIComponent(e.tab || "Sales")}`);
+              else navigate(`/clients/${clientId}${e?.tab ? `?tab=${encodeURIComponent(e.tab)}` : ""}`);
+            }}
+          />
+        </aside>
       </div>
     </div>
   );
@@ -1447,16 +1460,80 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
   const taxDue = unpaidTaxRows.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
   const activeId = activeBusinessId || user?.clientId;
   const clientNames = new Map(activeId ? [[activeId, activeBusinessName || user?.clientName || "My Account"]] as [string, string][] : []);
+  const ui = (key: string, vars: Record<string, string> = {}) => Object.entries(vars).reduce((acc, [k, v]) => acc.replace(`{${k}}`, v), t(key));
+  const late = (v: string | null | undefined) => { const d = daysUntil(v); return d === null ? 0 : Math.max(0, -d); };
+  const UPLOADED = ["received", "file uploaded", "ready for review"];
+
+  // "What we need from you" — everything blocked on the client, most urgent first.
+  const needs: NextAction[] = [];
+  for (const n of notices) {
+    if (n.color === "green") continue;
+    needs.push({
+      key: `n-${n.flagId || n.labelEn}`, kind: "notice", severity: n.color === "red" ? "critical" : "high", Icon: FileWarning, score: n.color === "red" ? 100 : 80,
+      title: lang === "ar" ? n.labelAr : n.labelEn,
+      meta: [n.amount !== null ? fmtMoney(n.amount) : "", n.dueDate ? `${t("dashboard.client.dueLabel")} ${fmtDate(n.dueDate)}` : "", n.details || n.note || ""].filter(Boolean).join(" · "),
+      link: "/communications",
+    });
+  }
+  for (const d of openDocs) {
+    if (UPLOADED.includes(String(d.status || "").toLowerCase())) continue;
+    const days = late(d.due_from_client);
+    needs.push({
+      key: `d-${d.request_id}`, kind: "docs", severity: days > 0 ? "high" : "normal", Icon: FolderInput, score: 60 + Math.min(days, 40),
+      title: ui("dash.uploadDoc", { item: d.requested_item }),
+      meta: d.due_from_client ? `${t("dashboard.client.dueLabel")} ${fmtDate(d.due_from_client)}${days > 0 ? ` · ${days} ${t("dash.pastDue")}` : ""}` : "",
+      link: `/documents/${d.request_id}`,
+    });
+  }
+  for (const i of openInvoices) {
+    const days = late(i.due_date);
+    needs.push({
+      key: `i-${i.invoice_id}`, kind: "money", severity: days > 30 ? "critical" : days > 0 ? "high" : "normal", Icon: Wallet, score: 65 + Math.min(days, 60) / 2,
+      title: ui("dash.payInvoice", { id: i.invoice_id, amount: fmtMoney(i.balance_due) }),
+      meta: i.due_date ? `${t("dashboard.client.dueLabel")} ${fmtDate(i.due_date)}${days > 0 ? ` · ${days} ${t("dash.pastDue")}` : ""}` : "",
+      link: `/billing/${i.invoice_id}`,
+    });
+  }
+  for (const r of unpaidTaxRows) {
+    const days = late(r.agency_due_date);
+    needs.push({
+      key: `x-${r.task_id}`, kind: "tax", severity: days > 0 ? "high" : "normal", Icon: CalendarClock, score: 70 + Math.min(days, 60) / 2,
+      title: `${r.task_name} — ${ui("dash.taxPaymentDue", { amount: fmtMoney(r.payment_amount || 0) })}`,
+      meta: r.agency_due_date ? `${t("dashboard.client.dueLabel")} ${fmtDate(r.agency_due_date)}${days > 0 ? ` · ${days} ${t("dash.pastDue")}` : ""}` : "",
+      link: "/billing",
+    });
+  }
+  for (const sv of services.active.filter((x) => x.label === "Waiting on You")) {
+    needs.push({
+      key: `s-${sv.taskId}`, kind: "service", severity: "high", Icon: ClipboardCheck, score: 75,
+      title: ui("dash.serviceWaiting", { service: sv.taskName || sv.serviceLine || "Service" }),
+      meta: [sv.period, sv.agencyDueDate ? `${t("dashboard.client.dueLabel")} ${fmtDate(sv.agencyDueDate)}` : ""].filter(Boolean).join(" · "),
+      link: "/communications",
+    });
+  }
+  needs.sort((x, y) => y.score - x.score);
+  const topNeeds = needs.slice(0, 8);
+  const sevLabels = { critical: t("dash.sev.critical"), high: t("dash.sev.soon"), normal: t("dash.sev.review") };
+  const nextAppt = appointments[0];
+  const inProgress = services.active.length;
+  const kpi = (Icon: LucideIcon, tone: string, label: string, value: React.ReactNode, note: React.ReactNode, onClick: () => void) => (
+    <button type="button" className="cc-kpi" onClick={onClick}>
+      <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={20} aria-hidden="true" /></span>
+      <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value">{value}</div><div className="cc-kpi-note">{note}</div></span>
+    </button>
+  );
+  const owed = balanceDue + taxDue;
 
   return (
     <div dir={dir}>
-      <div className="portal-banner">
+      <div className="cc-hero">
         <div>
-          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>{t("dashboard.client.eyebrow")}</div>
-          <h2>{activeBusinessName || user?.clientName || t("dashboard.client.myAccount")}</h2>
-          <p>{t("dashboard.client.intro")}</p>
+          <div className="cc-date" style={{ marginBottom: 2 }}>{t("dash.welcomeBack")}</div>
+          <h1 className="cc-hello">{activeBusinessName || user?.clientName || t("dashboard.client.myAccount")}</h1>
+          <div className="cc-date">{new Date().toLocaleDateString(lang === "ar" ? "ar" : undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div>
         </div>
-        <div className="quick-actions">
+        <div className="cc-chips">
+          {needs.length === 0 ? <span className="cc-chip green">{t("dash.allSet")}</span> : <span className="cc-chip amber"><Num>{needs.length}</Num> {t("dash.needFromYou")}</span>}
           <Link to="/documents" className="action-button">{t("dashboard.documents")}</Link>
           <Link to="/billing" className="ghost-button">{t("dashboard.billing")}</Link>
           <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
@@ -1464,107 +1541,83 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
         </div>
       </div>
 
-      {notices.length > 0 && (
-        <div className="command-panel" style={{ marginBottom: 14 }}>
-          <div className="command-panel-header">
-            <div>
-              <h2 className="command-panel-title">{t("dashboard.client.accountNotices")}</h2>
-              <div className="command-panel-note">{t("dashboard.client.accountNoticesNote")}</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 4px 4px" }}>
-            {notices.map((n, i) => (
-              <div
-                key={n.flagId || i}
-                className={`status-pill status-${n.color}`}
-                style={{ flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "8px 12px", fontSize: 12.5 }}
-              >
-                <div style={{ fontWeight: 700 }}>
-                  {lang === "ar" ? n.labelAr : n.labelEn}
-                  {n.amount !== null && ` — ${fmtMoney(n.amount)}`}
-                  {n.dueDate && ` — ${t("dashboard.client.dueLabel")} ${fmtDate(n.dueDate)}`}
-                </div>
-                {(n.details || n.note) && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 3 }}>{n.details || n.note}</div>}
+      <div className="cc-kpis">
+        {kpi(FolderInput, openDocs.length ? "amber" : "green", t("dash.kpi.paperwork"), <Num>{openDocs.filter((d) => !UPLOADED.includes(String(d.status || "").toLowerCase())).length}</Num>, <><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>, () => navigate("/documents"))}
+        {kpi(Wallet, owed > 0 ? "amber" : "green", t("dash.kpi.owed"), <Num>{fmtMoney(owed)}</Num>, <><Num>{openInvoices.length}</Num> {t("dashboard.client.openInvoicesLower")} · <Num>{unpaidTaxRows.length}</Num> {t("dashboard.client.taxDueLower")}</>, () => navigate("/billing"))}
+        {kpi(ClipboardCheck, "blue", t("dash.kpi.inProgress"), <Num>{inProgress}</Num>, t("dashboard.client.myServicesNote"), () => document.getElementById("cc-client-services")?.scrollIntoView({ behavior: "smooth" }))}
+        {kpi(CalendarClock, nextAppt ? "teal" : "green", t("dash.kpi.nextVisit"), nextAppt ? <Num>{fmtApptWhen(nextAppt.startTime).split(",").slice(0, 2).join(",")}</Num> : t("dash.kpi.none"), nextAppt ? (nextAppt.appointmentTypeName || nextAppt.title) : "", () => { if (nextAppt?.manageUrl) window.open(nextAppt.manageUrl, "_blank", "noopener"); })}
+      </div>
+
+      <div className="cc-layout">
+        <div>
+          <NextActionsCard
+            actions={topNeeds} loaded
+            title={t("dash.needFromYou")} note={t("dash.needFromYouNote")} emptyText={t("dash.allSet")}
+            goLabel={`${t("dash.open")} ${dir === "rtl" ? "←" : "→"}`} sevLabels={sevLabels}
+          />
+
+          <div id="cc-client-services" className="command-panel" style={{ marginBottom: 14 }}>
+            <div className="command-panel-header">
+              <div>
+                <h2 className="command-panel-title">{t("dashboard.client.myServices")}</h2>
+                <div className="command-panel-note">{t("dashboard.client.myServicesNote")}</div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="metric-grid metric-grid-3" style={{ marginBottom: 16 }}>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
-          <div className="metric-label">{t("dashboard.client.documentRequests")}</div>
-          <div className="metric-value"><Num>{openDocs.length}</Num></div>
-          <div className="metric-note">{t("dashboard.visible")}</div>
-        </button>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
-          <div className="metric-label">{t("dashboard.client.balanceDue")}</div>
-          <div className="metric-value"><Num>{fmtMoney(balanceDue)}</Num></div>
-          <div className="metric-note"><Num>{openInvoices.length}</Num> {t("dashboard.client.openInvoicesLower")}</div>
-        </button>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
-          <div className="metric-label">{t("dashboard.client.taxDue")}</div>
-          <div className="metric-value"><Num>{fmtMoney(taxDue)}</Num></div>
-          <div className="metric-note"><Num>{unpaidTaxRows.length}</Num> {t("dashboard.client.taxDueLower")}</div>
-        </button>
-      </div>
-
-      <div className="command-panel" style={{ marginBottom: 14 }}>
-        <div className="command-panel-header">
-          <div>
-            <h2 className="command-panel-title">{t("dashboard.client.myServices")}</h2>
-            <div className="command-panel-note">{t("dashboard.client.myServicesNote")}</div>
-          </div>
-        </div>
-        <MyServicesRows tasks={services.active} empty={t("dashboard.client.noServices")} />
-        {services.recentlyCompleted.length > 0 && (
-          <>
-            <div className="command-panel-header" style={{ borderTop: "1px solid var(--line)" }}>
-              <div><h2 className="command-panel-title" style={{ fontSize: 13 }}>{t("dashboard.client.recentlyCompleted")}</h2></div>
             </div>
-            <MyServicesRows tasks={services.recentlyCompleted} empty="" />
-          </>
-        )}
-      </div>
-
-      {appointments.length > 0 && (
-        <div className="command-panel" style={{ marginBottom: 14 }}>
-          <div className="command-panel-header">
-            <div>
-              <h2 className="command-panel-title">{t("dashboard.client.upcomingAppointments")}</h2>
-              <div className="command-panel-note"><Num>{appointments.length}</Num> {t("dashboard.visible")}</div>
-            </div>
+            <MyServicesRows tasks={services.active} empty={t("dashboard.client.noServices")} />
+            {services.recentlyCompleted.length > 0 && (
+              <>
+                <div className="command-panel-header" style={{ borderTop: "1px solid var(--line)" }}>
+                  <div><h2 className="command-panel-title" style={{ fontSize: 13 }}>{t("dashboard.client.recentlyCompleted")}</h2></div>
+                </div>
+                <MyServicesRows tasks={services.recentlyCompleted} empty="" />
+              </>
+            )}
           </div>
-          <div className="work-card-list">
-            {appointments.slice(0, 3).map((a) => (
-              <article className="work-card" key={a.appointmentId}>
-                <div className="work-card-main">
-                  <div className="work-card-title">{a.appointmentTypeName || a.title}</div>
-                  <div className="work-card-meta">
-                    <span>{fmtApptWhen(a.startTime)} ET</span>
-                    {a.location && <span>{a.location}</span>}
-                  </div>
-                </div>
-                <div className="work-card-side">
-                  {a.manageUrl && (
-                    <a href={a.manageUrl} target="_blank" rel="noopener noreferrer" className="ghost-button btn-sm">
-                      {t("dashboard.client.rescheduleOrCancel")}
-                    </a>
-                  )}
-                </div>
-              </article>
-            ))}
+
+          <div className="command-grid-even" style={{ display: "grid", gap: 14 }}>
+            <CommandPanel title={t("dashboard.client.documentRequests")} note={<><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>}>
+              <DocumentRows docs={openDocs.slice(0, 10)} empty={t("dashboard.client.noDocs")} />
+            </CommandPanel>
+            <CommandPanel title={t("dashboard.client.openInvoices")} note={<><Num>{openInvoices.length}</Num> {t("dashboard.visible")}</>}>
+              <InvoiceRows invoices={openInvoices.slice(0, 6)} empty={t("dashboard.client.noInvoices")} clientNames={clientNames} />
+            </CommandPanel>
           </div>
         </div>
-      )}
 
-      <div className="command-grid-even" style={{ display: "grid", gap: 14 }}>
-        <CommandPanel title={t("dashboard.client.documentRequests")} note={<><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>}>
-          <DocumentRows docs={openDocs.slice(0, 10)} empty={t("dashboard.client.noDocs")} />
-        </CommandPanel>
-        <CommandPanel title={t("dashboard.client.openInvoices")} note={<><Num>{openInvoices.length}</Num> {t("dashboard.visible")}</>}>
-          <InvoiceRows invoices={openInvoices.slice(0, 6)} empty={t("dashboard.client.noInvoices")} clientNames={clientNames} />
-        </CommandPanel>
+        <aside className="cc-rail" aria-label={t("dashboard.client.upcomingAppointments")}>
+          <div className="command-panel">
+            <div className="command-panel-header">
+              <div>
+                <h2 className="command-panel-title">{t("dashboard.client.upcomingAppointments")}</h2>
+                <div className="command-panel-note"><Num>{appointments.length}</Num> {t("dashboard.visible")}</div>
+              </div>
+            </div>
+            {appointments.length === 0 ? (
+              <p className="muted" style={{ padding: 16, margin: 0 }}>{t("dash.kpi.none")}</p>
+            ) : (
+              <div className="work-card-list">
+                {appointments.slice(0, 3).map((a) => (
+                  <article className="work-card" key={a.appointmentId}>
+                    <div className="work-card-main">
+                      <div className="work-card-title">{a.appointmentTypeName || a.title}</div>
+                      <div className="work-card-meta">
+                        <span><Num>{fmtApptWhen(a.startTime)} ET</Num></span>
+                        {a.location && <span>{a.location}</span>}
+                      </div>
+                    </div>
+                    <div className="work-card-side">
+                      {a.manageUrl && (
+                        <a href={a.manageUrl} target="_blank" rel="noopener noreferrer" className="ghost-button btn-sm">
+                          {t("dashboard.client.rescheduleOrCancel")}
+                        </a>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
     </div>
   );
@@ -1593,8 +1646,10 @@ function EmployeeCommand() {
   const [paychecks, setPaychecks] = useState<MyPaycheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [forms, setForms] = useState<GovFormFiling[] | null>(null);
 
   useEffect(() => {
+    api.get<{ filings: GovFormFiling[] }>("/gov-forms/my").then((res) => setForms(res.filings)).catch(() => setForms([]));
     api.get<{ paychecks: MyPaycheck[] }>("/accounting/paychecks/mine")
       .then((res) => setPaychecks(res.paychecks))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load your paystubs."));
@@ -1635,31 +1690,51 @@ function EmployeeCommand() {
     }
   }
 
+  const year = String(new Date().getFullYear());
+  const thisYear = (paychecks || []).filter((p) => (p.pay_date || "").slice(0, 4) === year);
+  const sum = (rows: MyPaycheck[], k: "gross_wages" | "net_pay") => rows.reduce((acc, p) => acc + Number(p[k] || 0), 0);
+  const waitingForms = (forms || []).filter((f) => f.status === "Draft");
+  const needs: NextAction[] = waitingForms.map((f) => ({
+    key: `form-${f.filing_id}`, kind: "form", severity: "high", Icon: FileWarning, score: 90,
+    title: `${t("dash.employee.formWaiting")} — ${GOV_FORM_LABELS[f.form_type] || f.form_type}`,
+    meta: t("dash.employee.openForms"), link: "/my-tax-forms",
+  }));
+  const kpi = (Icon: LucideIcon, tone: string, label: string, value: React.ReactNode, note: React.ReactNode, onClick?: () => void) => (
+    <button type="button" className="cc-kpi" onClick={onClick} disabled={!onClick} style={onClick ? undefined : { cursor: "default" }}>
+      <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={20} aria-hidden="true" /></span>
+      <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value">{value}</div><div className="cc-kpi-note">{note}</div></span>
+    </button>
+  );
+
   return (
     <div dir={dir}>
-      <div className="portal-banner">
+      <div className="cc-hero">
         <div>
-          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>{t("dashboard.employee.eyebrow")}</div>
-          <h2>{user?.employeeName || user?.name || t("dashboard.employee.myPay")}</h2>
-          <p>{t("dashboard.employee.intro")}</p>
+          <div className="cc-date" style={{ marginBottom: 2 }}>{t("dashboard.employee.eyebrow")}</div>
+          <h1 className="cc-hello">{t("dash.employee.hello")}, {user?.employeeName || user?.name || t("dashboard.employee.myPay")}</h1>
+          <div className="cc-date">{user?.clientName || ""}{user?.employeeId ? <> · <Num>{user.employeeId}</Num></> : null}</div>
         </div>
-        <div className="quick-actions">
+        <div className="cc-chips">
+          {waitingForms.length > 0 && <Link to="/my-tax-forms" className="cc-chip amber">{t("dash.employee.formWaiting")}</Link>}
+          <Link to="/my-tax-forms" className="action-button">{t("dash.employee.openForms")}</Link>
           <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
         </div>
       </div>
 
-      <div className="command-panel" style={{ marginBottom: 14 }}>
-        <div className="command-panel-header">
-          <div>
-            <h2 className="command-panel-title">{t("dashboard.employee.profile")}</h2>
-          </div>
-        </div>
-        <MiniKpis items={[
-          [t("dashboard.employee.email"), user?.email || "—"],
-          [t("dashboard.employee.employer"), user?.clientName || "—"],
-          [t("dashboard.employee.employeeId"), user?.employeeId || "—"],
-        ]} />
+      <div className="cc-kpis">
+        {kpi(Wallet, "green", t("dash.employee.latestNet"), latest ? <Num>{fmtMoney(latest.net_pay)}</Num> : "—", latest ? <Num>{fmtDate(latest.pay_date) || ""}</Num> : t("dashboard.employee.noPaystubs"))}
+        {kpi(CalendarClock, "teal", t("dash.employee.ytdGross"), <Num>{fmtMoney(sum(thisYear, "gross_wages"))}</Num>, <Num>{year}</Num>)}
+        {kpi(ClipboardCheck, "blue", t("dash.employee.ytdNet"), <Num>{fmtMoney(sum(thisYear, "net_pay"))}</Num>, <Num>{year}</Num>)}
+        {kpi(FolderInput, "blue", t("dash.employee.stubsCount"), <Num>{paychecks?.length ?? 0}</Num>, t("dashboard.employee.onFile"))}
       </div>
+
+      {needs.length > 0 && (
+        <NextActionsCard
+          actions={needs} loaded title={t("dash.needFromYou")} note={t("dash.needFromYouNote")}
+          goLabel={`${t("dash.open")} ${dir === "rtl" ? "←" : "→"}`}
+          sevLabels={{ critical: t("dash.sev.critical"), high: t("dash.sev.soon"), normal: t("dash.sev.review") }}
+        />
+      )}
 
       {latest && (
         <div className="command-panel" style={{ marginBottom: 14 }}>
@@ -1667,6 +1742,10 @@ function EmployeeCommand() {
             <div>
               <h2 className="command-panel-title">{t("dashboard.employee.latestPaystub")}</h2>
               <div className="command-panel-note"><Num>{fmtDate(latest.pay_date) || "No date"}{latest.check_number ? ` · ${t("dashboard.employee.checkNum")}${latest.check_number}` : ""}</Num></div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" className="btn btn-sm" disabled={busy === `view:${latest.paycheck_id}`} onClick={() => handleView(latest)}>{t("dashboard.employee.view")}</button>
+              <button type="button" className="btn btn-sm" disabled={busy === `download:${latest.paycheck_id}`} onClick={() => handleDownload(latest)}>{t("dashboard.employee.download")}</button>
             </div>
           </div>
           <MiniKpis items={[
