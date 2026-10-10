@@ -2330,6 +2330,24 @@ accountingRouter.get("/client-books/sales-drafts", requireAuth, asyncHandler(asy
   res.json({ drafts: rows.map((r, i) => ({ ...r, computedTax: previews[i].totalTax })) });
 }));
 
+/** Lightweight "have I logged my sales?" status for the client dashboard — newest sales date across pending drafts and posted sales, no tax math. */
+accountingRouter.get("/client-books/sales-status", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const row = await queryOne<any>(
+    `SELECT GREATEST(
+              (SELECT MAX(sale_date) FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND status != 'Dismissed'),
+              (SELECT MAX(sale_date) FROM altax.v3_sales_input WHERE client_id = $1)
+            ) AS last_sale_date,
+            (SELECT COUNT(*) FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND status = 'Pending') AS pending_count`,
+    [clientId]
+  );
+  const last = row?.last_sale_date ? new Date(row.last_sale_date) : null;
+  const ymd = last ? `${last.getUTCFullYear()}-${String(last.getUTCMonth() + 1).padStart(2, "0")}-${String(last.getUTCDate()).padStart(2, "0")}` : null;
+  res.json({ lastSaleDate: ymd, pendingCount: Number(row?.pending_count || 0) });
+}));
+
 accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { draftId } = req.params;
   const draft = await queryOne<any>(`SELECT * FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);

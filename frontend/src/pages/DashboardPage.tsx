@@ -23,7 +23,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { GOV_FORM_LABELS } from "../api/govForms";
 import type { GovFormType, GovFormFiling } from "../api/govForms";
 import { useStickyState } from "../utils/listState";
-import { AlertTriangle, CalendarClock, ClipboardCheck, FileWarning, FolderInput, Wallet, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, ClipboardCheck, FileWarning, FolderInput, Landmark, MessageSquare, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -1478,10 +1478,24 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
   const { t, dir, lang } = useLanguage();
   const [notices, setNotices] = useState<AccountNotice[]>([]);
   const [services, setServices] = useState<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>({ active: [], recentlyCompleted: [] });
+  const [snap, setSnap] = useState<{ totalIncome: number; totalExpenses: number; netIncome: number; pendingSalesCount: number; pendingPurchasesCount: number } | null>(null);
+  const [salesTax, setSalesTax] = useState<{ available: boolean; periodEnd?: string; dueDate?: string; totalEstimated?: number } | null>(null);
+  const [salesStatus, setSalesStatus] = useState<{ lastSaleDate: string | null; pendingCount: number } | null>(null);
   useEffect(() => {
     const qs = activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
     api.get<{ notices: AccountNotice[] }>(`/clients/notices/mine${qs}`).then((res) => setNotices(res.notices)).catch(() => {});
     api.get<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>(`/tasks/mine${qs}`).then(setServices).catch(() => {});
+    // Owner's-eye numbers from My Books. A client without books access (or a failed call) simply hides those tiles.
+    const id = activeBusinessId || user?.clientId;
+    setSnap(null); setSalesTax(null); setSalesStatus(null);
+    if (id) {
+      const d = new Date();
+      const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+      const from = ymd(new Date(d.getFullYear(), d.getMonth(), 1));
+      api.get<NonNullable<typeof snap>>(`/accounting/client-books/pl-preview?clientId=${encodeURIComponent(id)}&from=${from}&to=${ymd(d)}`).then(setSnap).catch(() => {});
+      api.get<NonNullable<typeof salesTax>>(`/accounting/client-books/sales-tax-liability?clientId=${encodeURIComponent(id)}`).then(setSalesTax).catch(() => {});
+      api.get<NonNullable<typeof salesStatus>>(`/accounting/client-books/sales-status?clientId=${encodeURIComponent(id)}`).then(setSalesStatus).catch(() => {});
+    }
   }, [activeBusinessId]);
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
@@ -1544,7 +1558,6 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
   needs.sort((x, y) => y.score - x.score);
   const topNeeds = needs.slice(0, 8);
   const sevLabels = { critical: t("dash.sev.critical"), high: t("dash.sev.soon"), normal: t("dash.sev.review") };
-  const nextAppt = appointments[0];
   const inProgress = services.active.length;
   const kpi = (Icon: LucideIcon, tone: string, label: string, value: React.ReactNode, note: React.ReactNode, onClick: () => void) => (
     <button type="button" className="cc-kpi" onClick={onClick}>
@@ -1553,6 +1566,29 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
     </button>
   );
   const owed = balanceDue + taxDue;
+  const todayYmd = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const loggedToday = salesStatus?.lastSaleDate === todayYmd;
+  const daysSinceSale = salesStatus?.lastSaleDate ? Math.round((new Date(`${todayYmd}T00:00:00`).getTime() - new Date(`${salesStatus.lastSaleDate}T00:00:00`).getTime()) / 86400000) : null;
+  const countdown = (due: string | null | undefined): { text: string; tone: "red" | "amber" | "green" | "blue" } | null => {
+    const dd = daysUntil(due);
+    if (dd === null) return null;
+    if (dd < 0) return { text: ui("dash.overdueDays", { n: String(-dd) }), tone: "red" };
+    if (dd === 0) return { text: t("dash.dueToday"), tone: "red" };
+    return { text: ui("dash.daysLeft", { n: String(dd) }), tone: dd <= 7 ? "amber" : dd <= 30 ? "blue" : "green" };
+  };
+  // Everything with a date attached — services in progress and tax payments still owed — soonest first.
+  const deadlines = [
+    ...services.active.filter((x) => x.agencyDueDate).map((x) => ({ key: `s-${x.taskId}`, title: x.taskName || x.serviceLine || "Service", sub: [x.serviceLine, x.period].filter(Boolean).join(" · "), due: x.agencyDueDate })),
+    ...unpaidTaxRows.filter((r) => r.agency_due_date && !services.active.some((x) => x.taskId === r.task_id)).map((r) => ({ key: `x-${r.task_id}`, title: r.task_name, sub: ui("dash.taxPaymentDue", { amount: fmtMoney(r.payment_amount || 0) }), due: r.agency_due_date })),
+  ].sort((x, y) => String(x.due).localeCompare(String(y.due))).slice(0, 6);
+  const showMoney = snap !== null;
+  const monthName = new Date().toLocaleDateString(lang === "ar" ? "ar" : undefined, { month: "long" });
+  const quick = (Icon: LucideIcon, label: string, sub: string, to: string, tone = "teal") => (
+    <Link to={to} className="cc-quick">
+      <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={18} aria-hidden="true" /></span>
+      <span><b>{label}</b><small>{sub}</small></span>
+    </Link>
+  );
 
   return (
     <div dir={dir}>
@@ -1563,19 +1599,32 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
           <div className="cc-date">{new Date().toLocaleDateString(lang === "ar" ? "ar" : undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div>
         </div>
         <div className="cc-chips">
-          {needs.length === 0 ? <span className="cc-chip green">{t("dash.allSet")}</span> : <span className="cc-chip amber"><Num>{needs.length}</Num> {t("dash.needFromYou")}</span>}
-          <Link to="/documents" className="action-button">{t("dashboard.documents")}</Link>
-          <Link to="/billing" className="ghost-button">{t("dashboard.billing")}</Link>
-          <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
-          <Link to="/my-business" className="ghost-button">{t("nav.myBusiness")}</Link>
+          {needs.length === 0 ? <span className="cc-chip green">{t("dash.allSet")}</span> : <span className="cc-chip amber">{ui("dash.itemsNeedYou", { n: String(needs.length) })}</span>}
         </div>
       </div>
 
+      {/* The one habit that keeps the books right: log today's sales. */}
+      <div className={`cc-sales-nudge${loggedToday ? " done" : ""}`}>
+        <div>
+          <b>{loggedToday ? t("dash.sales.doneToday") : t("dash.sales.logPrompt")}</b>
+          <span>
+            {salesStatus === null ? "" : salesStatus.lastSaleDate
+              ? ui("dash.sales.last", { date: fmtDate(salesStatus.lastSaleDate), n: daysSinceSale && daysSinceSale > 0 ? ui("dash.sales.daysAgo", { n: String(daysSinceSale) }) : "" })
+              : t("dash.sales.none")}
+            {salesStatus && salesStatus.pendingCount > 0 ? ` · ${ui("dash.sales.pending", { n: String(salesStatus.pendingCount) })}` : ""}
+          </span>
+        </div>
+        <Link to="/my-books" className="action-button">{loggedToday ? t("dash.sales.openBooks") : t("dash.quick.logSales")}</Link>
+      </div>
+
       <div className="cc-kpis">
-        {kpi(FolderInput, openDocs.length ? "amber" : "green", t("dash.kpi.paperwork"), <Num>{openDocs.filter((d) => !UPLOADED.includes(String(d.status || "").toLowerCase())).length}</Num>, <><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>, () => navigate("/documents"))}
+        {showMoney && kpi(TrendingUp, snap!.netIncome < 0 ? "red" : "green", ui("dash.kpi.netMonth", { month: monthName }), <Num>{fmtMoney(snap!.netIncome)}</Num>, <><Num>{fmtMoney(snap!.totalIncome)}</Num> {t("books.kpi.income")} · <Num>{fmtMoney(snap!.totalExpenses)}</Num> {t("books.kpi.expenses")}</>, () => navigate("/my-books"))}
+        {salesTax?.available
+          ? kpi(Landmark, "blue", t("dash.kpi.salesTaxOwed"), <Num>{fmtMoney(salesTax.totalEstimated || 0)}</Num>, salesTax.dueDate ? <>{t("dashboard.client.dueLabel")} <Num>{fmtDate(salesTax.dueDate)}</Num>{countdown(salesTax.dueDate) ? ` · ${countdown(salesTax.dueDate)!.text}` : ""}</> : t("books.kpi.estimate"), () => navigate("/my-books"))
+          : null}
         {kpi(Wallet, owed > 0 ? "amber" : "green", t("dash.kpi.owed"), <Num>{fmtMoney(owed)}</Num>, <><Num>{openInvoices.length}</Num> {t("dashboard.client.openInvoicesLower")} · <Num>{unpaidTaxRows.length}</Num> {t("dashboard.client.taxDueLower")}</>, () => navigate("/billing"))}
-        {kpi(ClipboardCheck, "blue", t("dash.kpi.inProgress"), <Num>{inProgress}</Num>, t("dashboard.client.myServicesNote"), () => document.getElementById("cc-client-services")?.scrollIntoView({ behavior: "smooth" }))}
-        {kpi(CalendarClock, nextAppt ? "teal" : "green", t("dash.kpi.nextVisit"), nextAppt ? <Num>{fmtApptWhen(nextAppt.startTime).split(",").slice(0, 2).join(",")}</Num> : t("dash.kpi.none"), nextAppt ? (nextAppt.appointmentTypeName || nextAppt.title) : "", () => { if (nextAppt?.manageUrl) window.open(nextAppt.manageUrl, "_blank", "noopener"); })}
+        {kpi(FolderInput, openDocs.length ? "amber" : "green", t("dash.kpi.paperwork"), <Num>{openDocs.filter((d) => !UPLOADED.includes(String(d.status || "").toLowerCase())).length}</Num>, <><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>, () => navigate("/documents"))}
+        {!showMoney && kpi(ClipboardCheck, "blue", t("dash.kpi.inProgress"), <Num>{inProgress}</Num>, t("dashboard.client.myServicesNote"), () => document.getElementById("cc-client-services")?.scrollIntoView({ behavior: "smooth" }))}
       </div>
 
       <div className="cc-layout">
@@ -1585,6 +1634,29 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
             title={t("dash.needFromYou")} note={t("dash.needFromYouNote")} emptyText={t("dash.allSet")}
             goLabel={`${t("dash.open")} ${dir === "rtl" ? "←" : "→"}`} sevLabels={sevLabels}
           />
+
+          {deadlines.length > 0 && (
+            <div className="command-panel" style={{ marginBottom: 14 }}>
+              <div className="command-panel-header">
+                <div>
+                  <h2 className="command-panel-title">{t("dash.coming")}</h2>
+                  <div className="command-panel-note">{t("dash.comingNote")}</div>
+                </div>
+              </div>
+              <div className="cc-deadlines">
+                {deadlines.map((dl) => {
+                  const c = countdown(dl.due);
+                  return (
+                    <div className="cc-deadline" key={dl.key}>
+                      <div className="cc-deadline-date"><b><Num>{fmtDate(dl.due)}</Num></b></div>
+                      <div className="cc-deadline-main"><b>{dl.title}</b>{dl.sub ? <small>{dl.sub}</small> : null}</div>
+                      {c && <span className={`status-pill status-${c.tone}`}>{c.text}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div id="cc-client-services" className="command-panel" style={{ marginBottom: 14 }}>
             <div className="command-panel-header">
@@ -1614,7 +1686,17 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
           </div>
         </div>
 
-        <aside className="cc-rail" aria-label={t("dashboard.client.upcomingAppointments")}>
+        <aside className="cc-rail" aria-label={t("dash.quick.title")}>
+          <div className="command-panel">
+            <div className="command-panel-header"><div><h2 className="command-panel-title">{t("dash.quick.title")}</h2></div></div>
+            <div className="cc-quick-grid">
+              {quick(ClipboardCheck, t("dash.quick.logSales"), t("dash.quick.logSalesSub"), "/my-books", "green")}
+              {quick(FolderInput, t("dash.quick.upload"), t("dash.quick.uploadSub"), "/documents", "amber")}
+              {quick(MessageSquare, t("dash.quick.message"), t("dash.quick.messageSub"), "/communications", "blue")}
+              {quick(Wallet, t("dash.quick.invoices"), t("dash.quick.invoicesSub"), "/billing", "teal")}
+              {quick(Building2, t("nav.myBusiness"), t("dash.quick.profileSub"), "/my-business", "teal")}
+            </div>
+          </div>
           <div className="command-panel">
             <div className="command-panel-header">
               <div>
