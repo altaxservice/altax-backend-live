@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -131,23 +132,30 @@ export function FixCenterPage() {
 
   return (
     <div>
-      <div className="portal-banner" style={{ marginBottom: 16 }}>
-        <div className="topbar-eyebrow">Fix Center</div>
-        <h2>System Health &amp; Self-Diagnostics</h2>
-        <p>
-          Plain-English checks of whether anything in the app is misconfigured or the data has drifted into a bad state —
-          no technical knowledge needed to read this page. For anything not fixable here,
-          {user?.role === "admin" ? (
-            <> see the <Link to="/maintenance-manual">Maintenance Manual</Link> or ask your developer to look into it.</>
-          ) : (
-            <> see the Maintenance Manual or ask an admin to look into it.</>
-          )}
-        </p>
+      <div className="cc-hero">
+        <div>
+          <div className="cc-date" style={{ marginBottom: 2 }}>Fix Center</div>
+          <h1 className="cc-hello" style={{ fontSize: 24 }}>System Health &amp; Self-Diagnostics</h1>
+          <div className="cc-date" style={{ maxWidth: 680 }}>
+            Plain-English checks of whether anything is misconfigured or the data has drifted into a bad state. For anything not fixable here,
+            {user?.role === "admin" ? (<> see the <Link to="/maintenance-manual">Maintenance Manual</Link> or ask your developer.</>) : (<> ask an admin to look into it.</>)}
+          </div>
+        </div>
+        <div className="cc-chips">
+          {checks && (criticalCount > 0
+            ? <span className="cc-chip red">{criticalCount} critical</span>
+            : warningCount > 0 ? <span className="cc-chip amber">{warningCount} to review</span> : <span className="cc-chip green">Everything checks out</span>)}
+          <button className="ghost-button" onClick={() => { loadDiagnostics(); if (isAdmin) load(); }}>Refresh</button>
+        </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <button className="btn" onClick={() => { loadDiagnostics(); if (isAdmin) load(); }}>Refresh</button>
-      </div>
+      {checks && (
+        <div className="cc-kpis">
+          <div className="cc-kpi" style={{ cursor: "default" }}><span className="cc-kpi-icon act-tone-green"><CheckCircle2 size={20} aria-hidden="true" /></span><span><div className="cc-kpi-label">Passing</div><div className="cc-kpi-value">{checks.filter((c) => c.status === "ok").length}</div><div className="cc-kpi-note">of {checks.length} checks</div></span></div>
+          <div className="cc-kpi" style={{ cursor: "default" }}><span className={`cc-kpi-icon act-tone-${warningCount ? "amber" : "green"}`}><AlertTriangle size={20} aria-hidden="true" /></span><span><div className="cc-kpi-label">Needs attention</div><div className="cc-kpi-value">{warningCount}</div><div className="cc-kpi-note">nothing urgent</div></span></div>
+          <div className="cc-kpi" style={{ cursor: "default" }}><span className={`cc-kpi-icon act-tone-${criticalCount ? "red" : "green"}`}><ShieldAlert size={20} aria-hidden="true" /></span><span><div className="cc-kpi-label">Critical</div><div className="cc-kpi-value">{criticalCount}</div><div className="cc-kpi-note">fix first</div></span></div>
+        </div>
+      )}
 
       <div className="command-panel" style={{ marginBottom: 16 }}>
         <div className="command-panel-header">
@@ -166,7 +174,7 @@ export function FixCenterPage() {
         </div>
         {checksError && <ErrorBanner error={checksError} style={{ margin: 16 }} />}
         {!checks && !checksError && <div className="spinner-wrap">Running diagnostics…</div>}
-        {checks && checks.map((c) => <DiagnosticRow key={c.id} check={c} onFixed={loadDiagnostics} />)}
+        {checks && [...checks].sort((x, y) => ({ critical: 0, warning: 1, ok: 2 }[x.status] - { critical: 0, warning: 1, ok: 2 }[y.status])).map((c) => <DiagnosticRow key={c.id} check={c} onFixed={loadDiagnostics} />)}
       </div>
 
       <MdAnnualReportOverdue />

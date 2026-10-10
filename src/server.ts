@@ -17,6 +17,7 @@ import { taxReturnsRouter } from "./modules/clients/taxReturns.routes";
 import { workTrailRouter } from "./modules/clients/workTrail.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
+import { runWeeklyDailyLogSummary } from "./modules/dailyLog/weeklySummary";
 import { usersRouter } from "./modules/users/users.routes";
 import { kioskRouter } from "./modules/kiosk/kiosk.routes";
 import { publicKioskRouter } from "./modules/publicKiosk/publicKiosk.routes";
@@ -677,6 +678,12 @@ console.log("Monthly client snapshot sweep scheduled for 7:00AM America/New_York
 cron.schedule("15 7 1 * *", runScheduledJob("Monthly Management Summary", () => runMonthlyManagementSummary("System (Monthly Management Summary Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Monthly management summary scheduled for 7:15AM America/New_York on the 1st of each month.");
+
+// Weekly Daily Log summary — Monday 7:30AM ET, one private email per author covering the week that just ended.
+// Idempotent per author per week; authors with no entries get nothing.
+cron.schedule("30 7 * * 1", runScheduledJob("Weekly Daily Log Summary", () => runWeeklyDailyLogSummary("System (Weekly Daily Log Job)")), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Weekly Daily Log summary scheduled for 7:30AM America/New_York on Mondays.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except

@@ -900,24 +900,51 @@ function buildNextActions(a: {
   return out.sort((x, y) => y.score - x.score).filter((x) => { const n = perKind.get(x.kind) || 0; if (n >= 3) return false; perKind.set(x.kind, n + 1); return true; }).slice(0, 8);
 }
 
-function NextActionsCard({ actions, loaded, title = "Do this next", note, emptyText = "Nothing urgent right now — you're all caught up. 🎉", goLabel = "Open →", sevLabels = { critical: "Critical", high: "Soon", normal: "Review" } }: {
-  actions: NextAction[]; loaded: boolean; title?: string; note?: string; emptyText?: string; goLabel?: string; sevLabels?: { critical: string; high: string; normal: string };
+const SNOOZE_KEY = "altax_next_snoozed";
+function readSnoozed(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SNOOZE_KEY) || "{}") as Record<string, number>;
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(raw).filter(([, until]) => until > now));
+  } catch { return {}; }
+}
+
+function NextActionsCard({ actions, loaded, title = "Do this next", note, emptyText = "Nothing urgent right now — you're all caught up. 🎉", goLabel = "Open →", sevLabels = { critical: "Critical", high: "Soon", normal: "Review" }, snoozable = false }: {
+  actions: NextAction[]; loaded: boolean; title?: string; note?: string; emptyText?: string; goLabel?: string; sevLabels?: { critical: string; high: string; normal: string }; snoozable?: boolean;
 }) {
   const navigate = useNavigate();
+  const [snoozed, setSnoozed] = useState<Record<string, number>>(() => (snoozable ? readSnoozed() : {}));
+  function snooze(key: string, hours: number) {
+    const next = { ...readSnoozed(), [key]: Date.now() + hours * 3600_000 };
+    try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    setSnoozed(next);
+  }
+  function clearSnoozes() {
+    try { localStorage.removeItem(SNOOZE_KEY); } catch { /* private mode */ }
+    setSnoozed({});
+  }
+  const visible = snoozable ? actions.filter((a) => !snoozed[a.key]) : actions;
+  const hiddenCount = actions.length - visible.length;
   return (
     <section className="cc-next" aria-label={title}>
-      <div className="cc-next-head"><h2>{title}</h2><span>{loaded ? (actions.length ? (note ?? `Top ${actions.length}, most urgent first`) : "") : "…"}</span></div>
-      {loaded && actions.length === 0 && <p className="muted" style={{ padding: 20, margin: 0, textAlign: "center" }}>{emptyText}</p>}
-      {actions.map((a) => (
-        <button type="button" className="cc-next-row" key={a.key} onClick={() => navigate(a.link)}>
-          <span className={`act-icon sm act-tone-${a.severity === "critical" ? "red" : a.severity === "high" ? "amber" : "blue"}`}><a.Icon size={15} aria-hidden="true" /></span>
-          <span>
-            <div className="cc-next-title"><span className={`cc-sev ${a.severity}`}>{sevLabels[a.severity]}</span>{a.title}</div>
-            <div className="cc-next-meta">{a.meta}</div>
-          </span>
-          <span className="cc-next-go">{goLabel}</span>
-        </button>
+      <div className="cc-next-head"><h2>{title}</h2><span>{loaded ? (visible.length ? (note ?? `Top ${visible.length}, most urgent first`) : "") : "…"}</span></div>
+      {loaded && visible.length === 0 && <p className="muted" style={{ padding: 20, margin: 0, textAlign: "center" }}>{hiddenCount ? "Everything left is snoozed." : emptyText}</p>}
+      {visible.map((a) => (
+        <div className="cc-next-wrap" key={a.key}>
+          <button type="button" className="cc-next-row" onClick={() => navigate(a.link)}>
+            <span className={`act-icon sm act-tone-${a.severity === "critical" ? "red" : a.severity === "high" ? "amber" : "blue"}`}><a.Icon size={15} aria-hidden="true" /></span>
+            <span>
+              <div className="cc-next-title"><span className={`cc-sev ${a.severity}`}>{sevLabels[a.severity]}</span>{a.title}</div>
+              <div className="cc-next-meta">{a.meta}</div>
+            </span>
+            <span className="cc-next-go">{goLabel}</span>
+          </button>
+          {snoozable && <button type="button" className="cc-snooze" title="Hide this for 24 hours" aria-label={`Snooze: ${a.title}`} onClick={() => snooze(a.key, 24)}>Snooze</button>}
+        </div>
       ))}
+      {snoozable && hiddenCount > 0 && (
+        <div className="cc-next-foot">{hiddenCount} snoozed for 24 hours · <button type="button" className="link-button" onClick={clearSnoozes}>Show them again</button></div>
+      )}
     </section>
   );
 }
@@ -1076,7 +1103,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
       <div className="cc-layout">
         <div>
-          <NextActionsCard actions={nextActions} loaded={flags !== null && reviews !== null} />
+          <NextActionsCard snoozable actions={nextActions} loaded={flags !== null && reviews !== null} />
 
           <div className="cc-tabs" role="tablist" aria-label="Command Center sections">
             {tabButton("work", "Work", openTasks.length, overdue.length > 0)}
@@ -1339,7 +1366,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
       <div className="cc-layout">
         <div>
-          <NextActionsCard actions={nextActions} loaded />
+          <NextActionsCard snoozable actions={nextActions} loaded />
           <div className="cc-tabs" role="tablist" aria-label="Staff Command Center sections">
             {tabButton("work", "My work", openTasks.length, overdue.length > 0)}
             {tabButton("waiting", "Waiting", waiting.length)}
