@@ -3238,9 +3238,13 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
             return d.toISOString().slice(0, 10);
           })()]
         );
-      } else if (newFreq !== oldFreq) {
+      } else if (newFreq !== (openRow ? openRow.frequency : oldFreq)) {
         // Existing forward-moving path: a new frequency taking effect from
         // here on — close whatever's currently open and start a fresh row.
+        // Compared against the OPEN HISTORY ROW, not the client's own
+        // sales_tax_frequency field: the two had drifted apart for several clients (field already
+        // "Monthly", history still "Quarterly"), and comparing to the field made a real
+        // "Monthly effective July 1" save a silent no-op that still wrote a success audit line.
         if (openRow && effectiveDate <= openRow.effective_from) {
           return res.status(400).json({ error: `The frequency effective date must be after ${openRow.effective_from}, when the current frequency (${openRow.frequency || "unset"}) began.` });
         }
