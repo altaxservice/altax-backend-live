@@ -1,3 +1,4 @@
+import { GroupedSections } from "../components/GroupedSections";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { useToast } from "../components/Toast";
@@ -250,9 +251,13 @@ export function FirmPortalsPage() {
           {portals.length === 0 ? "No portal credentials saved yet." : "No portals match that search."}
         </p>
       ) : (
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
+        <GroupedSections
+          items={filtered}
+          groupOf={(x) => x.category || "Other"}
+          render={(list) => (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
               <tr>
                 <th scope="col">Portal</th>
                 <th scope="col">Category</th>
@@ -263,8 +268,8 @@ export function FirmPortalsPage() {
                 <th scope="col"></th>
               </tr>
             </thead>
-            <tbody>
-              {filtered.map((p) => {
+                <tbody>
+                  {list.map((p) => {
                 const open = revealed?.portalId === p.portal_id;
                 return (
                   <tr key={p.portal_id}>
@@ -309,9 +314,11 @@ export function FirmPortalsPage() {
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
+          )}
+        />
       )}
     </div>
   );

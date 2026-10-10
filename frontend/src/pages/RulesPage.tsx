@@ -1,3 +1,5 @@
+import { GroupedSections } from "../components/GroupedSections";
+import { Briefcase, CalendarCheck, FileText, Landmark, Layers, Receipt, Wallet, type LucideIcon } from "lucide-react";
 import { PageActivityBanner } from "../components/WorkTrail";
 import { ModifiedStamp } from "../components/ModifiedStamp";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from "react";
@@ -24,6 +26,22 @@ const EMPTY_RULE_FORM = {
   paymentRequired: false, requiresFiling: true, dueDay: "", dueMonth: "", warningDays: "14,7,3",
   portalName: "", portalUrl: "", active: true, agentEnabled: true, notes: "",
 };
+
+/** Which area of work a rule belongs to, read from its task type — used to group the list. */
+const RULE_AREA_ORDER = ["Sales Tax", "Withholding", "Unemployment Insurance", "Payroll & Federal Deposits", "Annual Reports", "Business Returns", "Other"];
+const RULE_AREA_ICONS: Record<string, LucideIcon> = {
+  "Sales Tax": Receipt, Withholding: Landmark, "Unemployment Insurance": Briefcase, "Payroll & Federal Deposits": Wallet, "Annual Reports": CalendarCheck, "Business Returns": FileText, Other: Layers,
+};
+function ruleArea(r: { task_type: string }): string {
+  const t = String(r.task_type || "");
+  if (/sales tax/i.test(t)) return "Sales Tax";
+  if (/withholding/i.test(t)) return "Withholding";
+  if (/\bUI\b|\bUC\b|unemployment/i.test(t)) return "Unemployment Insurance";
+  if (/941|eftps|w-2|w-3|1099|payroll/i.test(t)) return "Payroll & Federal Deposits";
+  if (/annual report/i.test(t)) return "Annual Reports";
+  if (/business return/i.test(t)) return "Business Returns";
+  return "Other";
+}
 
 export function RulesPage() {
   const toast = useToast();
@@ -246,11 +264,18 @@ export function RulesPage() {
             <h2 style={{ fontSize: 15, margin: 0 }}>Task Rules</h2>
             <span className="muted" style={{ fontSize: 12 }}>{filteredRules.length} rules</span>
           </div>
-          <div className="table-scroll">
-          <table>
-            <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Agent</th><th scope="col">Modified</th><th scope="col">Actions</th></tr></thead>
-            <tbody>
-              {filteredRules.map((r) => (
+          <GroupedSections
+            items={filteredRules}
+            groupOf={ruleArea}
+            order={RULE_AREA_ORDER}
+            icons={RULE_AREA_ICONS}
+            badgeOf={(list) => { const off = list.filter((r) => !r.active).length; return off > 0 ? <span className="tpl-badge off">{off} inactive</span> : null; }}
+            render={(list) => (
+              <div className="table-scroll">
+              <table>
+                <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Agent</th><th scope="col">Modified</th><th scope="col">Actions</th></tr></thead>
+                <tbody>
+                  {list.map((r) => (
                 <tr key={r.rule_id} onClick={() => navigate(`/rules/${r.rule_id}`)} style={{ cursor: "pointer" }}>
                   <td className="muted">{r.rule_id}</td>
                   <td>{r.task_type}</td>
@@ -270,9 +295,11 @@ export function RulesPage() {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-          </div>
+                </tbody>
+              </table>
+              </div>
+            )}
+          />
           {filteredRules.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No rules match.</p>}
         </div>
       )}

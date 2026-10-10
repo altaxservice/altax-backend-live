@@ -1,3 +1,4 @@
+import { GroupedSections } from "../components/GroupedSections";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -168,9 +169,14 @@ export function SuggestionsPage() {
       {suggestions.length === 0 ? (
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>No suggestions yet — be the first to share an idea.</p>
       ) : (
-        <div className="table-scroll">
-          <table>
-            <thead>
+        <GroupedSections
+          items={suggestions}
+          groupOf={(x) => x.status || "New"}
+          order={STATUSES}
+          render={(list) => (
+            <div className="table-scroll">
+              <table>
+                <thead>
               <tr>
                 <th scope="col">Title</th>
                 <th scope="col">Category</th>
@@ -181,8 +187,8 @@ export function SuggestionsPage() {
                 {isAdmin && <th scope="col"></th>}
               </tr>
             </thead>
-            <tbody>
-              {suggestions.map((s) => (
+                <tbody>
+                  {list.map((s) => (
                 <tr key={s.suggestion_id}>
                   <td>
                     <div style={{ fontWeight: 700 }}>{s.title}</div>
@@ -226,9 +232,11 @@ export function SuggestionsPage() {
                   )}
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
+          )}
+        />
       )}
 
       {showNew && <NewSuggestionModal onClose={() => setShowNew(false)} onDone={load} />}

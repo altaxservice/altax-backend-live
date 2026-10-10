@@ -1,3 +1,5 @@
+import { GroupedSections } from "../components/GroupedSections";
+import { Briefcase } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -24,6 +26,13 @@ const EMPTY: Partial<FeeItem> & { unit_cost: string; unit_price: string } = {
   amount_kind: "fixed", percent_rate: "0", unit_cost: "0", unit_price: "0",
   included: false, optional: false, turnaround_days: "", notes: "", active: true, sort_order: 0,
 };
+
+/** Government fees group under the agency that charges them; AL TAX's own service fees form one group. */
+function feeGroup(i: { category: string; agency?: string | null }): string {
+  if (i.category === "Service") return "AL TAX service fees";
+  const agency = String(i.agency || "").trim();
+  return agency ? agency : "Government — other";
+}
 
 export function FeeSchedulePage() {
   const toast = useToast();
@@ -154,10 +163,22 @@ export function FeeSchedulePage() {
       {items === null && !error && <div className="spinner-wrap">Loading fee schedule…</div>}
 
       {items !== null && (
-      <div className="card">
-        <div className="table-scroll">
-          <table>
-            <thead>
+      <div className="card" style={{ padding: 0 }}>
+        {!filtered.length ? (
+          <p className="muted" style={{ textAlign: "center", padding: 24 }}>
+            {items && items.length === 0 ? "No fees in the schedule yet. Add one to get started." : "No fees match these filters."}
+          </p>
+        ) : (
+          <GroupedSections
+            items={filtered}
+            groupOf={feeGroup}
+            order={["AL TAX service fees"]}
+            icons={{ "AL TAX service fees": Briefcase }}
+            badgeOf={(list) => { const off = list.filter((i) => !i.active).length; return off > 0 ? <span className="tpl-badge off">{off} inactive</span> : null; }}
+            render={(list) => (
+              <div className="table-scroll">
+                <table>
+                  <thead>
               <tr>
                 <th scope="col">Fee</th>
                 <th scope="col">Applies To</th>
@@ -167,8 +188,8 @@ export function FeeSchedulePage() {
                 <th scope="col"></th>
               </tr>
             </thead>
-            <tbody>
-              {filtered.map((item) => {
+                  <tbody>
+                    {list.map((item) => {
                 const cost = item.amount_kind === "percent" ? `${Number(item.percent_rate)}%` : money(item.unit_cost);
                 const price = item.amount_kind === "percent" ? `${Number(item.percent_rate)}%` : money(item.unit_price);
                 const margin = Number(item.unit_price) - Number(item.unit_cost);
@@ -208,16 +229,12 @@ export function FeeSchedulePage() {
                   </tr>
                 );
               })}
-              {!filtered.length && (
-                <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>
-                  {items && items.length === 0
-                    ? "No fees in the schedule yet. Add one to get started."
-                    : "No fees match these filters."}
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          />
+        )}
       </div>
       )}
 
