@@ -1,5 +1,6 @@
 import { PickUpWhereYouLeftOff } from "../components/WorkTrail";
 import { FirmPulse } from "../components/FirmPulse";
+import { PortfolioPanel } from "../components/PortfolioPanel";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
@@ -1602,6 +1603,8 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
           {needs.length === 0 ? <span className="cc-chip green">{t("dash.allSet")}</span> : <span className="cc-chip amber">{ui("dash.itemsNeedYou", { n: String(needs.length) })}</span>}
         </div>
       </div>
+
+      <PortfolioPanel />
 
       {/* The one habit that keeps the books right: log today's sales. */}
       <div className={`cc-sales-nudge${loggedToday ? " done" : ""}`}>

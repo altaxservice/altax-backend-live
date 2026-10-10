@@ -1510,12 +1510,10 @@ async function buildClientFlagsNotification(clientId: string, selectedKeys?: str
  * same computeClientFlags() the staff-side panel uses, just filtered and
  * bilingual-labeled for the client's own view.
  */
-clientsRouter.get("/notices/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  if (req.user!.role !== "client") return res.json({ notices: [] });
-  const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
-  if (!clientId) return res.json({ notices: [] });
+/** The client-visible notices for one business (shared flags only, bilingual). Shared by /notices/mine and the multi-business portfolio. */
+export async function loadClientNotices(clientId: string) {
   const flags = (await computeClientFlags(clientId)).flags.filter((f) => f.shareWithClient);
-  const notices = flags.map((f) => {
+  return flags.map((f) => {
     const labelEn = f.category || FLAG_TYPE_LABELS_EN[f.flagType] || f.flagType;
     const labelAr = f.category
       ? (FLAG_CATEGORY_LABELS_AR[f.category] || f.category)
@@ -1530,7 +1528,13 @@ clientsRouter.get("/notices/mine", requireAuth, asyncHandler(async (req: AuthedR
       color: f.color,
     };
   });
-  res.json({ notices });
+}
+
+clientsRouter.get("/notices/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role !== "client") return res.json({ notices: [] });
+  const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+  if (!clientId) return res.json({ notices: [] });
+  res.json({ notices: await loadClientNotices(clientId) });
 }));
 
 /** Read-only preview of what a "Notify Client" send would contain — lets the frontend show/edit the bilingual message before actually sending it via POST /communications. */

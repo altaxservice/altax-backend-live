@@ -2550,7 +2550,7 @@ accountingRouter.post("/client-books/purchase-templates/:templateId/delete", req
  * so the numbers on screen and the numbers on the downloaded PDF can never
  * drift apart.
  */
-async function computeClientBooksPl(clientId: string, from: string, to: string) {
+export async function computeClientBooksPl(clientId: string, from: string, to: string) {
   const salesRows = await query<any>(
     `SELECT sale_date, gross_sales, status FROM altax.v3_client_sales_drafts
      WHERE client_id = $1 AND status != 'Dismissed' AND ($2 = '' OR sale_date >= $2::date) AND ($3 = '' OR sale_date <= $3::date)`,
