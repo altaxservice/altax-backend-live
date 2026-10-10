@@ -2101,7 +2101,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
       const fileBase64 = await fileToBase64(file);
       const res = await api.post<SalesInputPreviewResponse>("/sales-input-import/preview", { clientId, fileBase64 });
       setPreview(res);
-      setSelected(new Set(res.rows.map((_, i) => i).filter((i) => res.rows[i].action !== "duplicate")));
+      setSelected(new Set(res.rows.map((_, i) => i).filter((i) => res.rows[i].action === "create")));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not read this file.");
     } finally {
@@ -2246,7 +2246,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
               </table>
             </div>
             <p className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-              {selected.size} of {preview.rows.length} row(s) selected. Rows already on file are unchecked by default. A row marked "On file but different" can be checked to replace the old figures with the spreadsheet's (admin only).
+              {selected.size} of {preview.rows.length} row(s) selected. Rows already on file are unchecked by default. A row marked "On file but different" is NOT replaced unless you check it, and can be checked to replace the old figures with the spreadsheet's (admin only).
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="button" className="btn" onClick={reset}>Cancel</button>
