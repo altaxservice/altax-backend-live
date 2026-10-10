@@ -9,6 +9,8 @@ import { useToast } from "../components/Toast";
 import { DailyLogFormModal } from "../components/DailyLogFormModal";
 import { NoteFormModal } from "../components/NoteFormModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
+import { AutoDraftPanel, DayStats, QuickAddBar } from "../components/DailyLogTools";
+import { exportCsv } from "../components/FilterBar";
 
 interface FirmServiceOption { key: string; label: string }
 
@@ -154,14 +156,30 @@ export function DailyLogPage() {
 
   const serviceLabel = (key: string) => serviceOptions.find((s) => s.key === key)?.label || key;
 
+  function copyDay(day: string, entries: DailyLogEntry[]) {
+    const mins = entries.reduce((s, l) => s + (l.timeSpentMinutes || 0), 0);
+    const text = `${dayLabel(day)} — ${entries.length} entr${entries.length === 1 ? "y" : "ies"}${mins ? `, ${fmtTimeSpent(mins)}` : ""}\n` +
+      entries.slice().reverse().map((l) => `• ${l.clientName ? `${l.clientName}: ` : ""}${l.body.replace(/\n+/g, "; ")}${l.timeSpentMinutes ? ` (${fmtTimeSpent(l.timeSpentMinutes)})` : ""}`).join("\n");
+    navigator.clipboard?.writeText(text).then(() => toast("Day summary copied."), () => toast("Could not copy."));
+  }
+  function exportAll() {
+    exportCsv("daily-log.csv", [
+      { key: "when", label: "Date & time" }, { key: "who", label: "Logged by" }, { key: "client", label: "Client" }, { key: "task", label: "Task" },
+      { key: "minutes", label: "Minutes" }, { key: "category", label: "Category" }, { key: "body", label: "What was done" },
+    ], (logs || []).map((l) => ({ when: new Date(l.loggedAt).toLocaleString(), who: l.authorName || l.authorEmail, client: l.clientName || "", task: l.taskName || "", minutes: l.timeSpentMinutes || "", category: l.category || "", body: l.body })));
+  }
+
   return (
     <div style={{ padding: 20 }}>
+      <DayStats logs={logs || []} me={(user?.email || "").toLowerCase()} />
+      <AutoDraftPanel onSaved={load} />
       <div className="command-panel">
         <div className="command-panel-header">
           <h2 className="command-panel-title">Daily Log</h2>
           <div className="command-panel-note">What you worked on, for which client(s), and on which task if any — a personal work journal, not a Task.</div>
         </div>
 
+        <QuickAddBar clients={clients} onSaved={load} />
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }}>
             <option value="">All clients</option>
@@ -174,8 +192,9 @@ export function DailyLogPage() {
             </label>
           )}
           <input placeholder="Search entries…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} />
-          <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => setLogModal({})}>
-            + Log Work
+          <button type="button" className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={exportAll}>Export CSV</button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => setLogModal({})}>
+            + Log Work (full form)
           </button>
         </div>
 
@@ -187,8 +206,12 @@ export function DailyLogPage() {
           <div style={{ padding: 16 }}>
             {grouped.map(([day, entries]) => (
               <div key={day} style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em", color: "var(--muted)", marginBottom: 8 }}>
-                  {dayLabel(day)}
+                <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em", color: "var(--muted)", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span>{dayLabel(day)}</span>
+                  <span style={{ fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>
+                    {entries.length} entr{entries.length === 1 ? "y" : "ies"}{(() => { const m = entries.reduce((a, l) => a + (l.timeSpentMinutes || 0), 0); return m ? ` · ${fmtTimeSpent(m)}` : ""; })()}
+                  </span>
+                  <button type="button" className="link-button" style={{ fontSize: 12, textTransform: "none", letterSpacing: 0 }} onClick={() => copyDay(day, entries)}>Copy summary</button>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {entries.map((l) => {

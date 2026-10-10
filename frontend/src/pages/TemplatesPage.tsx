@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Bell, CalendarClock, ChevronDown, FileBarChart, HelpCircle, Mail, MessagesSquare, type LucideIcon } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -35,6 +37,21 @@ function iconFor(category: string): LucideIcon {
 function withTagChips(text: string) {
   return String(text || "").split(/(\{\{[^}]+\}\})/g).map((part, i) =>
     /^\{\{[^}]+\}\}$/.test(part) ? <code className="tpl-tag" key={i}>{part.slice(2, -2)}</code> : <span key={i}>{part}</span>
+  );
+}
+
+/** A dialog over the page for the template editor: Escape or a click outside closes it, and the page behind keeps its scroll position. */
+function EditorOverlay({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(onClose);
+  useFocusTrap(panelRef);
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-label={title} style={{ width: "min(760px, 94vw)", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2>{title}</h2><button type="button" className="btn btn-sm" onClick={onClose}>Close</button></div>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -77,8 +94,18 @@ export function TemplatesPage() {
 
       {error && <ErrorBanner error={error} />}
 
-      {showNewForm && <TemplateForm onSaved={() => { setShowNewForm(false); load(); }} onCancel={() => setShowNewForm(false)} />}
-      {editing && <TemplateForm templateName={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />}
+      {/* The editor opens over the page, not at the top of it — clicking Edit on a card far down the list used to put the form
+          out of sight above the fold. */}
+      {showNewForm && (
+        <EditorOverlay title="New Template" onClose={() => setShowNewForm(false)}>
+          <TemplateForm onSaved={() => { setShowNewForm(false); load(); }} onCancel={() => setShowNewForm(false)} />
+        </EditorOverlay>
+      )}
+      {editing && (
+        <EditorOverlay title={`Edit: ${editing}`} onClose={() => setEditing(null)}>
+          <TemplateForm templateName={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />
+        </EditorOverlay>
+      )}
 
       <div className="command-panel">
         <div className="command-panel-header">
@@ -187,7 +214,11 @@ function ContractTemplatesPanel() {
       </p>
       {error && <ErrorBanner error={error} style={{ margin: "0 16px 16px" }} />}
 
-      {editing && <ContractTemplateForm serviceKey={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />}
+      {editing && (
+        <EditorOverlay title={`Edit: ${editing}`} onClose={() => setEditing(null)}>
+          <ContractTemplateForm serviceKey={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />
+        </EditorOverlay>
+      )}
 
       {!templates && !error && <div className="spinner-wrap">Loading…</div>}
       {templates && (
@@ -239,11 +270,10 @@ function ContractTemplateForm({ serviceKey, onSaved, onCancel }: { serviceKey: s
     }
   }
 
-  if (loading) return <div className="card" style={{ margin: "0 16px 16px" }}><div className="spinner-wrap">Loading…</div></div>;
+  if (loading) return <div className="spinner-wrap">Loading…</div>;
 
   return (
-    <form onSubmit={handleSubmit} className="card" style={{ margin: "0 16px 16px" }}>
-      <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Edit: {serviceKey}</h2>
+    <form onSubmit={handleSubmit} style={{ padding: "4px 20px 20px" }}>
       {error && <ErrorBanner error={error} />}
       <div className="field"><label htmlFor="ctpl-title">Title</label><input id="ctpl-title" required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
       <div className="field">
@@ -300,11 +330,10 @@ function TemplateForm({ templateName, onSaved, onCancel }: { templateName?: stri
     }
   }
 
-  if (loading) return <div className="card" style={{ marginBottom: 20 }}><div className="spinner-wrap">Loading…</div></div>;
+  if (loading) return <div className="spinner-wrap">Loading…</div>;
 
   return (
-    <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
-      <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{templateName ? `Edit: ${templateName}` : "New Template"}</h2>
+    <form onSubmit={handleSubmit} style={{ padding: "4px 20px 20px" }}>
       {error && <ErrorBanner error={error} />}
       <div className="field">
         <label htmlFor="tpl-name">Template Name</label>
