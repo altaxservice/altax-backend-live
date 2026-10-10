@@ -1,8 +1,8 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
-/** Bottom-of-list pager: first, back, page numbers, forward, last. Renders nothing when everything fits on one page. */
+/** Bottom-of-list pager: first, back, page numbers, forward, last. Always shown (arrows grey out on a single page) so it is the same on every list; hidden only when the list is empty. */
 export function Pager({ page, totalPages, onPage, total, pageSize }: { page: number; totalPages: number; onPage: (p: number) => void; total?: number; pageSize?: number }) {
-  if (totalPages <= 1) return null;
+  if (total === 0) return null;
   const numbers = Array.from({ length: totalPages }, (_, i) => i + 1).filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 2);
   const from = total !== undefined && pageSize ? (page - 1) * pageSize + 1 : null;
   const to = total !== undefined && pageSize ? Math.min(total, page * pageSize) : null;
