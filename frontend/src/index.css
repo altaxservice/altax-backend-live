@@ -1640,3 +1640,31 @@ html:not([data-skin="classic"]) select.inline-select.status-red { background-col
 html:not([data-skin="classic"]) select.inline-select.status-blue { background-color: var(--blue-soft); color: var(--blue); }
 html:not([data-skin="classic"]) select.inline-select.status-teal { background-color: var(--teal-soft); color: var(--teal); }
 html:not([data-skin="classic"]) select.inline-select.status-gray { background-color: var(--surface); color: var(--muted); }
+
+/* ───────── Grouped lists (Templates): category chips, collapsible groups, card grid ───────── */
+.tpl-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.tpl-chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; display: inline-flex; gap: 8px; align-items: center; }
+.tpl-chip span { background: var(--surface); color: var(--muted); border-radius: 999px; padding: 0 8px; font-size: 11.5px; font-weight: 800; }
+.tpl-chip:hover { border-color: var(--teal); }
+.tpl-chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.tpl-chip.on span { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.tpl-group { border: 1px solid var(--line); border-radius: 4px; margin-bottom: 12px; background: var(--paper); overflow: hidden; }
+.tpl-group-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 0; background: var(--surface); text-align: left; font-family: inherit; }
+.tpl-group-head:hover { background: var(--teal-soft); }
+.tpl-group-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 4px; background: var(--teal-soft); color: var(--teal); }
+.tpl-group-title { font-size: 15px; font-weight: 700; color: var(--ink); }
+.tpl-count { background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 0 9px; font-size: 12px; font-weight: 800; color: var(--muted); }
+.tpl-chev { margin-left: auto; color: var(--muted); transition: transform 0.15s; }
+.tpl-group-head[aria-expanded="false"] .tpl-chev { transform: rotate(-90deg); }
+.tpl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 900px) { .tpl-grid { grid-template-columns: 1fr; } }
+.tpl-card { border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; background: var(--paper); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tpl-card:hover { border-color: var(--teal); box-shadow: var(--shadow); }
+.tpl-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.tpl-name { margin: 0; font-size: 14.5px; line-height: 1.3; }
+.tpl-subject { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.tpl-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: var(--blue-soft); color: var(--blue); border-radius: 4px; padding: 1px 6px; margin: 0 2px; }
+.tpl-card-foot { display: flex; gap: 6px; margin-top: auto; }
+.tpl-badge { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 9px; background: var(--surface); color: var(--muted); }
+.tpl-badge.custom { background: var(--amber-soft); color: var(--amber); }
+.tpl-badge.off { background: var(--red-soft); color: var(--red); }
