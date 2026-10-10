@@ -223,6 +223,8 @@ const ACTION_WORDS: Record<string, string> = {
   CLIENT_CREATED: "New client created", CREATE: "Created", EDIT: "Edited", ARCHIVE: "Archived", HARD_DELETE: "Deleted", DELETE: "Deleted",
   STATUS: "Status changed", BULK_COMPLETE: "Completed in bulk", BATCH_CREATE: "Batch of tasks created", UPLOAD: "File uploaded",
   CREATE_APPOINTMENT: "Appointment created", UPDATE_APPOINTMENT: "Appointment changed", DELETE_APPOINTMENT: "Appointment deleted",
+  MD_FILING_MARK_FILED: "Marked MD sales tax filed", WITHHOLDING_FILING_MARK_FILED: "Marked withholding filed", IMPORT_SALES_INPUT: "Imported sales data",
+  CREATE_SALES_INPUT: "Added sales entry", RECORD_PAYMENT: "Recorded a payment", CONFIRM_APPOINTMENT: "Client confirmed appointment", CANCEL_APPOINTMENT: "Appointment cancelled",
   GENERATE: "Generated", REGENERATE: "Regenerated", SEND: "Sent", SIGN: "Signed", VOID: "Voided",
 };
 const NOUN_BY_MODULE: Record<string, string> = { Communications: "message", Calendar: "appointment", Billing: "invoice", Haccp: "health permit plan", Clients: "client", Tasks: "task", Documents: "document", Notes: "note", Rules: "rule", Labels: "label", Staff: "staff member", "Time Tracking": "time entry" };
@@ -232,7 +234,7 @@ function humanize(action: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-function auditLabel(r: { module: string; action: string; field: string | null; note: string | null }): string {
+export function auditLabel(r: { module: string; action: string; field: string | null; note: string | null }): string {
   const base = ACTION_WORDS[r.action];
   const noun = NOUN_BY_MODULE[r.module];
   if (r.module === "Clients" && (r.action === "CREATE" || r.action === "CLIENT_CREATED")) return "New client created";
@@ -243,7 +245,7 @@ function auditLabel(r: { module: string; action: string; field: string | null; n
   return base ? `${base}${r.field && r.action === "EDIT" ? ` (${r.field})` : ""}` : humanize(r.action);
 }
 
-function auditLink(recordId: string, action: string): string | null {
+export function auditLink(recordId: string, action: string): string | null {
   if (/DELETE|ARCHIVE/.test(action) || !recordId) return null;
   if (/^C-\w+/.test(recordId)) return `/clients/${recordId}`;
   if (/^T-/.test(recordId)) return `/tasks/${recordId}`;

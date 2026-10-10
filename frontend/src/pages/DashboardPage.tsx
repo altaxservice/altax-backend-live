@@ -1,4 +1,5 @@
 import { PickUpWhereYouLeftOff } from "../components/WorkTrail";
+import { FirmPulse } from "../components/FirmPulse";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
@@ -1100,6 +1101,8 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         {kpi(CalendarClock, dueToday.length ? "amber" : "teal", "Due today", String(dueToday.length), `${dueSoon.length} due this week`, () => setTab("work"))}
         {kpi(ClipboardCheck, needsReview ? "blue" : "green", "Needs your review", String(needsReview), `${reviews?.length || 0} filings · ${receivedDocs.length} uploads`, () => setTab("filings"))}
       </div>
+
+      {user?.role === "admin" && <FirmPulse />}
 
       <div className="cc-layout">
         <div>
