@@ -550,6 +550,22 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
     checks.push({ id: "last-successful-backup", label: "Last successful backup", status: "ok", detail: `Last successful backup: ${new Date(backupJob.last_run_at).toLocaleString()}.` });
   }
 
+  // Sales-tax frequency drift: the client's own frequency says one thing while the filing-period history (what the
+  // period math actually uses) says another — filing periods then show the wrong cadence (e.g. Quarterly for a client
+  // set to Monthly). Fixed per client from Client → Sales Tax Frequency → Edit frequency timeline.
+  try {
+    const drift = await query<any>(
+      `SELECT c.client_id, c.client_name, c.sales_tax_frequency AS profile, h.frequency AS history
+         FROM altax.v3_clients c
+         JOIN altax.v3_client_sales_tax_frequency_history h ON h.client_id = c.client_id AND h.effective_to IS NULL
+        WHERE coalesce(c.sales_tax_frequency,'') <> coalesce(h.frequency,'') AND lower(coalesce(c.status,'')) NOT IN ('inactive','archived')
+        ORDER BY c.client_name`);
+    checks.push(drift.length === 0
+      ? { id: "sales-tax-frequency-drift", label: "Sales tax frequency matches filing history", status: "ok", detail: "Every active client's sales tax frequency agrees with its filing-period history." }
+      : { id: "sales-tax-frequency-drift", label: "Sales tax frequency out of step with filing history", status: "warning",
+          detail: `${drift.length} client(s) show one frequency on the profile but a different one in their filing history, so their filing periods use the wrong cadence: ${drift.slice(0, 8).map((d: any) => `${d.client_name} (profile ${d.profile || "—"}, history ${d.history})`).join("; ")}${drift.length > 8 ? `; +${drift.length - 8} more` : ""}. Open the client and use "Edit frequency timeline" to correct it.` });
+  } catch { /* history table may not exist yet on a fresh deploy */ }
+
   // TAX-007: a document request nudges the client forever (reminders.routes.ts's
   // daily digest) but never once flags staff — a client who simply never
   // responds can sit "Requested" indefinitely with nobody at the firm ever

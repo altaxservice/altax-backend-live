@@ -11,6 +11,7 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL, deriveServiceType } from "../contracts/contractContent";
+import { loadTimeline, changeFromDate, normalizeTimeline, saveTimeline, TIMELINE_START } from "../../common/salesTaxFrequencyTimeline";
 import { computeSubscriptionTier, computeSubscriptionFee, type ServiceCatalogEntry, type ClientWorkerCounts } from "../../common/subscriptionPricing";
 import { computeFirmSummary, computeMdFilingForReport, computeDcFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
 import { splitIntoMdFilingPeriodsForClient, classifyMdFilingPeriod } from "../../common/mdFiling";
@@ -3133,134 +3134,20 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   // period silently recomputing under whatever frequency is set today. See
   // splitIntoMdFilingPeriodsForClient (mdFiling.ts).
   if (Object.prototype.hasOwnProperty.call(fields, "sales_tax_frequency")) {
+    // "From this date on, the frequency is X" — the quick change on the client form. All history math lives in
+    // salesTaxFrequencyTimeline.ts so it is identical to the full timeline editor (and the client's own
+    // frequency field is kept in step with it). Earlier history is edited in the timeline editor.
     const newFreq = String(fields.sales_tax_frequency || "").trim();
-    const oldFreq = String(old.sales_tax_frequency || "").trim();
     const effectiveDateRaw = String(body.salesTaxFrequencyEffectiveDate || "").trim();
-    const effectiveDateProvided = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDateRaw);
-    const openRow = await queryOne<{ effective_from: string; frequency: string }>(
-      `SELECT effective_from::date::text AS effective_from, frequency FROM altax.v3_client_sales_tax_frequency_history
-        WHERE client_id = $1 AND effective_to IS NULL`,
-      [clientId]
-    );
-    // When staff doesn't type an explicit effective date, "today" is only the
-    // right default if this client already has real frequency coverage to
-    // build forward from (openRow exists) — that's a genuine "changing as of
-    // today" edit. If this is the client's very FIRST-EVER frequency history
-    // row (openRow is null), defaulting to today silently orphans any real
-    // sales/tax data recorded before today from every report and flag that
-    // depends on frequency history (splitIntoMdFilingPeriodsForClient never
-    // looks earlier than the earliest row) — a real production gap found
-    // 2026-08-18 across 6 clients whose frequency had been set via this PATCH
-    // path with no prior history row. The client CREATE path already anchors
-    // brand-new clients at this same sentinel (see "2000-01-01" above, used
-    // unconditionally for every new client); this closes the other way a
-    // client ends up with a frequency assigned for the first time.
-    const effectiveDate = effectiveDateProvided ? effectiveDateRaw : (openRow ? new Date().toISOString().slice(0, 10) : "2000-01-01");
-    // Two distinct real edits share this one form field set: (a) the frequency
-    // is genuinely changing, or (b) staff is correcting WHEN the already-open
-    // segment started — e.g. it was saved with today's default date and the
-    // real change happened earlier, or the frequency field was re-saved as its
-    // own current value while only the date was actually edited. Both need to
-    // run below; a pure resubmission of the exact same frequency+date is the
-    // only real no-op.
-    const dateIsCorrection = !!openRow && effectiveDateProvided && effectiveDate !== openRow.effective_from;
-    if (newFreq !== oldFreq || dateIsCorrection) {
-      if (openRow && effectiveDate < openRow.effective_from) {
-        // Backdating into the segment that's already open — e.g. THRUWAY
-        // CARRYOUT (C-1118) hit this in production: staff set Monthly
-        // effective "today" by not noticing the date field's default, then
-        // came back to correct it to the real date (07/01/2026) and got
-        // rejected outright, with no way to fix it themselves. This is a
-        // legitimate correction, not the risky case the floor below guards
-        // against — it's only unsafe if it reaches back far enough to rewrite
-        // the segment BEFORE the current one, so the floor is the previous
-        // row's own start date, not the current row's.
-        const prevRow = await queryOne<{ effective_from: string }>(
-          `SELECT effective_from::date::text AS effective_from FROM altax.v3_client_sales_tax_frequency_history
-            WHERE client_id = $1 AND effective_to IS NOT NULL
-            ORDER BY effective_from DESC LIMIT 1`,
-          [clientId]
-        );
-        if (prevRow && effectiveDate <= prevRow.effective_from) {
-          return res.status(400).json({ error: `The frequency effective date must be after ${prevRow.effective_from}, when the prior frequency began.` });
-        }
-        const dayBeforeNew = new Date(`${effectiveDate}T00:00:00Z`);
-        dayBeforeNew.setUTCDate(dayBeforeNew.getUTCDate() - 1);
-        if (newFreq === openRow.frequency) {
-          // Same frequency, just correcting its own start date — adjust the
-          // open row in place rather than opening a duplicate identical row.
-          await query(
-            `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_from = $2 WHERE client_id = $1 AND effective_to IS NULL`,
-            [clientId, effectiveDate]
-          );
-        } else {
-          // A genuinely different frequency slotted in before the current
-          // segment — insert it as its own closed row; the current open row
-          // is untouched since this new segment ends right where it begins.
-          await query(
-            `INSERT INTO altax.v3_client_sales_tax_frequency_history (client_id, frequency, effective_from, effective_to, created_by)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [clientId, newFreq, effectiveDate, openRow.effective_from, req.user!.email]
-          );
-          // openRow.effective_from is inclusive on the current row, so the new
-          // row's effective_to must be the day before it, not openRow.effective_from itself.
-          const dayBeforeOpen = new Date(`${openRow.effective_from}T00:00:00Z`);
-          dayBeforeOpen.setUTCDate(dayBeforeOpen.getUTCDate() - 1);
-          await query(
-            `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_to = $2 WHERE client_id = $1 AND frequency = $3 AND effective_from = $4`,
-            [clientId, dayBeforeOpen.toISOString().slice(0, 10), newFreq, effectiveDate]
-          );
-        }
-        if (prevRow) {
-          await query(
-            `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_to = $2
-               WHERE client_id = $1 AND effective_from = $3`,
-            [clientId, dayBeforeNew.toISOString().slice(0, 10), prevRow.effective_from]
-          );
-        }
-      } else if (openRow && effectiveDate > openRow.effective_from && newFreq === openRow.frequency) {
-        // Symmetric correction the other direction: same frequency, but its
-        // real start was actually LATER than what's on file (e.g. entered a
-        // few days early). Move the open row's start forward and extend
-        // whatever preceded it to cover the gap — no new row either way.
-        await query(
-          `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_from = $2 WHERE client_id = $1 AND effective_to IS NULL`,
-          [clientId, effectiveDate]
-        );
-        const dayBeforeNewFwd = new Date(`${effectiveDate}T00:00:00Z`);
-        dayBeforeNewFwd.setUTCDate(dayBeforeNewFwd.getUTCDate() - 1);
-        await query(
-          `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_to = $2
-             WHERE client_id = $1 AND effective_to = $3`,
-          [clientId, dayBeforeNewFwd.toISOString().slice(0, 10), (() => {
-            const d = new Date(`${openRow.effective_from}T00:00:00Z`);
-            d.setUTCDate(d.getUTCDate() - 1);
-            return d.toISOString().slice(0, 10);
-          })()]
-        );
-      } else if (newFreq !== (openRow ? openRow.frequency : oldFreq)) {
-        // Existing forward-moving path: a new frequency taking effect from
-        // here on — close whatever's currently open and start a fresh row.
-        // Compared against the OPEN HISTORY ROW, not the client's own
-        // sales_tax_frequency field: the two had drifted apart for several clients (field already
-        // "Monthly", history still "Quarterly"), and comparing to the field made a real
-        // "Monthly effective July 1" save a silent no-op that still wrote a success audit line.
-        if (openRow && effectiveDate <= openRow.effective_from) {
-          return res.status(400).json({ error: `The frequency effective date must be after ${openRow.effective_from}, when the current frequency (${openRow.frequency || "unset"}) began.` });
-        }
-        if (openRow) {
-          const dayBefore = new Date(`${effectiveDate}T00:00:00Z`);
-          dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
-          await query(
-            `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_to = $2 WHERE client_id = $1 AND effective_to IS NULL`,
-            [clientId, dayBefore.toISOString().slice(0, 10)]
-          );
-        }
-        if (newFreq) {
-          await openSalesTaxFrequencyHistoryRow(clientId, newFreq, effectiveDate, req.user!.email);
-        }
-      }
-      await logAudit("Clients", "SALES_TAX_FREQUENCY_CHANGE", clientId, "sales_tax_frequency", oldFreq, newFreq,
+    const history = await loadTimeline(clientId);
+    const effectiveDate = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDateRaw) ? effectiveDateRaw : (history.length ? new Date().toISOString().slice(0, 10) : TIMELINE_START);
+    const change = changeFromDate(history, newFreq, effectiveDate);
+    if (change.error) return res.status(400).json({ error: change.error });
+    if (change.changed) {
+      const { segments, errors } = normalizeTimeline(change.segments);
+      if (errors.length) return res.status(400).json({ error: errors.join(" ") });
+      await saveTimeline(clientId, segments, req.user!.email);
+      await logAudit("Clients", "SALES_TAX_FREQUENCY_CHANGE", clientId, "sales_tax_frequency", String(old.sales_tax_frequency || ""), newFreq,
         `Sales tax filing frequency set to "${newFreq || "N/A"}" effective ${effectiveDate}. Periods before that date keep using the prior frequency automatically.`,
         req.user!.email);
     }

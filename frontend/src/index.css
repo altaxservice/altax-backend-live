@@ -1904,3 +1904,28 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 .cs-banner-text { flex: 1 1 320px; min-width: 0; display: grid; }
 .cs-banner-text b { font-size: 15px; color: var(--ink); }
 .cs-banner-text span { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Sales-tax frequency timeline editor */
+.stf { border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; background: var(--surface); }
+.stf-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.stf-label { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.stf-current { font-size: 15px; margin-top: 2px; }
+.stf-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.stf-seg { display: inline-flex; flex-direction: column; font-size: 12.5px; font-weight: 800; padding: 5px 10px; border-radius: 4px; }
+.stf-seg small { font-weight: 600; font-size: 11px; opacity: .85; }
+.stf-seg.blue, .stf-chip.blue { background: var(--blue-soft); color: var(--blue); } .stf-seg.teal, .stf-chip.teal { background: var(--teal-soft); color: var(--teal); }
+.stf-seg.amber, .stf-chip.amber { background: var(--amber-soft); color: var(--amber); } .stf-seg.green, .stf-chip.green { background: var(--green-soft); color: var(--green); } .stf-seg.grey, .stf-chip.grey { background: var(--line); color: var(--muted); }
+.stf-edit { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.stf-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.stf-row select { min-width: 150px; }
+.stf-from { font-size: 13px; color: var(--muted); }
+.stf-beginning { font-size: 13px; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 4px; color: var(--muted); }
+.stf-msg { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: 13px; }
+.stf-msg.bad { background: var(--red-soft); color: var(--red); } .stf-msg.warn { background: var(--amber-soft); color: var(--ink); }
+.stf-msg ul { margin: 6px 0; padding-inline-start: 18px; }
+.stf-actions { display: flex; gap: 8px; margin-top: 12px; }
+.stf-periods { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.stf-year { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 6px; font-size: 13px; }
+.stf-year > b { min-width: 42px; padding-top: 3px; }
+.stf-year > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.stf-chip { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }

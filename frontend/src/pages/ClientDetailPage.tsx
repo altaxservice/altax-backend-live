@@ -20,6 +20,7 @@ import { ChangePortalEmailModal } from "../components/ChangePortalEmailModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
+import { SalesTaxFrequencyEditor } from "../components/SalesTaxFrequencyEditor";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
@@ -1240,14 +1241,9 @@ export function ClientDetailPage() {
                 {isBusinessClient && (
                   <DetailField label={clientStateLabel("MD UI Tax Rate", client.state)} value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
                 )}
-                <DetailField
-                  label="Sales Tax Frequency"
-                  value={client.sales_tax_frequency
-                    ? (client.sales_tax_frequency_effective_from
-                        ? `${client.sales_tax_frequency} (effective since ${fmtDateOnly(client.sales_tax_frequency_effective_from)})`
-                        : client.sales_tax_frequency)
-                    : null}
-                />
+                {isBusinessClient && (
+                  <SalesTaxFrequencyEditor clientId={client.client_id} canEdit={user?.role === "admin" || user?.role === "staff"} onChanged={load} />
+                )}
                 <DetailField label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
                 {Boolean(client.payroll_enabled) && <DetailField label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
                 {Boolean(client.payroll_enabled) && <DetailField label="Payroll Provider" value={client.payroll_system as string | null} />}
