@@ -99,20 +99,30 @@ export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: st
   // Firm/Staff/Admin accounts too, not just client portal logins, so filing it under
   // "Clients" (and calling it something that sounds client-only) undersold and
   // misfiled it. It belongs with the other firm-administration pages.
+  { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Insights", icon: TrendingUp, keywords: ["business health", "compliance score", "p&l", "staff capacity"] },
+  { to: "/compliance", label: "Compliance", roles: ["admin", "staff"], group: "Insights", icon: ShieldAlert, keywords: ["wisp", "security plan", "pub 4557"] },
+  { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Insights", icon: Wrench, keywords: ["diagnostics", "errors", "health check", "troubleshoot"] },
+  { to: "/website-analytics", label: "Website Analytics", roles: ["admin", "staff"], group: "Insights", icon: Globe, keywords: ["traffic", "visitors", "web stats"] },
+  { to: "/suggestions", label: "Suggestions", roles: ["admin", "staff"], group: "Insights", icon: Lightbulb, keywords: ["feedback", "ideas"] },
   { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm", icon: UserCog, keywords: ["staff accounts", "logins", "permissions", "team", "hourly rate", "new user"] },
   { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck, keywords: ["2fa", "passwords", "audit log"] },
   { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound, keywords: ["eftps", "md tax connect", "agency logins"] },
   { to: "/kiosk-settings", label: "Time Clock Kiosk", roles: ["admin"], group: "Firm", icon: TabletSmartphone, keywords: ["clock in", "clock out", "punch clock", "attendance", "pin"] },
-  { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench, keywords: ["diagnostics", "errors", "health check", "troubleshoot"] },
-  { to: "/compliance", label: "Compliance", roles: ["admin", "staff"], group: "Firm", icon: ShieldAlert, keywords: ["wisp", "security plan", "pub 4557"] },
-  { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Firm", icon: TrendingUp, keywords: ["business health", "compliance score", "p&l", "staff capacity"] },
-  { to: "/website-analytics", label: "Website Analytics", roles: ["admin", "staff"], group: "Firm", icon: Globe, keywords: ["traffic", "visitors", "web stats"] },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings, keywords: ["logo", "firm name", "address", "branding"] },
   { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree, keywords: ["dropdown options", "custom fields"] },
-  { to: "/suggestions", label: "Suggestions", roles: ["admin", "staff"], group: "Firm", icon: Lightbulb, keywords: ["feedback", "ideas"] },
   { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm", icon: ClipboardList, keywords: ["required docs"] },
   { to: "/guide", label: "Guide", navKey: "nav.guide", icon: LifeBuoy, keywords: ["help", "how to", "tutorial"] },
 ];
+
+/** Client portal sidebar: its own grouping and order (labels are translated, so each carries a navKey). */
+const CLIENT_NAV: { to: string; group: string }[] = [
+  { to: "/dashboard", group: "" },
+  { to: "/my-books", group: "My Business" }, { to: "/my-business", group: "My Business" }, { to: "/my-businesses", group: "My Business" }, { to: "/agreements", group: "My Business" },
+  { to: "/billing", group: "Money" }, { to: "/gov-filings", group: "Money" },
+  { to: "/documents", group: "Communicate" }, { to: "/communications", group: "Communicate" },
+  { to: "/guide", group: "Help" },
+];
+const GROUP_KEYS: Record<string, string> = { "My Business": "nav.group.myBusiness", Money: "nav.group.money", Communicate: "nav.group.communicate", Help: "nav.group.help" };
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Command Center",
@@ -238,10 +248,18 @@ export function Layout() {
   // My Businesses only makes sense once a login actually has more than one
   // linked business (sql/164_client_multi_business_links.sql) — hidden for
   // every single-business client, which is still the vast majority of them.
-  const visibleNav = NAV_ITEMS.filter((item) =>
+  const baseNav = NAV_ITEMS.filter((item) =>
     (!item.roles || (user && item.roles.includes(user.role))) &&
     (item.to !== "/my-businesses" || (user?.linkedClients?.length || 0) > 1)
   );
+  // Client logins get their own order and grouping; everyone else uses the declared order and groups.
+  type NavEntry = (typeof NAV_ITEMS)[number];
+  const clientNav: NavEntry[] = [];
+  for (const c of CLIENT_NAV) {
+    const it = baseNav.find((b) => b.to === c.to);
+    if (it) clientNav.push({ ...it, group: c.group || undefined });
+  }
+  const visibleNav: NavEntry[] = user?.role === "client" ? clientNav : baseNav;
   // Per-group collapse — Firm alone runs 11 items, so letting an admin fold
   // away groups they don't touch daily shortens the list without removing
   // anything. A group the current page belongs to is force-expanded below
@@ -267,10 +285,23 @@ export function Layout() {
     if (!user || !["admin", "staff"].includes(user.role)) return;
     api.get<{ count: number }>("/staff-notes/open-count").then((r) => setOpenNotesCount(r.count)).catch(() => {});
   }, [user, location.pathname]);
+  // Live "what needs me" counts per page (see navBadges.routes.ts) — refreshed on navigation and every 2 minutes.
+  const [badges, setBadges] = useState<Record<string, { count: number; tone: "red" | "amber" | "blue" }>>({});
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const qs = user.role === "client" && activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
+    const load = () => api.get<{ badges: typeof badges }>(`/nav-badges${qs}`).then((r) => { if (!cancelled) setBadges(r.badges || {}); }).catch(() => {});
+    load();
+    const id = window.setInterval(load, 120_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [user, location.pathname, activeBusinessId]);
+  const groupBadgeTotal = (group: string) => visibleNav.filter((i) => i.group === group).reduce((sum, i) => sum + (badges[i.to]?.count || 0) + (i.to === "/notes" ? openNotesCount : 0), 0);
+  const initials = (user?.name || user?.email || "?").split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join("");
   // Client/employee only ever see ~4-5 items — group headers would add more
   // clutter than they remove there. Admin (15) and staff (11) are exactly the
   // case grouping helps, so the threshold gates on role instead of a magic count.
-  const showGroupLabels = user?.role === "admin" || user?.role === "staff";
+  const showGroupLabels = user?.role === "admin" || user?.role === "staff" || user?.role === "client";
   let lastGroup: string | undefined;
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
@@ -368,11 +399,11 @@ export function Layout() {
                     type="button"
                     className="nav-group-label"
                     onClick={() => toggleGroup(item.group!)}
-                    style={{ display: "flex", alignItems: "center", gap: 4, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}
                     aria-expanded={!groupCollapsed}
                   >
                     {groupCollapsed ? <ChevronRight size={11} strokeWidth={2.5} aria-hidden="true" /> : <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />}
-                    {item.group}
+                    <span>{GROUP_KEYS[item.group!] && user?.role === "client" ? t(GROUP_KEYS[item.group!]) : item.group}</span>
+                    {groupCollapsed && groupBadgeTotal(item.group!) > 0 && <span className="nav-group-dot" aria-label={`${groupBadgeTotal(item.group!)} need attention`}>{groupBadgeTotal(item.group!)}</span>}
                   </button>
                 )}
                 {groupCollapsed ? null : <NavLink
@@ -382,29 +413,32 @@ export function Layout() {
                 >
                   <item.icon size={17} strokeWidth={2} aria-hidden="true" />
                   {!sidebarRailActive && <span>{label}</span>}
-                  {item.to === "/notes" && openNotesCount > 0 && (
-                    <span
-                      style={{
-                        marginLeft: sidebarRailActive ? 0 : "auto", fontSize: 11, fontWeight: 700,
-                        background: "var(--red)", color: "#fff", borderRadius: 999, padding: "1px 6px", lineHeight: 1.5,
-                      }}
-                    >
-                      {openNotesCount}
-                    </span>
-                  )}
+                  {(() => {
+                    const b = item.to === "/notes" ? (openNotesCount > 0 ? { count: openNotesCount, tone: "red" as const } : null) : badges[item.to];
+                    return b ? <span className={`nav-badge ${b.tone}${sidebarRailActive ? " rail" : ""}`} aria-label={`${b.count} need attention`}>{b.count > 99 ? "99+" : b.count}</span> : null;
+                  })()}
                 </NavLink>}
               </Fragment>
             );
           })}
         </nav>
-        {!sidebarRailActive && (
-          <div className="sidebar-footer">
-            <div className="small-label">Data Layer</div>
-            <div className="data-layer-badge">v5 professional tables</div>
-            <button type="button" className="skin-toggle" onClick={toggleSkin}>{classicLook ? "Switch to portal look" : "Classic look"}</button>
-            <div className="muted" dir="ltr" style={{ fontSize: 10.5, marginTop: 10, lineHeight: 1.4, textAlign: sidebarDir === "rtl" ? "right" : "left" }}>{COPYRIGHT}</div>
+        <div className="sidebar-footer">
+          <div className="sidebar-user" title={sidebarRailActive ? (user?.name || user?.email) : undefined}>
+            <span className="sidebar-avatar" aria-hidden="true">{initials}</span>
+            {!sidebarRailActive && (
+              <span className="sidebar-user-text">
+                <b>{user?.name || user?.email}</b>
+                <small>{user ? PORTAL_LABELS[user.role] || "Portal" : ""}</small>
+              </span>
+            )}
           </div>
-        )}
+          {!sidebarRailActive && (
+            <div className="sidebar-footer-links">
+              <button type="button" className="skin-toggle" onClick={toggleSkin}>{classicLook ? "Switch to portal look" : "Classic look"}</button>
+              <div className="muted" dir="ltr" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.4, textAlign: sidebarDir === "rtl" ? "right" : "left" }}>{COPYRIGHT}</div>
+            </div>
+          )}
+        </div>
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <IdleTimeout />
