@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
@@ -271,9 +272,9 @@ export function CreateBatchTasksModal({ rules: allRules, initialRuleId, onClose,
 
         <div className="form-grid">
           <div className="field"><label htmlFor="batch-period-label">Period Label</label><input id="batch-period-label" value={periodLabel} onChange={(e) => { setPeriodLabel(e.target.value); setPreview(null); }} placeholder="e.g. June 2026" /></div>
-          <div className="field"><label htmlFor="batch-due-date">Agency Due Date</label><input id="batch-due-date" type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); setPreview(null); }} /></div>
-          <div className="field"><label htmlFor="batch-period-start">Period Start</label><input id="batch-period-start" type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setPreview(null); }} /></div>
-          <div className="field"><label htmlFor="batch-period-end">Period End</label><input id="batch-period-end" type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-due-date">Agency Due Date</label><DateInput id="batch-due-date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-period-start">Period Start</label><DateInput id="batch-period-start" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-period-end">Period End</label><DateInput id="batch-period-end" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPreview(null); }} /></div>
           <div className="field">
             <label htmlFor="batch-assigned-to">Assigned To</label>
             <select id="batch-assigned-to" value={assignedTo} onChange={(e) => { setAssignedTo(e.target.value); setPreview(null); }}>
@@ -281,7 +282,7 @@ export function CreateBatchTasksModal({ rules: allRules, initialRuleId, onClose,
               {staffOptions.map((o) => <option key={o}>{o}</option>)}
             </select>
           </div>
-          <div className="field"><label htmlFor="batch-staff-due-date">Staff Due Date</label><input id="batch-staff-due-date" type="date" value={staffDueDate} onChange={(e) => { setStaffDueDate(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-staff-due-date">Staff Due Date</label><DateInput id="batch-staff-due-date" value={staffDueDate} onChange={(e) => { setStaffDueDate(e.target.value); setPreview(null); }} /></div>
         </div>
         <div className="field"><label htmlFor="batch-notes">Notes</label><textarea id="batch-notes" rows={2} value={notes} onChange={(e) => { setNotes(e.target.value); setPreview(null); }} /></div>
 

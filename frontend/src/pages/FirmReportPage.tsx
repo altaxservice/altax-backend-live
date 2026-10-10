@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -130,11 +131,11 @@ export function FirmReportPage() {
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="fr-from">From</label>
-              <input id="fr-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <DateInput id="fr-from" value={from} onChange={(e) => setFrom(e.target.value)} />
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="fr-to">To</label>
-              <input id="fr-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <DateInput id="fr-to" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

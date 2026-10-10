@@ -1529,3 +1529,105 @@ button.act-title:hover { text-decoration: underline; text-decoration-color: var(
 .act-cell { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .act-cell .act-title { font-size: 12.5px; font-weight: 600; }
 .act-cell .act-sub { font-size: 11.5px; margin-top: 1px; }
+
+/* ───────── Sort indicator (stacked up/down triangles, like a government tax portal) ───────── */
+.sort-ind { display: inline-block; width: 9px; height: 14px; margin-left: 7px; vertical-align: middle; position: relative; }
+.sort-ind::before, .sort-ind::after { content: ""; position: absolute; left: 0; border-left: 4.5px solid transparent; border-right: 4.5px solid transparent; }
+.sort-ind::before { top: 0; border-bottom: 5.5px solid #9aa6b5; }
+.sort-ind::after { bottom: 0; border-top: 5.5px solid #9aa6b5; }
+.sort-ind[data-dir="asc"]::before { border-bottom-color: var(--teal); }
+.sort-ind[data-dir="desc"]::after { border-top-color: var(--teal); }
+
+/* ───────── Pager ───────── */
+.pager { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.pager button { min-width: 34px; height: 32px; display: inline-grid; place-items: center; border: 1px solid var(--line); background: var(--paper); color: var(--teal); border-radius: 4px; font-weight: 700; padding: 0 8px; }
+.pager button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-soft); }
+.pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pager .pager-current { background: var(--teal); border-color: var(--teal); color: #fff; }
+.pager .pager-info { margin-left: 10px; font-size: 12.5px; color: var(--muted); }
+
+/* ───────── Calendar date field (DateInput) ───────── */
+.dp-wrap { position: relative; display: inline-flex; align-items: center; width: 100%; max-width: 100%; }
+.dp-wrap input { width: 100%; padding-right: 34px !important; }
+.dp-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 26px; height: 26px; border: 0; background: transparent; color: var(--muted); border-radius: 4px; }
+.dp-btn:hover:not(:disabled) { color: var(--teal); background: var(--teal-soft); }
+.dp-pop { position: fixed; z-index: 2000; width: 284px; background: var(--paper); border: 1px solid #9aa6b5; border-radius: 4px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22); padding: 8px; font-size: 13px; }
+.dp-head { display: grid; grid-template-columns: 30px 1fr 84px 30px; gap: 6px; align-items: center; background: #e6eaef; border-radius: 4px; padding: 6px; margin-bottom: 8px; }
+.dp-head select { min-height: 28px; padding: 3px 6px; border: 1px solid #aeb7c2; border-radius: 4px; background: #fff; font-size: 13px; font-weight: 600; width: 100%; }
+.dp-nav { width: 28px; height: 28px; border-radius: 50%; border: 0; background: #7b8794; color: #fff; display: grid; place-items: center; }
+.dp-nav:hover { background: var(--teal); }
+.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dp-dow { text-align: center; font-weight: 800; font-size: 12px; padding: 5px 0; color: var(--ink); }
+.dp-day { height: 32px; border: 1px solid #dfe3e8; background: #f1f3f5; color: var(--ink); font-size: 13.5px; border-radius: 2px; }
+.dp-day:hover:not(:disabled) { background: var(--teal-soft); border-color: var(--teal); }
+.dp-day.other { color: #a5aebb; background: #f7f8fa; }
+.dp-day.today { background: #fff36b; border-color: #e6d94a; font-weight: 800; }
+.dp-day.sel { background: var(--teal); border-color: var(--teal); color: #fff; font-weight: 800; }
+.dp-day:disabled { opacity: 0.35; cursor: not-allowed; }
+.dp-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.dp-link { border: 0; background: none; color: var(--teal); font-weight: 700; padding: 4px 6px; }
+.dp-clear { border: 1px solid #aeb7c2; background: #e6eaef; color: var(--ink); border-radius: 4px; font-weight: 700; padding: 5px 16px; }
+.dp-clear:hover { border-color: var(--teal); }
+
+/* ───────── "Portal" style — navy and blue, clear borders, sans-serif headings, bordered tables ─────────
+   Switchable from the sidebar footer ("Classic look") — html[data-skin="classic"] leaves everything above untouched. */
+html:not([data-skin="classic"]) {
+  --ink: #1f2933;
+  --muted: #586573;
+  --line: #c5ccd6;
+  --surface: #f1f3f5;
+  --nav: #1b2745;
+  --nav-soft: #2b3b66;
+  --teal: #0b62b5;
+  --teal-soft: #dbe8f6;
+  --green: #2d5f2a;
+  --green-soft: #dff0d8;
+  --focus: #0b62b5;
+  --focus-text: #0b62b5;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --serif: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+html:not([data-skin="classic"]) body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 15px; }
+html:not([data-skin="classic"]) h1, html:not([data-skin="classic"]) h2, html:not([data-skin="classic"]) h3, html:not([data-skin="classic"]) h4 { font-weight: 700; letter-spacing: -0.01em; }
+
+/* Controls: grey-filled fields, square-ish corners, solid blue primary buttons */
+html:not([data-skin="classic"]) .btn { border-radius: 4px; padding: 8px 16px; font-size: 14px; }
+html:not([data-skin="classic"]) .btn-sm { padding: 6px 12px; font-size: 13px; }
+html:not([data-skin="classic"]) .btn:hover { color: var(--teal); }
+html:not([data-skin="classic"]) .btn-primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+html:not([data-skin="classic"]) .btn-primary:hover { background: #094f93; border-color: #094f93; color: #fff; opacity: 1; }
+html:not([data-skin="classic"]) .field label { font-size: 12.5px; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--ink); }
+html:not([data-skin="classic"]) .field:has(input[required], select[required], textarea[required]) > label::after { content: " *"; color: var(--red); font-weight: 800; }
+html:not([data-skin="classic"]) .field input, html:not([data-skin="classic"]) .field select, html:not([data-skin="classic"]) .field textarea,
+html:not([data-skin="classic"]) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), html:not([data-skin="classic"]) select, html:not([data-skin="classic"]) textarea {
+  background: #eef0f3; border: 1px solid #aeb7c2; border-radius: 4px; font-size: 14.5px;
+}
+html:not([data-skin="classic"]) input:not([type="checkbox"]):not([type="radio"]):focus, html:not([data-skin="classic"]) select:focus, html:not([data-skin="classic"]) textarea:focus { background: #fff; border-color: var(--teal); }
+
+/* Cards and panels: flat, bordered, small radius; panel headers read as navy title bars */
+html:not([data-skin="classic"]) .card, html:not([data-skin="classic"]) .command-panel { border-radius: 4px; box-shadow: var(--shadow); border-color: var(--line); }
+html:not([data-skin="classic"]) .command-panel-header { background: var(--nav); border-bottom: 0; border-radius: 3px 3px 0 0; }
+html:not([data-skin="classic"]) .command-panel-header .command-panel-title { color: #fff; }
+html:not([data-skin="classic"]) .command-panel-header .command-panel-note { color: #c7d2e6; }
+html:not([data-skin="classic"]) .command-panel-header .btn, html:not([data-skin="classic"]) .command-panel-header .ghost-button { background: #fff; color: var(--ink); }
+html:not([data-skin="classic"]) .act-ribbon { border-radius: 4px; box-shadow: var(--shadow); }
+html:not([data-skin="classic"]) .act-icon { border-radius: 4px; }
+
+/* Tables: clear grid, tinted header with bold blue titles, zebra rows */
+@media (min-width: 821px) {
+  html:not([data-skin="classic"]) table { border: 1px solid var(--line); }
+  html:not([data-skin="classic"]) th, html:not([data-skin="classic"]) td { border: 1px solid var(--line); padding: 10px 12px; font-size: 14px; }
+  html:not([data-skin="classic"]) tbody tr:nth-child(even) { background: #f6f8fa; }
+  html:not([data-skin="classic"]) tbody tr:hover { background: #e8f1fb; }
+}
+html:not([data-skin="classic"]) th { background: #e9edf2; color: #0b4f94; font-size: 13.5px; font-weight: 700; text-transform: none; letter-spacing: 0; }
+html:not([data-skin="classic"]) th.sortable:hover { color: #073a6e; }
+
+/* Info boxes (navy panels with white text, as on government portals) */
+.info-box { background: var(--nav); color: #fff; border-radius: 4px; padding: 14px 18px; font-size: 14px; line-height: 1.5; }
+.info-box a { color: #bcd8ff; }
+.success-box { background: var(--green-soft); color: var(--green); border: 1px solid #c3dfb9; border-radius: 4px; padding: 12px 16px; font-size: 14px; }
+
+/* Classic-look toggle in the sidebar footer */
+.skin-toggle { margin-top: 10px; background: transparent; border: 1px solid rgba(255, 255, 255, 0.25); color: #c7d2e6; border-radius: 4px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; }
+.skin-toggle:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }

@@ -5,6 +5,7 @@ import App from './App.tsx'
 import { installSpellcheckEnforcement } from './utils/enforceSpellcheck'
 import { installFieldSuggestions } from './utils/fieldSuggestions'
 
+try { if (localStorage.getItem("altax_skin") === "classic") document.documentElement.setAttribute("data-skin", "classic"); } catch { /* storage unavailable */ }
 installSpellcheckEnforcement()
 installFieldSuggestions()
 

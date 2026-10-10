@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useState } from "react";
 import { api, ApiError, viewFile } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
@@ -284,9 +285,9 @@ export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clien
           {editingEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
               <label style={{ fontSize: 11 }}>Filed Date</label>
-              <input type="date" value={editForm.filed} onChange={(e) => setEditForm((s) => ({ ...s, filed: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={editForm.filed} onChange={(e) => setEditForm((s) => ({ ...s, filed: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }}>Payment Date (optional)</label>
-              <input type="date" value={editForm.paid} onChange={(e) => setEditForm((s) => ({ ...s, paid: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={editForm.paid} onChange={(e) => setEditForm((s) => ({ ...s, paid: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }}>{cfg.amountHeader}</label>
               <input type="number" step="0.01" min="0" value={editForm.amount} onChange={(e) => setEditForm((s) => ({ ...s, amount: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
@@ -301,7 +302,7 @@ export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clien
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {!p.markedPaidDate && (payingEnd === p.end ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                  <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                  <DateInput value={payDate} onChange={(e) => setPayDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
                   <div style={{ display: "flex", gap: 4 }}>
                     <button type="button" className="btn btn-sm btn-primary" disabled={busy || !payDate} onClick={() => run(p.end, async () => {
                       await api.post(actionUrl("record-payment", p), cfg.paymentBody ? cfg.paymentBody(payDate) : { paidDate: payDate });
@@ -327,9 +328,9 @@ export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clien
           ) : pickingEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 190 }}>
               <label style={{ fontSize: 11 }}>Filed date</label>
-              <input type="date" value={pickFiled} onChange={(e) => setPickFiled(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickFiled} onChange={(e) => setPickFiled(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }}>Payment date (optional)</label>
-              <input type="date" value={pickPaid} onChange={(e) => setPickPaid(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickPaid} onChange={(e) => setPickPaid(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               {cfg.amountEditableOnFile ? (
                 <>
                   <label style={{ fontSize: 11 }}>{cfg.amountHeader}</label>
@@ -406,10 +407,10 @@ export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clien
               {cfg.presets.map((pr) => <button key={pr.label} type="button" className="btn btn-sm" onClick={() => { const r = pr.range(); setFrom(r.from); setTo(r.to); }}>{pr.label}</button>)}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-from-${kind}`}>From</label><input id={`ob-from-${kind}`} type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-to-${kind}`}>To</label><input id={`ob-to-${kind}`} type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-filed-${kind}`}>Filing date</label><input id={`ob-filed-${kind}`} type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} /></div>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-paid-${kind}`}>Payment date</label><input id={`ob-paid-${kind}`} type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-from-${kind}`}>From</label><DateInput id={`ob-from-${kind}`} value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-to-${kind}`}>To</label><DateInput id={`ob-to-${kind}`} value={to} onChange={(e) => setTo(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-filed-${kind}`}>Filing date</label><DateInput id={`ob-filed-${kind}`} value={filedDate} onChange={(e) => setFiledDate(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor={`ob-paid-${kind}`}>Payment date</label><DateInput id={`ob-paid-${kind}`} value={paidDate} onChange={(e) => setPaidDate(e.target.value)} /></div>
             </div>
             <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Filing date and payment date are used to estimate late charges for periods not yet marked filed.</p>
           </>

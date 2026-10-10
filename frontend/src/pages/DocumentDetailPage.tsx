@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
@@ -279,7 +280,7 @@ export function DocumentDetailPage() {
           </div>
           <div className="field">
             <label htmlFor="e-due">Due From Client</label>
-            <input id="e-due" type="date" value={editForm.dueFromClient} onChange={(ev) => setEditForm((f) => ({ ...f, dueFromClient: ev.target.value }))} />
+            <DateInput id="e-due" value={editForm.dueFromClient} onChange={(ev) => setEditForm((f) => ({ ...f, dueFromClient: ev.target.value }))} />
           </div>
           <div className="field">
             <label htmlFor="e-priority">Priority</label>

@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
@@ -193,9 +194,9 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
           {editingEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
               <label style={{ fontSize: 11 }} htmlFor={`wh-edit-filed-${p.end}`}>Filed Date</label>
-              <input id={`wh-edit-filed-${p.end}`} type="date" value={editForm.filedDate} onChange={(e) => setEditForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput id={`wh-edit-filed-${p.end}`} value={editForm.filedDate} onChange={(e) => setEditForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }} htmlFor={`wh-edit-paid-${p.end}`}>Payment Date (optional)</label>
-              <input id={`wh-edit-paid-${p.end}`} type="date" value={editForm.paidDate} onChange={(e) => setEditForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput id={`wh-edit-paid-${p.end}`} value={editForm.paidDate} onChange={(e) => setEditForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }} htmlFor={`wh-edit-tax-${p.end}`}>Tax Withheld</label>
               <input id={`wh-edit-tax-${p.end}`} type="number" step="0.01" min="0" value={editForm.taxDue} onChange={(e) => setEditForm((s) => ({ ...s, taxDue: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
@@ -210,7 +211,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {!p.markedPaidDate && (payingEnd === p.end ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                  <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                  <DateInput value={payDate} onChange={(e) => setPayDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
                   <div style={{ display: "flex", gap: 4 }}>
                     <button type="button" className="btn btn-sm btn-primary" disabled={busy || !payDate} onClick={() => run(p.end, async () => {
                       await api.post(`/withholding-filings/${clientId}/record-payment`, { state: workState, periodEnd: p.end, paidDate: payDate });
@@ -235,9 +236,9 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
           ) : pickingEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 190 }}>
               <label style={{ fontSize: 11 }}>Filed date</label>
-              <input type="date" value={pickFiled} onChange={(e) => setPickFiled(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickFiled} onChange={(e) => setPickFiled(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }}>Payment date (optional)</label>
-              <input type="date" value={pickPaid} onChange={(e) => setPickPaid(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickPaid} onChange={(e) => setPickPaid(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }}>Tax withheld</label>
               <input type="number" step="0.01" min="0" value={pickAmount} onChange={(e) => setPickAmount(e.target.value)} title="Pre-filled from recorded paychecks — correct it if the return differs" style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
@@ -355,10 +356,10 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
               {PRESETS.map((pr) => <button key={pr.label} type="button" className="btn btn-sm" onClick={() => { const r = pr.range(); setFrom(r.from); setTo(r.to); }}>{pr.label}</button>)}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-from">From</label><input id="wh-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-to">To</label><input id="wh-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-filed">Filing date</label><input id="wh-filed" type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} /></div>
-              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-paid">Payment date</label><input id="wh-paid" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-from">From</label><DateInput id="wh-from" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-to">To</label><DateInput id="wh-to" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-filed">Filing date</label><DateInput id="wh-filed" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} /></div>
+              <div className="field" style={{ maxWidth: 170, margin: 0 }}><label htmlFor="wh-paid">Payment date</label><DateInput id="wh-paid" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} /></div>
             </div>
             <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Filing date and payment date are used to estimate late charges for periods not yet marked filed.</p>
           </>

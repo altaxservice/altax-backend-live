@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
@@ -68,9 +69,9 @@ export function AddRecurringModal({ clients, editing, onClose, onDone }: { clien
           <div className="field"><label htmlFor="recur-frequency">Frequency</label><select id="recur-frequency" value={form.frequency} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value }))}><option>Weekly</option><option>Monthly</option><option>Quarterly</option><option>Annual</option></select></div>
           <div className="field"><label htmlFor="recur-interval-count">Every number of {form.frequency === "Weekly" ? "weeks" : form.frequency === "Quarterly" ? "quarters" : form.frequency === "Annual" ? "years" : "months"}</label><input id="recur-interval-count" type="number" min="1" value={form.intervalCount} onChange={(e) => setForm((f) => ({ ...f, intervalCount: e.target.value }))} /></div>
           <div className="field"><label htmlFor="recur-repeat-on-day">On day (optional)</label><input id="recur-repeat-on-day" type="number" min="1" max="31" placeholder="Same as start date" value={form.repeatOnDay} onChange={(e) => setForm((f) => ({ ...f, repeatOnDay: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="recur-start-date">Start Date</label><input id="recur-start-date" type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="recur-next-run-date">Next Run Date</label><input id="recur-next-run-date" type="date" value={form.nextRunDate} onChange={(e) => setForm((f) => ({ ...f, nextRunDate: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="recur-end-date">End Date</label><input id="recur-end-date" type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="recur-start-date">Start Date</label><DateInput id="recur-start-date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="recur-next-run-date">Next Run Date</label><DateInput id="recur-next-run-date" value={form.nextRunDate} onChange={(e) => setForm((f) => ({ ...f, nextRunDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="recur-end-date">End Date</label><DateInput id="recur-end-date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} /></div>
           <div className="field"><label htmlFor="recur-due-days">Due Days</label><input id="recur-due-days" type="number" min="0" value={form.dueDays} onChange={(e) => setForm((f) => ({ ...f, dueDays: e.target.value }))} /></div>
           <PaymentProfileField clientId={form.clientId} value={form.paymentProfile} onChange={(v) => setForm((f) => ({ ...f, paymentProfile: v }))} />
           <div className="field"><label htmlFor="recur-auto-create">Auto Create Invoice</label><select id="recur-auto-create" value={form.autoCreateInvoice ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, autoCreateInvoice: e.target.value === "yes" }))}><option value="yes">Yes</option><option value="no">No</option></select></div>

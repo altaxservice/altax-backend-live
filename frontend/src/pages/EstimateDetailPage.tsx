@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, printFile, fetchAuthedBlob, buildFilename } from "../api/client";
@@ -553,7 +554,7 @@ export function EstimateDetailPage() {
               </div>
               <div className="field">
                 <label htmlFor="ei-valid">Valid until</label>
-                <input id="ei-valid" type="date" value={infoForm.validUntil} onChange={(e) => setInfoForm({ ...infoForm, validUntil: e.target.value })} />
+                <DateInput id="ei-valid" value={infoForm.validUntil} onChange={(e) => setInfoForm({ ...infoForm, validUntil: e.target.value })} />
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
                 <button className="btn btn-sm" onClick={() => setEditingInfo(false)} disabled={infoSaving}>Cancel</button>
@@ -590,7 +591,7 @@ export function EstimateDetailPage() {
             </div>
             <div className="field" style={{ flex: 1 }}>
               <label htmlFor="est-deposit-date">Deposit date</label>
-              <input id="est-deposit-date" type="date" defaultValue={estimate.deposit_date ? estimate.deposit_date.slice(0, 10) : ""}
+              <DateInput id="est-deposit-date" defaultValue={estimate.deposit_date ? estimate.deposit_date.slice(0, 10) : ""}
                 onChange={(e) => patchEstimate({ depositDate: e.target.value })} disabled={locked} />
             </div>
           </div>

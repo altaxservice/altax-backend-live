@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -354,7 +355,7 @@ export function TimeTrackingPage() {
       <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div className="field" style={{ margin: 0 }}>
           <label htmlFor="tt-entry-date">Date</label>
-          <input id="tt-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
+          <DateInput id="tt-entry-date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
         </div>
         <div className="field" style={{ margin: 0, maxWidth: 100 }}>
           <label htmlFor="tt-hours">Hours</label>
@@ -564,7 +565,7 @@ function ExportPayrollModal({ target, onClose, onDone }: { target: { userId: str
         </p>
         <div className="field">
           <label htmlFor="ep-pay-date">Pay Date</label>
-          <input id="ep-pay-date" type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+          <DateInput id="ep-pay-date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
@@ -613,7 +614,7 @@ function EditTimeEntryModal({ entry, onClose, onDone }: { entry: TimeEntry; onCl
         <div className="modal-header"><h2 id="edit-time-entry-title">Edit Time Entry</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="form-grid">
-          <div className="field"><label htmlFor="ete-date">Date</label><input id="ete-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
+          <div className="field"><label htmlFor="ete-date">Date</label><DateInput id="ete-date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
           <div className="field"><label htmlFor="ete-hours">Hours</label><input id="ete-hours" type="number" step="0.25" min="0" value={hours} onChange={(e) => setHours(e.target.value)} /></div>
         </div>
         <div className="field"><label htmlFor="ete-description">Description</label><input id="ete-description" value={description} onChange={(e) => setDescription(e.target.value)} /></div>

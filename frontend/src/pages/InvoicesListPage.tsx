@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -455,8 +456,8 @@ export function InvoicesListPage() {
               {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
             </select>
           </div>
-          <div className="field" style={{ margin: 0 }}><label htmlFor="inv-list-statement-start">From</label><input id="inv-list-statement-start" type="date" value={statementStart} onChange={(e) => setStatementStart(e.target.value)} /></div>
-          <div className="field" style={{ margin: 0 }}><label htmlFor="inv-list-statement-end">To</label><input id="inv-list-statement-end" type="date" value={statementEnd} onChange={(e) => setStatementEnd(e.target.value)} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor="inv-list-statement-start">From</label><DateInput id="inv-list-statement-start" value={statementStart} onChange={(e) => setStatementStart(e.target.value)} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor="inv-list-statement-end">To</label><DateInput id="inv-list-statement-end" value={statementEnd} onChange={(e) => setStatementEnd(e.target.value)} /></div>
           <button className="btn" disabled={!statementClientId || viewingStatement} onClick={handleViewStatement}>
             {viewingStatement ? "Generating…" : "View Statement"}
           </button>
@@ -710,7 +711,7 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
         {error && <ErrorBanner error={error} />}
         <div className="field"><label htmlFor="sr-client">Client</label><select id="sr-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
         <div className="form-grid">
-          <div className="field"><label htmlFor="sr-date">Receipt Date</label><input id="sr-date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="sr-date">Receipt Date</label><DateInput id="sr-date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
           <div className="field"><label htmlFor="sr-amount">Amount Received</label><input id="sr-amount" type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
         </div>
         <div className="field"><label htmlFor="sr-description">Description</label><input id="sr-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} /></div>
@@ -794,7 +795,7 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
           </select>
         </div>
         <div className="form-grid">
-          <div className="field"><label htmlFor="rp-payment-date">Payment Date</label><input id="rp-payment-date" type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="rp-payment-date">Payment Date</label><DateInput id="rp-payment-date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           <div className="field"><label htmlFor="rp-amount">Amount</label><input id="rp-amount" type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder={selectedInvoice ? String(selectedInvoice.balance_due) : ""} /></div>
         </div>
         <div className="form-grid">

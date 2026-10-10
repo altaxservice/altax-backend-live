@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { CompanyCheckBanner, companyCheckNeedsConfirm, type CompanyCheckInfo } from "./CompanyCheckBanner";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -355,9 +356,9 @@ export function EftpsDepositSection({ clientId, clientName, onSwitchClient }: { 
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input type="text" value={importedPaycheckSearch} onChange={(e) => setImportedPaycheckSearch(e.target.value)}
                 placeholder="Search employee, date, check #…" style={{ padding: "4px 6px", maxWidth: 200 }} />
-              <input type="date" value={importedPaycheckDateFrom} onChange={(e) => setImportedPaycheckDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
+              <DateInput value={importedPaycheckDateFrom} onChange={(e) => setImportedPaycheckDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
               <span className="muted">to</span>
-              <input type="date" value={importedPaycheckDateTo} onChange={(e) => setImportedPaycheckDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
+              <DateInput value={importedPaycheckDateTo} onChange={(e) => setImportedPaycheckDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
               {(importedPaycheckDateFrom || importedPaycheckDateTo) && (
                 <button type="button" className="ghost-button" onClick={() => { setImportedPaycheckDateFrom(""); setImportedPaycheckDateTo(""); }}>All time</button>
               )}

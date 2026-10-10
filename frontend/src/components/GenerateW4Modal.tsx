@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -189,7 +190,7 @@ export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: s
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="w4-first-date-employment">First date of employment</label>
-                <input id="w4-first-date-employment" type="date" value={firstDateOfEmployment} onChange={(e) => setFirstDateOfEmployment(e.target.value)} />
+                <DateInput id="w4-first-date-employment" value={firstDateOfEmployment} onChange={(e) => setFirstDateOfEmployment(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="w4-employer-ein">Employer EIN</label>

@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { LastActivityCell, useClientLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
@@ -501,8 +502,7 @@ export function ClientsListPage() {
   }
 
   function sortArrow(key: SortKey) {
-    if (sortKey !== key) return "";
-    return sortDir === "asc" ? " ▲" : " ▼";
+    return <span className="sort-ind" data-dir={sortKey !== key ? "none" : sortDir} aria-hidden="true" />;
   }
 
   function handleExport() {
@@ -750,7 +750,7 @@ export function ClientsListPage() {
                   {form.clientType === "Business" && (
                     <div className="field">
                       <label htmlFor="nc-formation-date">Date of Formation</label>
-                      <input id="nc-formation-date" type="date" value={form.dateOfFormation} onChange={(e) => setForm((f) => ({ ...f, dateOfFormation: e.target.value }))} />
+                      <DateInput id="nc-formation-date" value={form.dateOfFormation} onChange={(e) => setForm((f) => ({ ...f, dateOfFormation: e.target.value }))} />
                     </div>
                   )}
                   <div className="field">
@@ -1035,7 +1035,7 @@ export function ClientsListPage() {
                         the obligation as "missing". See sql/102_obligation_registered_since.sql. */}
                     <div className="field">
                       <label htmlFor="nc-mdw-reg">{clientStateLabel("MD Withholding Registered Since", form.state)}</label>
-                      <input id="nc-mdw-reg" type="date" value={form.mdWithholdingRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingRegisteredSince: e.target.value }))} />
+                      <DateInput id="nc-mdw-reg" value={form.mdWithholdingRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingRegisteredSince: e.target.value }))} />
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.eftpsEnabled} onChange={(e) => setForm((f) => ({ ...f, eftpsEnabled: e.target.checked }))} />
@@ -1043,7 +1043,7 @@ export function ClientsListPage() {
                     </label>
                     <div className="field">
                       <label htmlFor="nc-eftps-reg">EFTPS Registered Since</label>
-                      <input id="nc-eftps-reg" type="date" value={form.eftpsRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, eftpsRegisteredSince: e.target.value }))} />
+                      <DateInput id="nc-eftps-reg" value={form.eftpsRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, eftpsRegisteredSince: e.target.value }))} />
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
@@ -1051,7 +1051,7 @@ export function ClientsListPage() {
                     </label>
                     <div className="field">
                       <label htmlFor="nc-mdui-reg">{clientStateLabel("MD UI Registered Since", form.state)}</label>
-                      <input id="nc-mdui-reg" type="date" value={form.mduiRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mduiRegisteredSince: e.target.value }))} />
+                      <DateInput id="nc-mdui-reg" value={form.mduiRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mduiRegisteredSince: e.target.value }))} />
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
@@ -1072,7 +1072,7 @@ export function ClientsListPage() {
                     </div>
                     <div className="field">
                       <label htmlFor="nc-stf-reg">Registered Since</label>
-                      <input id="nc-stf-reg" type="date" value={form.salesTaxRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, salesTaxRegisteredSince: e.target.value }))} />
+                      <DateInput id="nc-stf-reg" value={form.salesTaxRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, salesTaxRegisteredSince: e.target.value }))} />
                     </div>
                   </div>
                 </div>

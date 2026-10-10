@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { LastActivityCell, useTaskLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -318,7 +319,7 @@ export function TasksListPage() {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(key); setSortDir("asc"); }
   }
-  function sortArrow(key: SortKey) { return sortKey !== key ? "" : sortDir === "asc" ? " ▲" : " ▼"; }
+  function sortArrow(key: SortKey) { return <span className="sort-ind" data-dir={sortKey !== key ? "none" : sortDir} aria-hidden="true" />; }
 
   function toggleSelected(taskId: string) {
     setSelected((prev) => { const next = new Set(prev); next.has(taskId) ? next.delete(taskId) : next.add(taskId); return next; });
@@ -819,10 +820,18 @@ export function TasksListPage() {
           </div>
           {visibleRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match.</p>}
           {isLiveTab(quickTab) && totalPages > 1 && (
-            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: "1px solid var(--line)" }}>
-              <button type="button" className="btn btn-sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
-              <span className="muted" style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-              <button type="button" className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
+            <div className="pager" role="navigation" aria-label="Pages">
+              <button type="button" aria-label="First page" disabled={page <= 1} onClick={() => setPage(1)}><ChevronsLeft size={15} aria-hidden="true" /></button>
+              <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}><ChevronLeft size={15} aria-hidden="true" /></button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 2).map((n, i, arr) => (
+                <span key={n} style={{ display: "inline-flex", gap: 4 }}>
+                  {i > 0 && n - arr[i - 1] > 1 ? <span className="muted" style={{ alignSelf: "center" }}>…</span> : null}
+                  <button type="button" className={n === page ? "pager-current" : ""} aria-current={n === page ? "page" : undefined} onClick={() => setPage(n)}>{n}</button>
+                </span>
+              ))}
+              <button type="button" aria-label="Next page" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}><ChevronRight size={15} aria-hidden="true" /></button>
+              <button type="button" aria-label="Last page" disabled={page >= totalPages} onClick={() => setPage(totalPages)}><ChevronsRight size={15} aria-hidden="true" /></button>
+              <span className="pager-info">Page {page} of {totalPages}</span>
             </div>
           )}
         </div>

@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -168,7 +169,7 @@ function QboConfirmSection({
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor={`qbo-filed-date-${title}`} style={{ fontSize: 11 }}>Filing Date</label>
-            <input id={`qbo-filed-date-${title}`} type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+            <DateInput id={`qbo-filed-date-${title}`} value={filedDate} onChange={(e) => setFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
           </div>
           <button type="button" className="btn btn-primary" disabled={confirming || !selected.size} onClick={handleConfirmAll}>
             {confirming ? "Confirming…" : `Confirm All Selected (${selected.size})`}

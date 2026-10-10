@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, viewFile, downloadFile, printFile } from "../api/client";
 import type { CoaAccount } from "../api/types2";
@@ -211,7 +212,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
           {error && <ErrorBanner error={error} />}
           <div className="field" style={{ maxWidth: 220, marginBottom: 14 }}>
             <label htmlFor="cb-sale-date">{t("books.sales.dateLabel")}</label>
-            <input id="cb-sale-date" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+            <DateInput id="cb-sale-date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
           </div>
           <div className="table-scroll">
             <table>
@@ -473,7 +474,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
           <div className="form-grid" style={{ marginBottom: 12 }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="cb-p-date">{t("books.purchases.dateLabel")}</label>
-              <input id="cb-p-date" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+              <DateInput id="cb-p-date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="cb-p-vendor">{t("books.purchases.vendorLabel")}</label>
@@ -686,11 +687,11 @@ function MyPLTab({ clientId }: { clientId: string }) {
         <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor="cb-pl-from">{t("books.pl.fromLabel")}</label>
-            <input id="cb-pl-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <DateInput id="cb-pl-from" value={from} onChange={(e) => setFrom(e.target.value)} />
           </div>
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor="cb-pl-to">{t("books.pl.toLabel")}</label>
-            <input id="cb-pl-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <DateInput id="cb-pl-to" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         </div>
         {plLoading && <div className="spinner-wrap">{t("books.common.loading")}</div>}

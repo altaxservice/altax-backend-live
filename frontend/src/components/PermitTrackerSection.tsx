@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
@@ -104,8 +105,8 @@ export function PermitTrackerSection({ clientId }: { clientId: string }) {
                       </select>
                     </td>
                     <td><input aria-label={`${p.label} number`} value={d.number} onChange={(e) => set(p.key, { number: e.target.value })} style={{ minWidth: 150 }} placeholder="Permit / certificate #" /></td>
-                    <td><input aria-label={`${p.label} issued date`} type="date" value={d.issuedDate} onChange={(e) => set(p.key, { issuedDate: e.target.value })} /></td>
-                    <td><input aria-label={`${p.label} expiry date`} type="date" value={d.expiresDate} onChange={(e) => set(p.key, { expiresDate: e.target.value })} /></td>
+                    <td><DateInput aria-label={`${p.label} issued date`} value={d.issuedDate} onChange={(e) => set(p.key, { issuedDate: e.target.value })} /></td>
+                    <td><DateInput aria-label={`${p.label} expiry date`} value={d.expiresDate} onChange={(e) => set(p.key, { expiresDate: e.target.value })} /></td>
                     <td><input aria-label={`${p.label} notes`} value={d.notes} onChange={(e) => set(p.key, { notes: e.target.value })} style={{ minWidth: 180 }} placeholder="e.g. no building inspection required" /></td>
                     <td>
                       <button type="button" className="btn btn-sm btn-primary" disabled={!dirty(p) || busy === p.key} onClick={() => save(p)}>{busy === p.key ? "Saving…" : "Save"}</button>

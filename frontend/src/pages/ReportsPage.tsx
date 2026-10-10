@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, viewFile, downloadFile, printFile, fetchAuthedBlob, buildFilename } from "../api/client";
@@ -658,8 +659,8 @@ export function ReportsPage() {
               </select>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
-              <div className="field" style={{ margin: 0 }}><label htmlFor="rep-from">From</label><input id="rep-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-              <div className="field" style={{ margin: 0 }}><label htmlFor="rep-to">To</label><input id="rep-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+              <div className="field" style={{ margin: 0 }}><label htmlFor="rep-from">From</label><DateInput id="rep-from" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+              <div className="field" style={{ margin: 0 }}><label htmlFor="rep-to">To</label><DateInput id="rep-to" value={to} onChange={(e) => setTo(e.target.value)} /></div>
               <button type="button" className="btn btn-sm" onClick={() => { const q = thisQuarterRange(); setFrom(q.start); setTo(q.end); }}>This Quarter</button>
             </div>
           </div>
@@ -981,11 +982,11 @@ export function ReportsPage() {
                         <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
                           <div className="field" style={{ maxWidth: 220, margin: 0 }}>
                             <label htmlFor="rp-md-filed-date">Filing date</label>
-                            <input id="rp-md-filed-date" type="date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} />
+                            <DateInput id="rp-md-filed-date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} />
                           </div>
                           <div className="field" style={{ maxWidth: 220, margin: 0 }}>
                             <label htmlFor="rp-md-paid-date">Payment date</label>
-                            <input id="rp-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
+                            <DateInput id="rp-md-paid-date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
                           </div>
                         </div>
                         {!salesTaxReport.mdFiling.frequencyUsed && (

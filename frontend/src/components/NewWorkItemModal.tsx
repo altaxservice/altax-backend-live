@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
@@ -303,9 +304,8 @@ export function NewWorkItemModal({
             </div>
             <div className={`field ${invalidField === "dueDate" ? "invalid" : ""}`}>
               <label htmlFor="nwi-due-date">Due Date</label>
-              <input
+              <DateInput
                 id="nwi-due-date"
-                type="date"
                 aria-invalid={invalidField === "dueDate" ? "true" : undefined}
                 value={dueDate}
                 onChange={(e) => { setDueDate(e.target.value); if (invalidField === "dueDate") setInvalidField(null); }}
@@ -355,7 +355,7 @@ export function NewWorkItemModal({
                 {priorityOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
-            <div className="field"><label htmlFor="nwi-request-due-date">Due From Client</label><input id="nwi-request-due-date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="nwi-request-due-date">Due From Client</label><DateInput id="nwi-request-due-date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
             <div className="field">
               <label htmlFor="nwi-request-assigned-to">Assigned To</label>
               <select id="nwi-request-assigned-to" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>

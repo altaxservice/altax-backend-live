@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
@@ -301,9 +302,9 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
         <div className="form-grid">
           <div className="field"><label htmlFor="inv-ed-client">Client</label><select id="inv-ed-client" value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={isEdit}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
           <div className="field"><label htmlFor="inv-ed-customer-type">Customer Type</label><input id="inv-ed-customer-type" value={customerType} onChange={(e) => setCustomerType(e.target.value)} placeholder="Business / Individual" /></div>
-          <div className="field"><label htmlFor="inv-ed-invoice-date">Invoice Date</label><input id="inv-ed-invoice-date" type="date" value={invoiceDate} onChange={(e) => { setInvoiceDate(e.target.value); handleTermsChange(terms); }} /></div>
+          <div className="field"><label htmlFor="inv-ed-invoice-date">Invoice Date</label><DateInput id="inv-ed-invoice-date" value={invoiceDate} onChange={(e) => { setInvoiceDate(e.target.value); handleTermsChange(terms); }} /></div>
           <div className="field"><label htmlFor="inv-ed-terms">Terms</label><select id="inv-ed-terms" value={terms} onChange={(e) => handleTermsChange(e.target.value)}>{TERMS_OPTIONS.map((t) => <option key={t}>{t}</option>)}</select></div>
-          <div className="field"><label htmlFor="inv-ed-due-date">Due Date</label><input id="inv-ed-due-date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-due-date">Due Date</label><DateInput id="inv-ed-due-date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
           <div className="field"><label htmlFor="inv-ed-status">Status</label><select id="inv-ed-status" value={status} onChange={(e) => setStatus(e.target.value)}><option>Unpaid</option><option>Partial</option><option>Paid</option><option>Void</option></select></div>
         </div>
 
@@ -331,7 +332,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
 
         <div className="form-grid">
           <div className="field"><label htmlFor="inv-ed-ship-via">Ship Via</label><input id="inv-ed-ship-via" value={shipVia} onChange={(e) => setShipVia(e.target.value)} placeholder="USPS, UPS, hand delivered…" /></div>
-          <div className="field"><label htmlFor="inv-ed-shipping-date">Shipping Date</label><input id="inv-ed-shipping-date" type="date" value={shippingDate} onChange={(e) => setShippingDate(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-shipping-date">Shipping Date</label><DateInput id="inv-ed-shipping-date" value={shippingDate} onChange={(e) => setShippingDate(e.target.value)} /></div>
           <div className="field"><label htmlFor="inv-ed-tracking-number">Tracking No.</label><input id="inv-ed-tracking-number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} /></div>
         </div>
 
@@ -343,7 +344,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
             <tbody>
               {rows.map((r, i) => (
                 <tr key={r.key}>
-                  <td><input type="date" value={r.serviceDate} onChange={(e) => updateRow(r.key, { serviceDate: e.target.value })} style={{ width: 130 }} /></td>
+                  <td><DateInput value={r.serviceDate} onChange={(e) => updateRow(r.key, { serviceDate: e.target.value })} style={{ width: 130 }} /></td>
                   <td>
                     <select value={r.productId} onChange={(e) => selectProduct(r.key, e.target.value)} style={{ width: 160 }}>
                       <option value="">Select…</option>

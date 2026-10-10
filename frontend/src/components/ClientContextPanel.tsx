@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -578,7 +579,7 @@ export function ClientContextPanel() {
               />
               <div style={{ display: "flex", gap: 6 }}>
                 <input placeholder="Category (optional)" value={followUpCategory} onChange={(e) => setFollowUpCategory(e.target.value)} style={{ fontSize: 12.5, flex: 1 }} />
-                <input type="date" title="Remind me on (optional)" value={followUpRemindAt} onChange={(e) => setFollowUpRemindAt(e.target.value)} style={{ fontSize: 12.5 }} />
+                <DateInput title="Remind me on (optional)" value={followUpRemindAt} onChange={(e) => setFollowUpRemindAt(e.target.value)} style={{ fontSize: 12.5 }} />
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={savingFollowUp}>{savingFollowUp ? "Saving…" : "Save Note"}</button>
@@ -623,7 +624,7 @@ export function ClientContextPanel() {
                   />
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                     <input type="number" step="0.01" placeholder="Amount (optional)" value={flagAmount} onChange={(e) => setFlagAmount(e.target.value)} style={{ fontSize: 12.5 }} />
-                    <input type="date" title="Relevant date (optional)" value={flagDueDate} onChange={(e) => setFlagDueDate(e.target.value)} style={{ fontSize: 12.5 }} />
+                    <DateInput title="Relevant date (optional)" value={flagDueDate} onChange={(e) => setFlagDueDate(e.target.value)} style={{ fontSize: 12.5 }} />
                   </div>
                   {clientTasks.length > 0 && (
                     <select value={flagLinkTaskId} onChange={(e) => setFlagLinkTaskId(e.target.value)} style={{ fontSize: 12.5 }} title="Link an open task, so staff know where to go to fix or track this">

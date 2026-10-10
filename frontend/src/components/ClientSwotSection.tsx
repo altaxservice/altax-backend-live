@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useState, useEffect, Fragment } from "react";
 import { api, ApiError, viewFile, downloadFile, printFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
@@ -292,7 +293,7 @@ function FindingsPanel({ clientId }: { clientId: string }) {
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label>Target Date</label>
-              <input type="date" value={newFinding.targetDate} onChange={(e) => setNewFinding((f) => ({ ...f, targetDate: e.target.value }))} />
+              <DateInput value={newFinding.targetDate} onChange={(e) => setNewFinding((f) => ({ ...f, targetDate: e.target.value }))} />
             </div>
           </div>
           <div>
@@ -333,8 +334,7 @@ function FindingsPanel({ clientId }: { clientId: string }) {
                       />
                     </td>
                     <td>
-                      <input
-                        type="date" key={f.targetDate || ""} style={{ fontSize: 12.5, width: 130 }} defaultValue={f.targetDate || ""}
+                      <DateInput key={f.targetDate || ""} style={{ fontSize: 12.5, width: 130 }} defaultValue={f.targetDate || ""}
                         onBlur={(e) => { if (e.target.value !== (f.targetDate || "")) handleQuickUpdate(f.findingId, { targetDate: (e.target.value || null) as any }); }}
                       />
                     </td>
@@ -433,11 +433,11 @@ function ClientValueReportCard({ clientId, clientName }: { clientId: string; cli
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
           <label style={{ fontSize: 11 }}>
             <div className="muted" style={{ marginBottom: 2 }}>From</div>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ fontSize: 12 }} />
+            <DateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ fontSize: 12 }} />
           </label>
           <label style={{ fontSize: 11 }}>
             <div className="muted" style={{ marginBottom: 2 }}>To</div>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ fontSize: 12 }} />
+            <DateInput value={to} onChange={(e) => setTo(e.target.value)} style={{ fontSize: 12 }} />
           </label>
           <button type="button" className="btn btn-sm" onClick={() => handle("view")} disabled={busy !== null || rangeInvalid}>{busy === "view" ? "Opening…" : "View Report"}</button>
           <button type="button" className="btn btn-sm" onClick={() => handle("download")} disabled={busy !== null || rangeInvalid}>{busy === "download" ? "Downloading…" : "Download PDF"}</button>

@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, viewFilePost, printFilePost } from "../api/client";
@@ -357,15 +358,15 @@ function SalesTaxCalculator() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 4 }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="stc-md-due-date">Return due date</label>
-              <input id="stc-md-due-date" type="date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} />
+              <DateInput id="stc-md-due-date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} />
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="stc-md-filed-date">Filing date</label>
-              <input id="stc-md-filed-date" type="date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} />
+              <DateInput id="stc-md-filed-date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} />
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="stc-md-paid-date">Payment date</label>
-              <input id="stc-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
+              <DateInput id="stc-md-paid-date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
             </div>
           </div>
           <p className="muted" style={{ fontSize: 11, marginTop: 0, marginBottom: 4 }}>

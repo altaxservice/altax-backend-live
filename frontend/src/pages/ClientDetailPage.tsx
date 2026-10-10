@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { WorkTrailCard, LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { ModifiedStamp } from "../components/ModifiedStamp";
 import { PermitTrackerSection } from "../components/PermitTrackerSection";
@@ -863,8 +864,8 @@ export function ClientDetailPage() {
               ) : f.kind === "date" ? (
                 <div className="field" key={f.apiKey}>
                   <label htmlFor={f.apiKey}>{clientStateLabel(f.label, form.state)}</label>
-                  <input
-                    id={f.apiKey} type="date" value={form[f.apiKey] ?? ""}
+                  <DateInput
+                    id={f.apiKey} value={form[f.apiKey] ?? ""}
                     min={f.dateMin} max={f.dateMaxToday ? new Date().toISOString().slice(0, 10) : undefined}
                     onChange={(e) => {
                       // A native date input's min/max block the picker from landing out of
@@ -1727,7 +1728,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="cdr-date">Date Received</label>
-                <input id="cdr-date" type="date" value={logForm.receivedDate} onChange={(e) => setLogForm((f) => ({ ...f, receivedDate: e.target.value }))} />
+                <DateInput id="cdr-date" value={logForm.receivedDate} onChange={(e) => setLogForm((f) => ({ ...f, receivedDate: e.target.value }))} />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="cdr-by">Received By</label>
@@ -2330,7 +2331,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                     </div>
                     <div className="field" style={{ maxWidth: 150 }}>
                       <label htmlFor={`cd-gen-effective-date-${key}`}>Effective Date</label>
-                      <input id={`cd-gen-effective-date-${key}`} type="date" value={genForm.effectiveDate} onChange={(e) => setGenForm((f) => ({ ...f, effectiveDate: e.target.value }))} />
+                      <DateInput id={`cd-gen-effective-date-${key}`} value={genForm.effectiveDate} onChange={(e) => setGenForm((f) => ({ ...f, effectiveDate: e.target.value }))} />
                     </div>
                     <button type="button" className="btn btn-primary btn-sm" disabled={busy === `gen-${key}`} onClick={() => handleGenerate(key)}>
                       {busy === `gen-${key}` ? "Creating…" : "Create Draft"}
@@ -2881,14 +2882,14 @@ function NoticesSection({ clientId }: { clientId: string }) {
               <div className="field"><label htmlFor="notice-amount">Amount</label><input id="notice-amount" type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
             </div>
             <div className="form-grid">
-              <div className="field"><label htmlFor="notice-received">Received Date</label><input id="notice-received" type="date" required value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></div>
-              <div className="field"><label htmlFor="notice-deadline">Response Deadline</label><input id="notice-deadline" type="date" value={form.responseDeadline} onChange={(e) => setForm({ ...form, responseDeadline: e.target.value })} /></div>
+              <div className="field"><label htmlFor="notice-received">Received Date</label><DateInput id="notice-received" required value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></div>
+              <div className="field"><label htmlFor="notice-deadline">Response Deadline</label><DateInput id="notice-deadline" value={form.responseDeadline} onChange={(e) => setForm({ ...form, responseDeadline: e.target.value })} /></div>
             </div>
             <div className="field"><label htmlFor="notice-assigned">Assigned To</label><input id="notice-assigned" value={form.assignedTo} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })} placeholder="Staff email" /></div>
             {editingId && (
               <div className="form-grid">
-                <div className="field"><label htmlFor="notice-response-filed">Response Filed Date</label><input id="notice-response-filed" type="date" value={form.responseFiledDate} onChange={(e) => setForm({ ...form, responseFiledDate: e.target.value })} /></div>
-                <div className="field"><label htmlFor="notice-followup">Follow-Up Date</label><input id="notice-followup" type="date" value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} /></div>
+                <div className="field"><label htmlFor="notice-response-filed">Response Filed Date</label><DateInput id="notice-response-filed" value={form.responseFiledDate} onChange={(e) => setForm({ ...form, responseFiledDate: e.target.value })} /></div>
+                <div className="field"><label htmlFor="notice-followup">Follow-Up Date</label><DateInput id="notice-followup" value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} /></div>
               </div>
             )}
             {editingId && <div className="field"><label htmlFor="notice-resolution">Resolution</label><textarea id="notice-resolution" rows={2} value={form.resolution} onChange={(e) => setForm({ ...form, resolution: e.target.value })} /></div>}
@@ -3054,7 +3055,7 @@ function TaxReturnProductionSection({ clientId, defaultReturnType }: { clientId:
               <div className="field"><label htmlFor="taxrtn-reviewer">Reviewer</label><input id="taxrtn-reviewer" value={form.reviewer} onChange={(e) => setForm({ ...form, reviewer: e.target.value })} placeholder="Staff email" /></div>
             </div>
             <div className="form-grid">
-              <div className="field"><label htmlFor="taxrtn-due">Due Date</label><input id="taxrtn-due" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
+              <div className="field"><label htmlFor="taxrtn-due">Due Date</label><DateInput id="taxrtn-due" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
               <div className="field" style={{ display: "flex", alignItems: "flex-end", paddingBottom: 6 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input type="checkbox" checked={form.extensionFiled} onChange={(e) => setForm({ ...form, extensionFiled: e.target.checked })} /> Extension filed
@@ -4230,7 +4231,7 @@ function ClientBillingSection({ client }: { client: Client }) {
         <div style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", background: "var(--surface)" }}>
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor="cb-time-date">Date</label>
-            <input id="cb-time-date" type="date" value={timeDate} onChange={(e) => setTimeDate(e.target.value)} />
+            <DateInput id="cb-time-date" value={timeDate} onChange={(e) => setTimeDate(e.target.value)} />
           </div>
           <div className="field" style={{ margin: 0, maxWidth: 100 }}>
             <label htmlFor="cb-time-hours">Hours</label>

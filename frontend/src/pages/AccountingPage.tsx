@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -1032,9 +1033,9 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           {editingPeriodEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
               <label style={{ fontSize: 11 }} htmlFor={`dc-edit-filed-${p.end}`}>Filed Date</label>
-              <input id={`dc-edit-filed-${p.end}`} type="date" value={editTaxForm.filedDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput id={`dc-edit-filed-${p.end}`} value={editTaxForm.filedDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }} htmlFor={`dc-edit-paid-${p.end}`}>Payment Date (optional)</label>
-              <input id={`dc-edit-paid-${p.end}`} type="date" value={editTaxForm.paidDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput id={`dc-edit-paid-${p.end}`} value={editTaxForm.paidDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }} htmlFor={`dc-edit-tax-${p.end}`}>Tax Due</label>
               <input id={`dc-edit-tax-${p.end}`} type="number" step="0.01" min="0" value={editTaxForm.taxDue} onChange={(e) => setEditTaxForm((s) => ({ ...s, taxDue: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
@@ -1061,7 +1062,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           ) : p.markedFiledDate ? (
             pickRecordPaymentEnd === p.end ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                <input type="date" value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                <DateInput value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
                 <div style={{ display: "flex", gap: 4 }}>
                   <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickRecordPaymentDate} onClick={() => handleDcRecordPayment(p, pickRecordPaymentDate)}>
                     {markingPeriodEnd === p.end ? "…" : "Record"}
@@ -1091,8 +1092,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             )
           ) : pickingPeriodEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
-              <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
-              <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
                 <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleDcMarkFiled(p, pickFiledDate, pickPaidDate, false)}>
                   {markingPeriodEnd === p.end ? "…" : "Save and Close"}
@@ -1168,9 +1169,9 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           {editingPeriodEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
               <label style={{ fontSize: 11 }} htmlFor={`md-edit-filed-${p.end}`}>Filed Date</label>
-              <input id={`md-edit-filed-${p.end}`} type="date" value={editTaxForm.filedDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput id={`md-edit-filed-${p.end}`} value={editTaxForm.filedDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }} htmlFor={`md-edit-paid-${p.end}`}>Payment Date (optional)</label>
-              <input id={`md-edit-paid-${p.end}`} type="date" value={editTaxForm.paidDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput id={`md-edit-paid-${p.end}`} value={editTaxForm.paidDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <label style={{ fontSize: 11 }} htmlFor={`md-edit-tax-${p.end}`}>Tax Due</label>
               <input id={`md-edit-tax-${p.end}`} type="number" step="0.01" min="0" value={editTaxForm.taxDue} onChange={(e) => setEditTaxForm((s) => ({ ...s, taxDue: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
@@ -1197,7 +1198,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           ) : p.markedFiledDate ? (
             pickRecordPaymentEnd === p.end ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                <input type="date" value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                <DateInput value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
                 <div style={{ display: "flex", gap: 4 }}>
                   <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickRecordPaymentDate} onClick={() => handleRecordPayment(p, pickRecordPaymentDate)}>
                     {markingPeriodEnd === p.end ? "…" : "Record"}
@@ -1227,8 +1228,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             )
           ) : pickingPeriodEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
-              <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
-              <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <DateInput value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
               <div style={{ display: "flex", gap: 4 }}>
                 <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleMarkFiled(p, pickFiledDate, pickPaidDate, false)}>
                   {markingPeriodEnd === p.end ? "…" : "Save and Close"}
@@ -1378,7 +1379,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           )}
           {error && <ErrorBanner error={error} />}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label htmlFor="acct-se-sale-date">Date</label><input id="acct-se-sale-date" type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-sale-date">Date</label><DateInput id="acct-se-sale-date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
             <div className="field">
               <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
               <input type="number" step="0.01" value={form.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
@@ -1397,7 +1398,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
             <div className="field"><label htmlFor="acct-se-adjustments">Adjustments</label><input id="acct-se-adjustments" type="number" step="0.01" value={form.adjustments} onChange={(e) => setForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="acct-se-payment-date">Payment Date</label><input id="acct-se-payment-date" type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-payment-date">Payment Date</label><DateInput id="acct-se-payment-date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           </div>
           <div className="field"><label htmlFor="acct-se-notes">Notes</label><textarea id="acct-se-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1412,9 +1413,9 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         note={periodLabel}
         action={
           <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
-            <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
+            <DateInput value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
-            <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+            <DateInput value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
             <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
             <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
             {!showImport && <button type="button" className="btn btn-sm" onClick={() => { setShowImport(true); setShowCreate(false); }}>Import from Excel</button>}
@@ -1521,11 +1522,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
                   <div className="field" style={{ maxWidth: 220, margin: 0 }}>
                     <label>Filing date</label>
-                    <input type="date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                    <DateInput value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
                   </div>
                   <div className="field" style={{ maxWidth: 220, margin: 0 }}>
                     <label>Payment date</label>
-                    <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                    <DateInput value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
                   </div>
                 </div>
 
@@ -1711,11 +1712,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
                   <div className="field" style={{ maxWidth: 220, margin: 0 }}>
                     <label>Filing date</label>
-                    <input type="date" value={dcFiledDate} onChange={(e) => setDcFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                    <DateInput value={dcFiledDate} onChange={(e) => setDcFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
                   </div>
                   <div className="field" style={{ maxWidth: 220, margin: 0 }}>
                     <label>Payment date</label>
-                    <input type="date" value={dcPaidDate} onChange={(e) => setDcPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                    <DateInput value={dcPaidDate} onChange={(e) => setDcPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
                   </div>
                 </div>
 
@@ -1899,7 +1900,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             <strong>Edit sales record — {fmtDate(editing.sale_date)}</strong>
             {editError && <ErrorBanner error={editError} />}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label htmlFor="acct-se-edit-sale-date">Date</label><input id="acct-se-edit-sale-date" type="date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-sale-date">Date</label><DateInput id="acct-se-edit-sale-date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
               <div className="field">
                 <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
                 <input type="number" step="0.01" value={editForm.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
@@ -1918,7 +1919,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
               <div className="field"><label htmlFor="acct-se-edit-adjustments">Adjustments</label><input id="acct-se-edit-adjustments" type="number" step="0.01" value={editForm.adjustments} onChange={(e) => setEditForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
-              <div className="field"><label htmlFor="acct-se-edit-payment-date">Payment Date</label><input id="acct-se-edit-payment-date" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-payment-date">Payment Date</label><DateInput id="acct-se-edit-payment-date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             </div>
             <div className="field"><label htmlFor="acct-se-edit-notes">Notes</label><textarea id="acct-se-edit-notes" value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -2601,8 +2602,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className={`field ${invalidField === "payDate" ? "invalid" : ""}`}>
               <label>Pay Date</label>
-              <input
-                type="date"
+              <DateInput
                 aria-invalid={invalidField === "payDate" ? "true" : undefined}
                 value={form.payDate}
                 onChange={(e) => { setForm((f) => ({ ...f, payDate: e.target.value })); if (invalidField === "payDate") setInvalidField(null); }}
@@ -2615,8 +2615,8 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                 <option>Hourly</option><option>Salary</option><option>Other</option>
               </select>
             </div>
-            <div className="field"><label htmlFor="acct-se-pay-period-start">Period Start</label><input id="acct-se-pay-period-start" type="date" value={form.payPeriodStart} onChange={(e) => setForm((f) => ({ ...f, payPeriodStart: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="acct-se-pay-period-end">Period End</label><input id="acct-se-pay-period-end" type="date" value={form.payPeriodEnd} onChange={(e) => setForm((f) => ({ ...f, payPeriodEnd: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pay-period-start">Period Start</label><DateInput id="acct-se-pay-period-start" value={form.payPeriodStart} onChange={(e) => setForm((f) => ({ ...f, payPeriodStart: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pay-period-end">Period End</label><DateInput id="acct-se-pay-period-end" value={form.payPeriodEnd} onChange={(e) => setForm((f) => ({ ...f, payPeriodEnd: e.target.value }))} /></div>
           </div>
           <div className="field"><label htmlFor="acct-se-check-number">Check Number (leave blank to auto-assign)</label><input id="acct-se-check-number" value={form.checkNumber} onChange={(e) => setForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
 
@@ -2692,9 +2692,9 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
         action={
           <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee, date…" style={{ padding: "4px 6px", maxWidth: 180 }} />
-            <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
+            <DateInput value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
-            <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+            <DateInput value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
             <button type="button" className="btn btn-sm" onClick={() => setShowPayrollAgent(true)}>Payroll Agent</button>
             <button type="button" className="btn btn-sm" onClick={() => setShowBatch(true)}>Batch Create</button>
             {!showCreate && <button type="button" className="btn btn-sm btn-primary" onClick={startAdd}>+ Add Paycheck</button>}
@@ -2715,7 +2715,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
               Taxes, net pay and the payroll journal entries are recalculated from scratch when you save.
             </p>
             {editError && <ErrorBanner error={editError} />}
-            <div className="field"><label htmlFor="acct-se-edit-pay-date">Pay Date</label><input id="acct-se-edit-pay-date" type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-pay-date">Pay Date</label><DateInput id="acct-se-edit-pay-date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label htmlFor="acct-se-edit-regular-hours">Regular Hours</label><input id="acct-se-edit-regular-hours" type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
               <div className="field"><label htmlFor="acct-se-edit-regular-rate">Regular Rate</label><input id="acct-se-edit-regular-rate" type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
@@ -2996,7 +2996,7 @@ function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string;
                       </div>
                       <div className="field" style={{ margin: 0 }}>
                         <label htmlFor={`pa-setup-date-${e.employee_id}`}>Next payday</label>
-                        <input id={`pa-setup-date-${e.employee_id}`} type="date" autoFocus value={setupAnchorDate} onChange={(ev) => setSetupAnchorDate(ev.target.value)} />
+                        <DateInput id={`pa-setup-date-${e.employee_id}`} autoFocus value={setupAnchorDate} onChange={(ev) => setSetupAnchorDate(ev.target.value)} />
                       </div>
                       <button type="button" className="btn btn-sm btn-primary" disabled={busyId === e.employee_id} onClick={() => confirmSetup(e.employee_id)}>
                         {busyId === e.employee_id ? "Saving…" : "Confirm"}
@@ -3166,7 +3166,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 
             {mode === "employees" ? (
               <>
-                <div className="field"><label htmlFor="acct-rr-shared-pay-date">Pay Date (applies to newly checked employees, still editable per row)</label><input id="acct-rr-shared-pay-date" type="date" value={sharedPayDate} onChange={(e) => applySharedPayDate(e.target.value)} /></div>
+                <div className="field"><label htmlFor="acct-rr-shared-pay-date">Pay Date (applies to newly checked employees, still editable per row)</label><DateInput id="acct-rr-shared-pay-date" value={sharedPayDate} onChange={(e) => applySharedPayDate(e.target.value)} /></div>
                 <div className="form-section-title">Employees</div>
                 <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 14 }}>
                   {activeEmployees.map((e) => (
@@ -3205,10 +3205,10 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
                     {rows.map((r) => (
                       <tr key={r.key}>
                         {mode === "employees" ? <td>{r.employee}</td> : (
-                          <td><input type="date" value={r.payDate} onChange={(e) => updateRow(r.key, { payDate: e.target.value })} style={{ width: 130 }} /></td>
+                          <td><DateInput value={r.payDate} onChange={(e) => updateRow(r.key, { payDate: e.target.value })} style={{ width: 130 }} /></td>
                         )}
                         {mode === "employees" && (
-                          <td><input type="date" value={r.payDate} onChange={(e) => updateRow(r.key, { payDate: e.target.value })} style={{ width: 130 }} /></td>
+                          <td><DateInput value={r.payDate} onChange={(e) => updateRow(r.key, { payDate: e.target.value })} style={{ width: 130 }} /></td>
                         )}
                         <td><input type="number" step="0.01" value={r.regularHours} onChange={(e) => updateRow(r.key, { regularHours: e.target.value })} style={{ width: 80 }} /></td>
                         <td><input type="number" step="0.01" value={r.regularRate} onChange={(e) => updateRow(r.key, { regularRate: e.target.value })} style={{ width: 80 }} /></td>
@@ -3920,7 +3920,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
           </div>
           {contractors.length === 0 && <p className="muted" style={{ marginTop: -6 }}>No contractor profiles yet — use "Add Contractor" above first.</p>}
           <div className="field"><label htmlFor="acct-se-amount">Amount</label><input id="acct-se-amount" type="number" step="0.01" required value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="acct-se-payment-date-2">Payment Date</label><input id="acct-se-payment-date-2" type="date" required value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-payment-date-2">Payment Date</label><DateInput id="acct-se-payment-date-2" required value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label htmlFor="acct-se-method">Method</label><select id="acct-se-method" value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
             <div className="field">
@@ -3971,7 +3971,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
             <strong>Edit payment — {editing.contractor_name}</strong>
             {editError && <ErrorBanner error={editError} />}
             <div className="field"><label htmlFor="acct-se-edit-amount">Amount</label><input id="acct-se-edit-amount" type="number" step="0.01" required value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="acct-se-edit-payment-date-2">Payment Date</label><input id="acct-se-edit-payment-date-2" type="date" required value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-payment-date-2">Payment Date</label><DateInput id="acct-se-edit-payment-date-2" required value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label htmlFor="acct-se-edit-method">Method</label><select id="acct-se-edit-method" value={editForm.method} onChange={(e) => setEditForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
               <div className="field">
@@ -4568,7 +4568,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
             </p>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <div className="field"><label htmlFor="acct-cej-entry-date">Entry Date</label><input id="acct-cej-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="acct-cej-entry-date">Entry Date</label><DateInput id="acct-cej-entry-date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
             <div className="field"><label htmlFor="acct-cej-ref">Reference</label><input id="acct-cej-ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Auto if left blank" /></div>
             <div className="field"><label htmlFor="acct-cej-description">Description</label><input id="acct-cej-description" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
             <div className="field"><label htmlFor="acct-cej-notes">Notes</label><input id="acct-cej-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Falls back to per-line memo" /></div>
@@ -4992,7 +4992,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             </div>
             <div className="field" style={{ maxWidth: 220, marginTop: 12 }}>
               <label htmlFor="acs-edit-sale-date">Date</label>
-              <input id="acs-edit-sale-date" type="date" value={editSaleDate} onChange={(e) => setEditSaleDate(e.target.value)} />
+              <DateInput id="acs-edit-sale-date" value={editSaleDate} onChange={(e) => setEditSaleDate(e.target.value)} />
             </div>
             <div className="table-scroll" style={{ marginTop: 10 }}>
               <table>
@@ -5143,7 +5143,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             <div className="form-grid" style={{ marginTop: 12 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="acs-edit-p-date">Date</label>
-                <input id="acs-edit-p-date" type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} />
+                <DateInput id="acs-edit-p-date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="acs-edit-p-vendor">Vendor</label>
@@ -5405,7 +5405,7 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                 <option value="Current">Current (no depreciation)</option>
               </select>
             </div>
-            <div className="field"><label htmlFor="fa-date">Purchase Date</label><input id="fa-date" type="date" required value={form.purchaseDate} onChange={(e) => setForm((f) => ({ ...f, purchaseDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="fa-date">Purchase Date</label><DateInput id="fa-date" required value={form.purchaseDate} onChange={(e) => setForm((f) => ({ ...f, purchaseDate: e.target.value }))} /></div>
             <div className="field"><label htmlFor="fa-cost">Cost</label><input id="fa-cost" type="number" step="0.01" min="0.01" required value={form.cost} onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))} /></div>
             {form.assetClass === "Fixed" && (
               <>
@@ -5598,9 +5598,9 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
             <option value="">All accounts</option>
             {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
-          <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
+          <DateInput value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
-          <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+          <DateInput value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
           <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
           <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
         </div>
@@ -5831,9 +5831,9 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       action={
         <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee, date…" style={{ padding: "4px 6px", maxWidth: 180 }} />
-          <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
+          <DateInput value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
-          <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+          <DateInput value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
           {(period.start || period.end) && <button type="button" className="ghost-button" onClick={() => setPeriod({ start: "", end: "" })}>All time</button>}
         </div>
       }
@@ -5842,7 +5842,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
         <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16, maxWidth: 460 }}>
           <strong>Edit paycheck — {editing.employee}</strong>
           {error && <ErrorBanner error={error} />}
-          <div className="field"><label htmlFor="acct-se-edit-pay-date-2">Pay Date</label><input id="acct-se-edit-pay-date-2" type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-edit-pay-date-2">Pay Date</label><DateInput id="acct-se-edit-pay-date-2" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label htmlFor="acct-se-edit-regular-hours-2">Regular Hours</label><input id="acct-se-edit-regular-hours-2" type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
             <div className="field"><label htmlFor="acct-se-edit-regular-rate-2">Regular Rate</label><input id="acct-se-edit-regular-rate-2" type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
@@ -7392,7 +7392,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
         </div>
         <div className="field" style={{ margin: 0 }}>
           <label htmlFor="acct-bankrec-as-of">Reconcile As Of</label>
-          <input id="acct-bankrec-as-of" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          <DateInput id="acct-bankrec-as-of" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
           <FileDropInput file={file} onChange={setFile} accept=".csv,.xls,.xlsx,.pdf" hint="your bank's own statement export (.csv/.xls/.xlsx/.pdf)" />

@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -664,7 +665,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-ss4-date-started">Date business started</label>
-                    <input id="gf-ss4-date-started" type="date" value={ss4.dateBusinessStarted} onChange={(e) => setSs4({ ...ss4, dateBusinessStarted: e.target.value })} />
+                    <DateInput id="gf-ss4-date-started" value={ss4.dateBusinessStarted} onChange={(e) => setSs4({ ...ss4, dateBusinessStarted: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-ss4-closing-month">Closing month of accounting year</label>
@@ -687,7 +688,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 </div>
                 <div className="field" style={{ maxWidth: 220 }}>
                   <label htmlFor="gf-ss4-first-wage-date">First date wages paid</label>
-                  <input id="gf-ss4-first-wage-date" type="date" value={ss4.firstWageDate} onChange={(e) => setSs4({ ...ss4, firstWageDate: e.target.value })} />
+                  <DateInput id="gf-ss4-first-wage-date" value={ss4.firstWageDate} onChange={(e) => setSs4({ ...ss4, firstWageDate: e.target.value })} />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -748,7 +749,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-2553-date-incorporated">Date incorporated</label>
-                    <input id="gf-2553-date-incorporated" type="date" value={f2553.dateIncorporated} onChange={(e) => setF2553({ ...f2553, dateIncorporated: e.target.value })} />
+                    <DateInput id="gf-2553-date-incorporated" value={f2553.dateIncorporated} onChange={(e) => setF2553({ ...f2553, dateIncorporated: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-2553-state-incorporated">State incorporated</label>
@@ -756,7 +757,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-2553-election-date">Election effective date</label>
-                    <input id="gf-2553-election-date" type="date" value={f2553.electionEffectiveDate} onChange={(e) => setF2553({ ...f2553, electionEffectiveDate: e.target.value })} />
+                    <DateInput id="gf-2553-election-date" value={f2553.electionEffectiveDate} onChange={(e) => setF2553({ ...f2553, electionEffectiveDate: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-2553-tax-year-type">Selected tax year</label>
@@ -1472,7 +1473,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     </label>
                   </div>
                   {mdDissolution.creditorNotice === "Mailed to known creditors" && (
-                    <input type="date" style={{ marginTop: 6, maxWidth: 200 }} aria-label="Date notice was mailed" value={mdDissolution.creditorNoticeMailedDate} onChange={(e) => setMdDissolution({ ...mdDissolution, creditorNoticeMailedDate: e.target.value })} />
+                    <DateInput style={{ marginTop: 6, maxWidth: 200 }} aria-label="Date notice was mailed" value={mdDissolution.creditorNoticeMailedDate} onChange={(e) => setMdDissolution({ ...mdDissolution, creditorNoticeMailedDate: e.target.value })} />
                   )}
                 </div>
 
@@ -1489,7 +1490,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     </label>
                   </div>
                   {mdDissolution.effectiveDateType === "future" && (
-                    <input type="date" style={{ marginTop: 6, maxWidth: 200 }} aria-label="Future effective date" value={mdDissolution.futureEffectiveDate} onChange={(e) => setMdDissolution({ ...mdDissolution, futureEffectiveDate: e.target.value })} />
+                    <DateInput style={{ marginTop: 6, maxWidth: 200 }} aria-label="Future effective date" value={mdDissolution.futureEffectiveDate} onChange={(e) => setMdDissolution({ ...mdDissolution, futureEffectiveDate: e.target.value })} />
                   )}
                 </div>
 

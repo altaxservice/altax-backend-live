@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { StockPackagePanel, type StockDetailsValue } from "./StockPackagePanel";
 import { useEffect, useState } from "react";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -731,7 +732,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
 
               <div className="form-section-title">Sale Terms</div>
               <div className="form-grid-3">
-                <div className="field"><label htmlFor="xfer-effective">Effective Date</label><input id="xfer-effective" type="date" value={form.effectiveDate} onChange={(e) => setForm((f) => ({ ...f, effectiveDate: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="xfer-effective">Effective Date</label><DateInput id="xfer-effective" value={form.effectiveDate} onChange={(e) => setForm((f) => ({ ...f, effectiveDate: e.target.value }))} /></div>
                 <div className="field">
                   <label htmlFor="xfer-price">Sale Price</label>
                   {wizardAllocRows.length > 0 ? (
@@ -1131,7 +1132,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
 
           <div className="form-section-title">Sale Terms</div>
           <div className="form-grid-3">
-            <div className="field"><label htmlFor="xfer-edit-effective">Effective Date</label><input id="xfer-edit-effective" type="date" value={editForm.effectiveDate} onChange={(e) => setEditForm((f) => ({ ...f, effectiveDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="xfer-edit-effective">Effective Date</label><DateInput id="xfer-edit-effective" value={editForm.effectiveDate} onChange={(e) => setEditForm((f) => ({ ...f, effectiveDate: e.target.value }))} /></div>
             <div className="field">
               <label htmlFor="xfer-edit-price">Sale Price</label>
               {editAllocRows.length > 0 ? (

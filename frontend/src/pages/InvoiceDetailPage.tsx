@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -328,7 +329,7 @@ export function InvoiceDetailPage() {
         <form onSubmit={handleRecordPayment} className="card" style={{ maxWidth: 500, marginBottom: 24 }}>
           {saveError && <ErrorBanner error={saveError} />}
           <div className="form-grid">
-            <div className="field"><label htmlFor="inv-payment-date">Payment Date</label><input id="inv-payment-date" type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="inv-payment-date">Payment Date</label><DateInput id="inv-payment-date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             <div className="field"><label htmlFor="inv-payment-amount">Amount</label><input id="inv-payment-amount" type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))} /></div>
             <PaymentProfileField clientId={invoice.client_id} value={paymentForm.paymentProfile} onChange={(v) => setPaymentForm((f) => ({ ...f, paymentProfile: v }))} />
             <div className="field"><label htmlFor="inv-payment-method">Method</label><select id="inv-payment-method" value={paymentForm.method} onChange={(e) => setPaymentForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>

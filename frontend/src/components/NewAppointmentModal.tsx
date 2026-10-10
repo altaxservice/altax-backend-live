@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client, Appointment } from "../api/types";
@@ -236,7 +237,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           </p>
         )}
         <div className="form-grid">
-          <div className="field"><label htmlFor="appt-date">Date</label><input id="appt-date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="appt-date">Date</label><DateInput id="appt-date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
           <div className="field">
             <label htmlFor="appt-start-time">Start Time</label>
             <input id="appt-start-time" type="time" value={form.startTime} onChange={(e) => {

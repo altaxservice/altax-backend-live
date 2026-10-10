@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -398,7 +399,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
     return (
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
         <input type="number" step="0.01" placeholder="Amount (optional)" value={markDoneAmount} onChange={(e) => setMarkDoneAmount(e.target.value)} style={{ width: 110, padding: "2px 4px", fontSize: 11.5 }} />
-        <input type="date" title="Payment date (optional — leave blank if not yet paid)" value={markDonePaidDate} onChange={(e) => setMarkDonePaidDate(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+        <DateInput title="Payment date (optional — leave blank if not yet paid)" value={markDonePaidDate} onChange={(e) => setMarkDonePaidDate(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
         <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(d, false)}>{markingDone === key ? "…" : "Save and Close"}</button>
         <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(d, true)}>{markingDone === key ? "…" : "Save and Send"}</button>
         <button type="button" className="ghost-button btn-sm" onClick={() => { setMarkDoneKey(null); setMarkDoneAmount(""); setMarkDonePaidDate(""); }}>Cancel</button>

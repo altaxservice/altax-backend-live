@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { WebOptions } from "../api/types2";
@@ -103,7 +104,7 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
             </select>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label htmlFor="rd-due">Due From Client</label><input id="rd-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="rd-due">Due From Client</label><DateInput id="rd-due" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
             <div className="field">
               <label htmlFor="rd-priority">Priority</label>
               <select id="rd-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>

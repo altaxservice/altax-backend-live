@@ -196,6 +196,14 @@ const PORTAL_LABELS: Record<string, string> = {
 };
 
 export function Layout() {
+  // "Portal" look is the default; the sidebar footer can switch back to the classic look (remembered per browser).
+  const [classicLook, setClassicLook] = useState(() => { try { return localStorage.getItem("altax_skin") === "classic"; } catch { return false; } });
+  useEffect(() => {
+    if (classicLook) document.documentElement.setAttribute("data-skin", "classic"); else document.documentElement.removeAttribute("data-skin");
+  }, [classicLook]);
+  function toggleSkin() {
+    setClassicLook((c) => { const next = !c; try { localStorage.setItem("altax_skin", next ? "classic" : "portal"); } catch { /* storage unavailable */ } return next; });
+  }
   const { user } = useAuth();
   const { clientId: activeBusinessId, linkedClients, setSelectedBusiness } = useSelectedBusiness();
   const location = useLocation();
@@ -393,6 +401,7 @@ export function Layout() {
           <div className="sidebar-footer">
             <div className="small-label">Data Layer</div>
             <div className="data-layer-badge">v5 professional tables</div>
+            <button type="button" className="skin-toggle" onClick={toggleSkin}>{classicLook ? "Switch to portal look" : "Classic look"}</button>
             <div className="muted" dir="ltr" style={{ fontSize: 10.5, marginTop: 10, lineHeight: 1.4, textAlign: sidebarDir === "rtl" ? "right" : "left" }}>{COPYRIGHT}</div>
           </div>
         )}

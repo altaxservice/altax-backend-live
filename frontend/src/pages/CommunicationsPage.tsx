@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { RefreshCw, Download } from "lucide-react";
@@ -702,11 +703,11 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         <div className="form-grid">
           <div className="field">
             <label htmlFor="bulk-period-start">Period Start</label>
-            <input id="bulk-period-start" type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+            <DateInput id="bulk-period-start" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
           </div>
           <div className="field">
             <label htmlFor="bulk-period-end">Period End</label>
-            <input id="bulk-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+            <DateInput id="bulk-period-end" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
           </div>
         </div>
         <div className="field"><label htmlFor="bulk-subject">Subject</label><input id="bulk-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
@@ -973,11 +974,11 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
               <div className="form-grid">
                 <div className="field">
                   <label htmlFor="cm-period-start">Period Start</label>
-                  <input id="cm-period-start" type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+                  <DateInput id="cm-period-start" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
                 </div>
                 <div className="field">
                   <label htmlFor="cm-period-end">Period End</label>
-                  <input id="cm-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+                  <DateInput id="cm-period-end" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
                 </div>
               </div>
               <button

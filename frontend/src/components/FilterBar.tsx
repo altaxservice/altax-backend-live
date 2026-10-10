@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import type { ReactNode } from "react";
 import { RefreshCw, Download, CalendarRange } from "lucide-react";
 
@@ -59,10 +60,10 @@ export function FilterBar({ search, selects = [], period, onRefresh, refreshing,
         // out of width.
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <label className="filter-control">From
-            <input type="date" value={period.start} onChange={(e) => period.onStartChange(e.target.value)} />
+            <DateInput value={period.start} onChange={(e) => period.onStartChange(e.target.value)} />
           </label>
           <label className="filter-control">To
-            <input type="date" value={period.end} onChange={(e) => period.onEndChange(e.target.value)} />
+            <DateInput value={period.end} onChange={(e) => period.onEndChange(e.target.value)} />
           </label>
           <button className="ghost-button" type="button" onClick={period.onActiveView}><CalendarRange size={13} strokeWidth={2} aria-hidden="true" />Active View</button>
         </div>
