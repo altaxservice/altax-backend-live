@@ -3,7 +3,7 @@ import { query, queryOne, withTransaction, type DbClient } from "../../config/db
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
-import { canAccessClient, normalizeText } from "../../common/assignment";
+import { canAccessClient, normalizeText, getUserAliases } from "../../common/assignment";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
@@ -2700,6 +2700,48 @@ accountingRouter.get("/client-books/cross-business-pl", requireAuth, requireRole
     return { clientId: l.client_id, clientName: l.client_name, ...headline, trend };
   }));
   res.json({ businesses });
+}));
+
+/**
+ * Firm-wide inbox of everything clients have submitted through My Books and not yet reviewed — so staff don't have to
+ * open each client's Accounting → Client Submissions tab to find out something is waiting. Admin sees every client;
+ * staff see the clients they have tasks for. Approve/dismiss reuse the per-draft routes below.
+ */
+accountingRouter.get("/client-books/pending-submissions", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
+  const aliases = isAdmin ? [] : Array.from(await getUserAliases(req.user!.email));
+  const scope = (idx: number) => (isAdmin ? "" : `AND d.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($${idx}::text[]))`);
+  const params = isAdmin ? [] : [aliases];
+  const [sales, purchases] = await Promise.all([
+    query<any>(`SELECT d.* FROM altax.v3_client_sales_drafts d WHERE d.status = 'Pending' ${scope(1)} ORDER BY d.submitted_at ASC LIMIT 150`, params),
+    query<any>(
+      `SELECT d.*, (SELECT COUNT(*) FROM altax.v3_document_uploads u WHERE u.purchase_draft_id = d.draft_id AND lower(u.status) NOT IN ('removed','replaced'))::int AS receipt_count
+         FROM altax.v3_client_purchase_drafts d WHERE d.status = 'Pending' ${scope(1)} ORDER BY d.submitted_at ASC LIMIT 150`, params),
+  ]);
+  const clientIds = Array.from(new Set([...sales, ...purchases].map((d) => d.client_id)));
+  const stateById = new Map<string, string>();
+  const avgById = new Map<string, { avg: number; n: number }>();
+  if (clientIds.length) {
+    for (const c of await query<any>(`SELECT client_id, state FROM altax.v3_clients WHERE client_id = ANY($1::text[])`, [clientIds])) stateById.set(c.client_id, c.state);
+    for (const r of await query<any>(
+      `SELECT client_id, AVG(gross_sales) AS avg_gross, COUNT(*) AS n FROM altax.v3_sales_input WHERE client_id = ANY($1::text[]) AND sale_date >= now() - interval '60 days' GROUP BY client_id`, [clientIds])) {
+      avgById.set(r.client_id, { avg: Number(r.avg_gross) || 0, n: Number(r.n) || 0 });
+    }
+  }
+  const salesOut = await Promise.all(sales.map(async (d) => {
+    const gross = Number(d.gross_sales) || 0;
+    const a = avgById.get(d.client_id);
+    const anomaly = !!a && a.n >= 5 && a.avg > 0 && (gross > a.avg * 2 || gross < a.avg * 0.4);
+    let tax = 0;
+    try { tax = (await previewSalesDraftTax(d.client_id, stateById.get(d.client_id) || "MD", d.category_lines || [])).totalTax; } catch { /* preview is advisory */ }
+    return { kind: "sales" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.sale_date), amount: gross, tax, notes: d.notes, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly, averageGross: anomaly && a ? money(a.avg) : null };
+  }));
+  const purchasesOut = purchases.map((d) => ({
+    kind: "purchase" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.purchase_date), amount: Number(d.amount) || 0, tax: 0,
+    vendor: d.vendor_name, account: d.account, description: d.description, notes: d.notes, receiptCount: d.receipt_count || 0, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly: false, averageGross: null,
+  }));
+  const items = [...salesOut, ...purchasesOut].sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
+  res.json({ items, counts: { sales: salesOut.length, purchases: purchasesOut.length, total: items.length, clients: clientIds.length } });
 }));
 
 /**

@@ -26,7 +26,7 @@ navBadgesRouter.get("/", requireAuth, asyncHandler(async (req: AuthedRequest, re
     const isAdmin = role === "admin";
     const aliases = isAdmin ? [] : Array.from(await getUserAliases(req.user!.email));
     const scope = (col: string, idx: number) => (isAdmin ? "" : `AND ${col} IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($${idx}::text[]))`);
-    const [overdueTasks, docsReview, overdueInv, apptsToday] = await Promise.all([
+    const [overdueTasks, docsReview, overdueInv, apptsToday, submissions] = await Promise.all([
       n(`SELECT COUNT(*) AS n FROM altax.v3_tasks WHERE COALESCE(is_parked,false) = false AND lower(COALESCE(status,'')) <> ALL($1::text[])
            AND agency_due_date IS NOT NULL AND agency_due_date < date_trunc('day', now()) ${isAdmin ? "" : "AND lower(assigned_to) = ANY($2::text[])"}`,
         isAdmin ? [TERMINAL_TASK] : [TERMINAL_TASK, aliases]),
@@ -37,7 +37,12 @@ navBadgesRouter.get("/", requireAuth, asyncHandler(async (req: AuthedRequest, re
       n(`SELECT COUNT(*) AS n FROM altax.v3_appointments WHERE status = 'Scheduled' AND start_time >= date_trunc('day', now()) AND start_time < date_trunc('day', now()) + interval '1 day'
            ${isAdmin ? "" : "AND lower(assigned_to) = ANY($1::text[])"}`,
         isAdmin ? [] : [aliases]),
+      // Client-entered sales/purchases from My Books waiting for staff approval.
+      n(`SELECT (SELECT COUNT(*) FROM altax.v3_client_sales_drafts d WHERE d.status = 'Pending' ${scope("d.client_id", 1)})
+              + (SELECT COUNT(*) FROM altax.v3_client_purchase_drafts d WHERE d.status = 'Pending' ${scope("d.client_id", 1)}) AS n`,
+        isAdmin ? [] : [aliases]),
     ]);
+    put("/accounting", submissions, "red");
     put("/tasks", overdueTasks, "red");
     put("/documents", docsReview, "blue");
     put("/billing", overdueInv, "amber");

@@ -1,6 +1,7 @@
 import { PickUpWhereYouLeftOff } from "../components/WorkTrail";
 import { FirmPulse } from "../components/FirmPulse";
 import { PortfolioPanel } from "../components/PortfolioPanel";
+import { ClientSubmissionsInbox, usePendingSubmissions, type PendingSubmissions } from "../components/ClientSubmissionsInbox";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
@@ -858,9 +859,26 @@ interface NextAction { key: string; severity: "critical" | "high" | "normal"; ti
  * each item is, and capped per kind so one type of work (say 24 overdue tasks) can't push everything else off the list.
  */
 function buildNextActions(a: {
-  tasks: Task[]; invoices: Invoice[]; docs: DocumentRequest[]; flags: AtRiskClient[] | null; reviews: PendingGovFormReview[] | null; clientNames: Map<string, string>;
+  tasks: Task[]; invoices: Invoice[]; docs: DocumentRequest[]; flags: AtRiskClient[] | null; reviews: PendingGovFormReview[] | null; clientNames: Map<string, string>; submissions?: PendingSubmissions | null;
 }): NextAction[] {
   const out: NextAction[] = [];
+  // Client-entered sales/expenses waiting for approval — one row per client, oldest waiting first within the same score.
+  if (a.submissions?.items.length) {
+    const byClient = new Map<string, PendingSubmissions["items"]>();
+    for (const it of a.submissions.items) { if (!byClient.has(it.clientId)) byClient.set(it.clientId, []); byClient.get(it.clientId)!.push(it); }
+    for (const [clientId, rows] of byClient) {
+      const total = rows.reduce((sum, r) => sum + r.amount, 0);
+      const sales = rows.filter((r) => r.kind === "sales").length;
+      const oldest = rows.reduce((m, r) => (r.submittedAt < m ? r.submittedAt : m), rows[0].submittedAt);
+      const days = Math.max(0, Math.round((Date.now() - new Date(oldest).getTime()) / 86400000));
+      out.push({
+        key: `sub-${clientId}`, kind: "submissions", severity: days >= 3 ? "critical" : "high", Icon: ClipboardCheck, score: 92 + Math.min(days, 8),
+        title: `Approve client entries — ${rows[0].clientName}`,
+        meta: `${rows.length} waiting (${sales} sales, ${rows.length - sales} expenses) · ${fmtMoney(total)} · oldest ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`}`,
+        link: "/dashboard?tab=submissions",
+      });
+    }
+  }
   const late = (v: string | null | undefined) => { const d = daysUntil(v); return d === null ? 0 : Math.max(0, -d); };
   for (const c of a.flags || []) {
     if (!c.mdSalesTaxUnfiledPeriodEnd) continue;
@@ -900,6 +918,28 @@ function buildNextActions(a: {
   }
   const perKind = new Map<string, number>();
   return out.sort((x, y) => y.score - x.score).filter((x) => { const n = perKind.get(x.kind) || 0; if (n >= 3) return false; perKind.set(x.kind, n + 1); return true; }).slice(0, 8);
+}
+
+/** Loud, top-of-page notice that clients have entered sales/expenses waiting for approval — the thing that used to be findable only inside each client's Accounting tab. */
+function SubmissionsBanner({ data, onOpen }: { data: PendingSubmissions | null; onOpen: () => void }) {
+  if (!data || data.counts.total === 0) return null;
+  const names = Array.from(new Set(data.items.map((i) => i.clientName)));
+  const total = data.items.reduce((sum, i) => sum + i.amount, 0);
+  const oldest = data.items.reduce((m, r) => (r.submittedAt < m ? r.submittedAt : m), data.items[0].submittedAt);
+  const days = Math.max(0, Math.round((Date.now() - new Date(oldest).getTime()) / 86400000));
+  return (
+    <div className="cs-banner" role="status">
+      <span className="cs-banner-icon" aria-hidden="true"><ClipboardCheck size={20} /></span>
+      <div className="cs-banner-text">
+        <b>{data.counts.total} client {data.counts.total === 1 ? "entry is" : "entries are"} waiting for your approval</b>
+        <span>
+          {names.slice(0, 3).join(", ")}{names.length > 3 ? ` +${names.length - 3} more` : ""} · {data.counts.sales} sales, {data.counts.purchases} expenses · {fmtMoney(total)} total
+          · oldest {days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`}
+        </span>
+      </div>
+      <button type="button" className="action-button" onClick={onOpen}>Review &amp; approve</button>
+    </div>
+  );
 }
 
 const SNOOZE_KEY = "altax_next_snoozed";
@@ -973,7 +1013,17 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // Loaded once here and shared with the panels below, so the ranked list, the tiles and the panels always agree.
   const [flags, setFlags] = useState<AtRiskClient[] | null>(null);
   const [reviews, setReviews] = useState<PendingGovFormReview[] | null>(null);
-  const [tab, setTab] = useStickyState<"work" | "filings" | "money" | "clients">("cc.tab", "work");
+  const [tab, setTab] = useStickyState<"work" | "filings" | "money" | "clients" | "submissions">("cc.tab", "work");
+  const { data: submissions, reload: reloadSubmissions } = usePendingSubmissions();
+  // /dashboard?tab=submissions (the "Do this next" row and the banner) opens that tab.
+  useEffect(() => {
+    if (searchParams.get("tab") === "submissions") {
+      setTab("submissions");
+      setSearchParams((p) => { p.delete("tab"); return p; }, { replace: true });
+      window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   useEffect(() => {
     api.get<{ clients: AtRiskClient[] }>("/clients/flags").then((r) => setFlags(r.clients)).catch(() => setFlags([]));
     api.get<{ filings: PendingGovFormReview[] }>("/gov-forms/pending-review").then((r) => setReviews(r.filings)).catch(() => setReviews([]));
@@ -1062,8 +1112,8 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   const dueToday = openTasks.filter(isDueToday);
   const overdueMoney = overdueInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
   const receivedDocs = openDocs.filter((d) => ["received", "file uploaded", "ready for review"].includes(String(d.status || "").toLowerCase()));
-  const needsReview = (reviews?.length || 0) + receivedDocs.length;
-  const nextActions = buildNextActions({ tasks, invoices, docs, flags, reviews, clientNames });
+  const needsReview = (reviews?.length || 0) + receivedDocs.length + (submissions?.counts.total || 0);
+  const nextActions = buildNextActions({ tasks, invoices, docs, flags, reviews, clientNames, submissions });
   const allClear = overdue.length === 0 && missingFilings.length === 0 && overdueInvoices.length === 0 && (reviews?.length || 0) === 0;
   const kpi = (Icon: LucideIcon, tone: string, label: string, value: string, note: string, onClick: () => void) => (
     <button type="button" className="cc-kpi" onClick={onClick}>
@@ -1100,8 +1150,10 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         {kpi(FileWarning, missingFilings.length ? "red" : "green", "Missed filings", String(missingFilings.length), "MD sales tax, unfiled", () => setTab("filings"))}
         {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${overdueInvoices.length} invoice${overdueInvoices.length === 1 ? "" : "s"} · ${fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))} unpaid`, () => setTab("money"))}
         {kpi(CalendarClock, dueToday.length ? "amber" : "teal", "Due today", String(dueToday.length), `${dueSoon.length} due this week`, () => setTab("work"))}
-        {kpi(ClipboardCheck, needsReview ? "blue" : "green", "Needs your review", String(needsReview), `${reviews?.length || 0} filings · ${receivedDocs.length} uploads`, () => setTab("filings"))}
+        {kpi(ClipboardCheck, needsReview ? "blue" : "green", "Needs your review", String(needsReview), `${reviews?.length || 0} filings · ${receivedDocs.length} uploads · ${submissions?.counts.total || 0} client entries`, () => setTab(submissions?.counts.total ? "submissions" : "filings"))}
       </div>
+
+      <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); }} />
 
       {user?.role === "admin" && <FirmPulse />}
 
@@ -1109,7 +1161,8 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         <div>
           <NextActionsCard snoozable actions={nextActions} loaded={flags !== null && reviews !== null} />
 
-          <div className="cc-tabs" role="tablist" aria-label="Command Center sections">
+          <div id="cc-tabs-admin" className="cc-tabs" role="tablist" aria-label="Command Center sections">
+            {(submissions?.counts.total || 0) > 0 && tabButton("submissions", "Client entries", submissions!.counts.total, true)}
             {tabButton("work", "Work", openTasks.length, overdue.length > 0)}
             {tabButton("filings", "Filings & compliance", missingFilings.length + (reviews?.length || 0), missingFilings.length > 0)}
             {tabButton("money", "Money", unpaidInvoices.length, overdueInvoices.length > 0)}
@@ -1153,6 +1206,14 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
               )}
               <CommandPanel title="Document Requests" note={`${openDocs.length} open`} action={<Link to="/documents" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
                 <DocumentRows docs={openDocs.slice(0, 6)} empty="No open document requests." />
+              </CommandPanel>
+            </div>
+          )}
+
+          {tab === "submissions" && (
+            <div className="cc-stack">
+              <CommandPanel title="Client entries to approve" note="Sales and expenses clients typed into My Books" action={<Link to="/accounting" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>Open Accounting →</Link>}>
+                <div style={{ padding: 12 }}><ClientSubmissionsInbox data={submissions} onChanged={() => { reloadSubmissions(); onChanged(); }} /></div>
               </CommandPanel>
             </div>
           )}
@@ -1317,7 +1378,17 @@ function TaskRulesAgentCard() {
 function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Task[]; clients: Client[]; docs: DocumentRequest[]; invoices: Invoice[]; onChanged: () => void }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useStickyState<"work" | "waiting" | "docs" | "money">("cc.staff.tab", "work");
+  const [tab, setTab] = useStickyState<"work" | "waiting" | "docs" | "money" | "submissions">("cc.staff.tab", "work");
+  const { data: submissions, reload: reloadSubmissions } = usePendingSubmissions();
+  const [staffParams, setStaffParams] = useSearchParams();
+  useEffect(() => {
+    if (staffParams.get("tab") === "submissions") {
+      setTab("submissions");
+      setStaffParams((p) => { p.delete("tab"); return p; }, { replace: true });
+      window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffParams]);
   const openTasks = tasks.filter(isOpenTask);
   const overdue = openTasks.filter(isOverdue);
   const dueToday = openTasks.filter(isDueToday);
@@ -1330,7 +1401,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   const overdueInvoices = unpaidInvoices.filter((i) => (daysUntil(i.due_date) ?? 0) < 0);
   const overdueMoney = overdueInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
   const clientNames = new Map(clients.map((c) => [c.client_id, c.client_name]));
-  const nextActions = buildNextActions({ tasks, invoices, docs, flags: null, reviews: null, clientNames });
+  const nextActions = buildNextActions({ tasks, invoices, docs, flags: null, reviews: null, clientNames, submissions });
   const kpi = (Icon: LucideIcon, tone: string, label: string, value: string, note: string, onClick: () => void) => (
     <button type="button" className="cc-kpi" onClick={onClick}>
       <span className={`cc-kpi-icon act-tone-${tone}`}><Icon size={20} aria-hidden="true" /></span>
@@ -1368,15 +1439,25 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${clients.length} clients assigned to you`, () => setTab("money"))}
       </div>
 
+      <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); }} />
+
       <div className="cc-layout">
         <div>
           <NextActionsCard snoozable actions={nextActions} loaded />
-          <div className="cc-tabs" role="tablist" aria-label="Staff Command Center sections">
+          <div id="cc-tabs-staff" className="cc-tabs" role="tablist" aria-label="Staff Command Center sections">
+            {(submissions?.counts.total || 0) > 0 && tabButton("submissions", "Client entries", submissions!.counts.total, true)}
             {tabButton("work", "My work", openTasks.length, overdue.length > 0)}
             {tabButton("waiting", "Waiting", waiting.length)}
             {tabButton("docs", "Documents", openDocs.length)}
             {tabButton("money", "Billing", unpaidInvoices.length, overdueInvoices.length > 0)}
           </div>
+          {tab === "submissions" && (
+            <div className="cc-stack">
+              <CommandPanel title="Client entries to approve" note="Sales and expenses your clients typed into My Books">
+                <div style={{ padding: 12 }}><ClientSubmissionsInbox data={submissions} onChanged={() => { reloadSubmissions(); onChanged(); }} /></div>
+              </CommandPanel>
+            </div>
+          )}
           {tab === "work" && (
             <div className="cc-stack">
               <CommandPanel title="My Work Queue" note={`${openTasks.length} assigned open tasks`} action={<Link to="/tasks" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>

@@ -2,7 +2,8 @@ import { DateInput } from "../components/DateInput";
 import { LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { RefreshCw, Download } from "lucide-react";
+import { RefreshCw, Download, ClipboardCheck } from "lucide-react";
+import { usePendingSubmissions } from "../components/ClientSubmissionsInbox";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
@@ -60,6 +61,8 @@ export function AccountingPage() {
   }, []);
 
   const client = clients.find((c) => c.client_id === clientId);
+  const { data: pendingAll } = usePendingSubmissions(tab);
+  const pendingForClient = pendingAll ? pendingAll.items.filter((i) => i.clientId === clientId).length : 0;
   const needsClient = CLIENT_SCOPED_TABS.includes(tab);
   const trailAllowed = user?.role === "admin" || user?.role === "staff";
   const workTrail = useWorkTrail(trailAllowed && clientId ? clientId : undefined);
@@ -115,6 +118,21 @@ export function AccountingPage() {
         </div>
       )}
 
+      {pendingAll && pendingAll.counts.total > 0 && (
+        <div className="cs-banner" role="status">
+          <span className="cs-banner-icon" aria-hidden="true"><ClipboardCheck size={20} /></span>
+          <div className="cs-banner-text">
+            <b>{pendingAll.counts.total} client {pendingAll.counts.total === 1 ? "entry is" : "entries are"} waiting for approval</b>
+            <span>
+              {Array.from(new Set(pendingAll.items.map((i) => i.clientName))).slice(0, 4).join(", ")}
+              {pendingForClient > 0 && client ? ` · ${pendingForClient} of them are ${client.client_name}'s` : ""}
+            </span>
+          </div>
+          {pendingForClient > 0 && tab !== "Client Submissions" && <button type="button" className="action-button" onClick={() => setTab("Client Submissions")}>Review {client?.client_name}</button>}
+          <Link to="/dashboard?tab=submissions" className="ghost-button">See all clients</Link>
+        </div>
+      )}
+
       <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {TABS.map((t) => (
           <button
@@ -130,6 +148,7 @@ export function AccountingPage() {
             }}
           >
             {clientStateLabel(t, client?.state)}
+            {t === "Client Submissions" && pendingForClient > 0 && <span className="nav-badge red" style={{ marginInlineStart: 8 }}>{pendingForClient}</span>}
           </button>
         ))}
       </div>
