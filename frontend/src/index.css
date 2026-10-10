@@ -1631,3 +1631,12 @@ html:not([data-skin="classic"]) th.sortable:hover { color: #073a6e; }
 /* Classic-look toggle in the sidebar footer */
 .skin-toggle { margin-top: 10px; background: transparent; border: 1px solid rgba(255, 255, 255, 0.25); color: #c7d2e6; border-radius: 4px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; }
 .skin-toggle:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+/* Status and action dropdowns inside tables keep their compact pill size under the portal look. */
+html:not([data-skin="classic"]) select.inline-select, html:not([data-skin="classic"]) select.action-menu { font-size: 12.5px; padding: 5px 24px 5px 10px; min-height: 0; min-width: 128px; max-width: 160px; }
+html:not([data-skin="classic"]) select.inline-select.status-amber { background-color: var(--amber-soft); color: var(--amber); }
+html:not([data-skin="classic"]) select.inline-select.status-green { background-color: var(--green-soft); color: var(--green); }
+html:not([data-skin="classic"]) select.inline-select.status-red { background-color: var(--red-soft); color: var(--red); }
+html:not([data-skin="classic"]) select.inline-select.status-blue { background-color: var(--blue-soft); color: var(--blue); }
+html:not([data-skin="classic"]) select.inline-select.status-teal { background-color: var(--teal-soft); color: var(--teal); }
+html:not([data-skin="classic"]) select.inline-select.status-gray { background-color: var(--surface); color: var(--muted); }

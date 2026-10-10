@@ -96,7 +96,9 @@ export function TasksListPage() {
   const [serviceFilter, setServiceFilter] = useStickyState("tasks.service", "all");
   const [statusFilter, setStatusFilter] = useStickyState("tasks.status", searchParams.get("status") || "all");
   const [labelFilter, setLabelFilter] = useStickyState("tasks.label", "all");
-  const [period, setPeriod] = useState(activeViewDates());
+  // No date range by default: the list shows every open task, 10 per page. (It used to open on the current month only, which
+  // hid every overdue task while the cards above still counted them.) "Active View" still jumps to the current month.
+  const [period, setPeriod] = useState<{ start: string; end: string }>({ start: "", end: "" });
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
