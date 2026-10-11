@@ -270,9 +270,9 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
             <label htmlFor="cb-sale-notes">{t("books.sales.notesLabel")}</label>
             <input id="cb-sale-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          {preview && (
+          {(
             <TenderSplit
-              total={Number(preview.grossSales) + Number(preview.totalTax)} card={tender.card} ebt={tender.ebt} onChange={setTender}
+              total={preview ? Number(preview.grossSales) + Number(preview.totalTax) : 0} card={tender.card} ebt={tender.ebt} onChange={setTender}
               labels={{ title: t("tn.title"), hint: t("tn.hint"), card: t("tn.card"), ebt: t("tn.ebt"), cash: t("tn.cash"), over: t("tn.over"), total: t("tn.total") }}
             />
           )}

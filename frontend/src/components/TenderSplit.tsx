@@ -16,7 +16,7 @@ export function TenderSplit({ total, card, ebt, onChange, labels = TENDER_LABELS
 }) {
   const c = Number(card) || 0, e = Number(ebt) || 0;
   const cash = r2(total - c - e);
-  const over = cash < -0.005;
+  const over = total > 0 && cash < -0.005; // before any sales amounts are entered the total is 0 — no warning yet
   return (
     <fieldset className="tender-split" dir={dir}>
       <legend>{labels.title}</legend>
