@@ -8,7 +8,7 @@ import { appendGl } from "../../common/accountingHelpers";
 import { readWorkbookRows } from "../../common/xlsxReader";
 import { extractPdfText, parsePdfBankLines } from "../../common/pdfBankReader";
 import { scanFileForMalware } from "../../common/malwareScan";
-import { CLEARING_ACCOUNT, FEE_ACCOUNT, ensureTenderAccounts } from "../../common/salesTender";
+import { FEE_ACCOUNT, ensureTenderAccounts } from "../../common/salesTender";
 
 /**
  * Manual bank reconciliation — staff upload a bank's own CSV/Excel statement
@@ -288,6 +288,7 @@ bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyn
        FROM altax.v3_gl_entries g
       WHERE client_id = $1 AND account = $2${asOfClause}
         AND NOT EXISTS (SELECT 1 FROM altax.v3_bank_statement_lines b WHERE b.matched_gl_entry_id = g.gl_entry_id)
+        AND NOT EXISTS (SELECT 1 FROM altax.v3_tender_clearing t WHERE t.cleared_at IS NOT NULL AND (t.gl_entry_id = g.gl_entry_id OR (t.clearing_ref = g.ref AND g.source = 'Bank Reconciliation')))
       ORDER BY entry_date ASC`,
     params
   );
@@ -335,7 +336,8 @@ bankRecRouter.post("/:clientId/auto-match", requireAuth, requireRole("admin", "s
     `SELECT gl_entry_id, entry_date, (debit - credit) AS amount
        FROM altax.v3_gl_entries g
       WHERE client_id = $1 AND account = $2
-        AND NOT EXISTS (SELECT 1 FROM altax.v3_bank_statement_lines b WHERE b.matched_gl_entry_id = g.gl_entry_id)`,
+        AND NOT EXISTS (SELECT 1 FROM altax.v3_bank_statement_lines b WHERE b.matched_gl_entry_id = g.gl_entry_id)
+        AND NOT EXISTS (SELECT 1 FROM altax.v3_tender_clearing t WHERE t.cleared_at IS NOT NULL AND (t.gl_entry_id = g.gl_entry_id OR (t.clearing_ref = g.ref AND g.source = 'Bank Reconciliation')))`,
     [clientId, accountName]
   );
 
@@ -574,18 +576,18 @@ bankRecRouter.post("/:lineId/create-entry", requireAuth, requireRole("admin", "s
 }));
 
 /**
- * Card / EBT deposits. Card and EBT/SNAP sales sit in Undeposited Funds until the money lands in the bank. These routes
- * list what is still waiting, and turn a bank deposit line into one balanced entry that clears the sales it covers:
- *   Dr Cash (the bank)            the deposit amount
- *   Dr Merchant Processing Fees   selected sales − deposit (the processor's fee)
- *   Cr Undeposited Funds          the selected sales
- * Staff pick which days' card/EBT sales a deposit covers; the fee falls out as the difference.
+ * Card / EBT deposits. Card and EBT/SNAP sales post straight to Cash as their own lines (no clearing account), so the bank
+ * statement is reconciled against them directly. These routes list the card/EBT lines not yet matched to a deposit, and
+ * turn one bank deposit line into a match against the days it settles:
+ *   the selected card/EBT lines are claimed by the deposit, and the difference between them and the deposit — the
+ *   processor's fee — is booked:  Dr Merchant Processing Fees / Cr Cash.
+ * Staff pick which days' sales a deposit covers (or let Suggest choose); EBT deposits normally have no fee.
  */
 bankRecRouter.get("/:clientId/clearing", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const items = await query<any>(
-    `SELECT clearing_id, sale_id, tender, amount, sale_date::date::text AS sale_date FROM altax.v3_tender_clearing WHERE client_id = $1 AND cleared_at IS NULL ORDER BY sale_date ASC, clearing_id ASC`, [clientId]);
+    `SELECT clearing_id, sale_id, tender, amount, sale_date::date::text AS sale_date FROM altax.v3_tender_clearing WHERE client_id = $1 AND cleared_at IS NULL AND gl_entry_id IS NOT NULL ORDER BY sale_date ASC, clearing_id ASC`, [clientId]);
   const total = (k: string) => items.filter((i: any) => i.tender === k).reduce((sum: number, i: any) => sum + Number(i.amount), 0);
   res.json({ items: items.map((i: any) => ({ ...i, amount: Number(i.amount) })), totals: { card: Math.round(total("card") * 100) / 100, ebt: Math.round(total("ebt") * 100) / 100 } });
 }));
@@ -606,7 +608,7 @@ bankRecRouter.post("/:lineId/deposit-entry", requireAuth, requireRole("admin", "
   const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [line.client_id]);
   if (!client) return res.status(404).json({ error: "Client not found." });
 
-  const items = await query<any>(`SELECT clearing_id, tender, amount FROM altax.v3_tender_clearing WHERE client_id = $1 AND cleared_at IS NULL AND clearing_id = ANY($2::int[])`, [line.client_id, ids]);
+  const items = await query<any>(`SELECT clearing_id, tender, amount, gl_entry_id FROM altax.v3_tender_clearing WHERE client_id = $1 AND cleared_at IS NULL AND gl_entry_id IS NOT NULL AND clearing_id = ANY($2::int[]) ORDER BY sale_date, clearing_id`, [line.client_id, ids]);
   if (items.length !== new Set(ids).size) return res.status(400).json({ error: "Some of those sales were already matched to another deposit or don't belong to this client. Reload and try again." });
   const covered = Math.round(items.reduce((sum: number, i: any) => sum + Number(i.amount), 0) * 100) / 100;
   const fee = Math.round((covered - deposit) * 100) / 100;
@@ -616,26 +618,26 @@ bankRecRouter.post("/:lineId/deposit-entry", requireAuth, requireRole("admin", "
   }
 
   const jeId = `JE-${idSuffix()}`;
-  let bankGlId = "";
   let raced = false;
   await withTransaction(async (db) => {
     const locked = await db.query<any>(`SELECT matched_gl_entry_id FROM altax.v3_bank_statement_lines WHERE line_id = $1 FOR UPDATE`, [lineId]);
     if (locked[0]?.matched_gl_entry_id) { raced = true; return; }
     const stillOpen = await db.query<any>(`SELECT clearing_id FROM altax.v3_tender_clearing WHERE clearing_id = ANY($1::int[]) AND cleared_at IS NULL FOR UPDATE`, [ids]);
     if (stillOpen.length !== ids.length) { raced = true; return; }
-    await ensureTenderAccounts(db);
-    const desc = line.description || "Card / EBT deposit";
-    bankGlId = await appendGl(client.client_id, client.client_name, { entryDate: line.statement_date, ref: jeId, description: desc, account: line.account_name, debit: deposit, credit: 0, source: "Bank Reconciliation", notes: null }, db);
-    if (fee > 0.004) await appendGl(client.client_id, client.client_name, { entryDate: line.statement_date, ref: jeId, description: `${desc} — processing fee`, account: FEE_ACCOUNT, debit: fee, credit: 0, source: "Bank Reconciliation", notes: null }, db);
-    await appendGl(client.client_id, client.client_name, { entryDate: line.statement_date, ref: jeId, description: `${desc} — clears card/EBT sales`, account: CLEARING_ACCOUNT, debit: 0, credit: covered, source: "Bank Reconciliation", notes: null }, db);
+    if (fee > 0.004) {
+      await ensureTenderAccounts(db);
+      const desc = `${line.description || "Card / EBT deposit"} — processing fee`;
+      await appendGl(client.client_id, client.client_name, { entryDate: line.statement_date, ref: jeId, description: desc, account: FEE_ACCOUNT, debit: fee, credit: 0, source: "Bank Reconciliation", notes: null }, db);
+      await appendGl(client.client_id, client.client_name, { entryDate: line.statement_date, ref: jeId, description: desc, account: line.account_name, debit: 0, credit: fee, source: "Bank Reconciliation", notes: null }, db);
+    }
     await db.query(`UPDATE altax.v3_tender_clearing SET cleared_at = now(), cleared_by = $2, bank_line_id = $3, clearing_ref = $4 WHERE clearing_id = ANY($1::int[])`, [ids, req.user!.email, lineId, jeId]);
-    await db.query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [lineId, bankGlId]);
+    await db.query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [lineId, items[0].gl_entry_id]);
   });
   if (raced) return res.status(409).json({ error: "Another change just touched this deposit or those sales. Reload and try again." });
 
-  await logAudit("Accounting", "CARD_EBT_DEPOSIT_MATCHED", lineId, "Fee", "", fee.toFixed(2),
-    `Bank deposit $${deposit.toFixed(2)} matched to ${items.length} card/EBT sale(s) totalling $${covered.toFixed(2)}; fee $${Math.max(0, fee).toFixed(2)}, by ${req.user!.email}.`, req.user!.email);
-  res.status(201).json({ ok: true, glEntryId: bankGlId, covered, fee: Math.max(0, fee) });
+  await logAudit("Accounting", "CARD_EBT_DEPOSIT_MATCHED", lineId, "Fee", "", Math.max(0, fee).toFixed(2),
+    `Bank deposit $${deposit.toFixed(2)} matched to ${items.length} card/EBT sale line(s) totalling $${covered.toFixed(2)}; fee $${Math.max(0, fee).toFixed(2)}, by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, covered, fee: Math.max(0, fee) });
 }));
 
 /** Undo a Card / EBT deposit match: removes its entry and puts the covered sales back to "awaiting deposit". */

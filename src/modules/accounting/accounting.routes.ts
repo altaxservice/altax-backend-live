@@ -592,8 +592,8 @@ export async function createSalesInputRecord(
       );
     }
 
-    await postSalesGl(db, client, saleId, String(params.saleDate || "").trim() || null, grossSales, totalTax, tender);
-    await openClearingItems(db, client.client_id, saleId, String(params.saleDate || "").trim() || null, tender);
+    const glIds = await postSalesGl(db, client, saleId, String(params.saleDate || "").trim() || null, grossSales, totalTax, tender);
+    await openClearingItems(db, client.client_id, saleId, String(params.saleDate || "").trim() || null, tender, glIds);
 
     if (idempotencyKey) {
       await saveIdempotencyResponse(db, idempotencyKey, "accounting.create-sales-input",
@@ -764,12 +764,18 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
     throw err;
   }
   const hasSplit = tender.card > 0 || tender.ebt > 0;
-  // Once a card/EBT portion has been matched to a bank deposit it can't be re-split without reversing that deposit entry first.
+  // Once a card/EBT portion has been matched to a bank deposit, its ledger lines are part of a reconciled deposit: only notes and
+  // the payment date can change until that deposit match is reversed in Bank Rec.
   if (await hasClearedItems({ query }, saleId)) {
-    const oldCard = Number(existing.tender_card) || 0, oldEbt = Number(existing.tender_ebt) || 0;
-    if (Math.abs(oldCard - tender.card) > 0.005 || Math.abs(oldEbt - tender.ebt) > 0.005 || pgDateStr(saleDate) !== pgDateStr(existing.sale_date)) {
-      return res.status(400).json({ error: "This sale's card/EBT money has already been matched to a bank deposit. Reverse that deposit entry in Bank Rec before changing the card/EBT amounts or the date." });
+    const same = Math.abs(grossSales - Number(existing.gross_sales)) < 0.005 && Math.abs(totalTax - Number(existing.total_tax_due)) < 0.005
+      && pgDateStr(saleDate) === pgDateStr(existing.sale_date)
+      && Math.abs(tender.card - (Number(existing.tender_card) || 0)) < 0.005 && Math.abs(tender.ebt - (Number(existing.tender_ebt) || 0)) < 0.005;
+    if (!same) {
+      return res.status(400).json({ error: "This sale's card/EBT money has already been matched to a bank deposit. Reverse that deposit match in Bank Rec before changing the amounts, tender or date. (Notes and payment date can still be edited.)" });
     }
+    await query(`UPDATE altax.v3_sales_input SET payment_date=$2, notes=$3 WHERE sale_id = $1`, [saleId, paymentDate, notes]);
+    await logAudit("Accounting", "EDIT_SALES_INPUT", saleId, "Notes", "", "", `Sales input notes/payment date edited by ${req.user!.email}.`, req.user!.email);
+    return res.json({ ok: true, saleId, totalTaxDue: totalTax, lines: computed.lines });
   }
 
   await withTransaction(async (db) => {
@@ -789,11 +795,9 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
     }
 
     await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input'`, [saleId]);
-    await postSalesGl(db, { client_id: existing.client_id, client_name: existing.client_name }, saleId, saleDate, grossSales, totalTax, tender);
-    // Open (not yet deposited) card/EBT items are rebuilt from the new amounts; deposited ones were verified unchanged above.
-    await db.query(`DELETE FROM altax.v3_tender_clearing WHERE sale_id = $1 AND cleared_at IS NULL`, [saleId]);
-    const stillCleared = await db.query(`SELECT 1 FROM altax.v3_tender_clearing WHERE sale_id = $1 LIMIT 1`, [saleId]);
-    if (!stillCleared.length) await openClearingItems(db, existing.client_id, saleId, saleDate, tender);
+    const glIds = await postSalesGl(db, { client_id: existing.client_id, client_name: existing.client_name }, saleId, saleDate, grossSales, totalTax, tender);
+    await db.query(`DELETE FROM altax.v3_tender_clearing WHERE sale_id = $1`, [saleId]);
+    await openClearingItems(db, existing.client_id, saleId, saleDate, tender, glIds);
   });
 
   await logAudit("Accounting", "EDIT_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), String(totalTax),
