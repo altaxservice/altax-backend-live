@@ -2718,7 +2718,12 @@ accountingRouter.get("/client-books/pending-submissions", requireAuth, requireRo
       `SELECT d.*, (SELECT COUNT(*) FROM altax.v3_document_uploads u WHERE u.purchase_draft_id = d.draft_id AND lower(u.status) NOT IN ('removed','replaced'))::int AS receipt_count
          FROM altax.v3_client_purchase_drafts d WHERE d.status = 'Pending' ${scope(1)} ORDER BY d.submitted_at ASC LIMIT 150`, params),
   ]);
-  const clientIds = Array.from(new Set([...sales, ...purchases].map((d) => d.client_id)));
+  // Assets clients reported from their portal (table may not exist yet on a fresh deploy).
+  let assetDrafts: any[] = [];
+  try {
+    assetDrafts = await query<any>(`SELECT d.* FROM altax.v3_client_asset_drafts d WHERE d.status = 'Pending' ${scope(1)} ORDER BY d.submitted_at ASC LIMIT 100`, params);
+  } catch { /* not migrated */ }
+  const clientIds = Array.from(new Set([...sales, ...purchases, ...assetDrafts].map((d) => d.client_id)));
   const stateById = new Map<string, string>();
   const avgById = new Map<string, { avg: number; n: number }>();
   if (clientIds.length) {
@@ -2740,8 +2745,12 @@ accountingRouter.get("/client-books/pending-submissions", requireAuth, requireRo
     kind: "purchase" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.purchase_date), amount: Number(d.amount) || 0, tax: 0,
     vendor: d.vendor_name, account: d.account, description: d.description, notes: d.notes, receiptCount: d.receipt_count || 0, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly: false, averageGross: null,
   }));
-  const items = [...salesOut, ...purchasesOut].sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
-  res.json({ items, counts: { sales: salesOut.length, purchases: purchasesOut.length, total: items.length, clients: clientIds.length } });
+  const assetsOut = assetDrafts.map((d) => ({
+    kind: "asset" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.purchase_date), amount: Number(d.cost) || 0, tax: 0,
+    vendor: d.vendor_name, account: d.category, description: d.asset_name, notes: d.notes, receiptCount: 0, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly: false, averageGross: null,
+  }));
+  const items = [...salesOut, ...purchasesOut, ...assetsOut].sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
+  res.json({ items, counts: { sales: salesOut.length, purchases: purchasesOut.length, assets: assetsOut.length, total: items.length, clients: clientIds.length } });
 }));
 
 /**

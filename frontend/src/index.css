@@ -1929,3 +1929,32 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 .stf-year > b { min-width: 42px; padding-top: 3px; }
 .stf-year > div { display: flex; flex-wrap: wrap; gap: 4px; }
 .stf-chip { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+
+.cs-icon.asset { background: var(--blue-soft); color: var(--blue); }
+.cs-assetform { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; padding: 10px 0 2px 46px; }
+.cs-assetform label { display: grid; gap: 3px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.cs-assetform input { min-width: 160px; }
+
+/* Client Reports + Assets */
+.rp-chart { margin: 0; } .rp-chart svg { width: 100%; height: 190px; display: block; }
+.rp-chart figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+.rp-grid { stroke: var(--line); stroke-width: 1; }
+.rp-bar.income { fill: var(--teal); } .rp-bar.expenses { fill: var(--amber); }
+.rp-axis { font-size: 10.5px; fill: var(--muted); }
+.rp-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.rp-key.income { background: var(--teal); } .rp-key.expenses { background: var(--amber); }
+.rp-periods { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 12px 16px 0; }
+.rp-custom { display: inline-flex; gap: 8px; align-items: center; margin-inline-start: 8px; }
+.rp-cards { display: grid; gap: 10px; padding: 12px 16px 16px; }
+.rp-card { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 4px; padding: 12px; background: var(--paper); }
+.rp-card.locked { background: var(--surface); border-style: dashed; grid-template-columns: 44px minmax(0, 1fr); }
+.rp-card-main b { display: block; font-size: 14px; } .rp-card-main small { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+.rp-card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.rp-card-actions .btn-sm { display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 640px) { .rp-card { grid-template-columns: 44px minmax(0, 1fr); } .rp-card-actions { grid-column: 1 / -1; justify-content: flex-start; } }
+.rp-bars { padding: 6px 16px 14px; display: grid; gap: 10px; }
+.rp-hbar > div { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.rp-hbar i { display: block; height: 6px; border-radius: 3px; background: var(--amber); margin-top: 4px; }
+.as-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 14px 16px; }
+.act-tone-grey { background: var(--line); color: var(--muted); }
+.status-grey { background: var(--line); color: var(--muted); }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Receipt, ShoppingCart, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Package, Receipt, ShoppingCart, TriangleAlert } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { useConfirm, useNotify, usePrompt } from "./ConfirmProvider";
 import { ago } from "./WorkTrail";
@@ -8,14 +8,50 @@ import { fmtDateOnly as fmtDate } from "../utils/date";
 import { useToast } from "./Toast";
 
 export interface PendingSubmission {
-  kind: "sales" | "purchase"; draftId: string; clientId: string; clientName: string; date: string; amount: number; tax: number;
+  kind: "sales" | "purchase" | "asset"; draftId: string; clientId: string; clientName: string; date: string; amount: number; tax: number;
   notes: string | null; submittedAt: string; submittedBy: string | null; anomaly: boolean; averageGross: number | null;
   vendor?: string | null; account?: string; description?: string | null; receiptCount?: number;
 }
-export interface PendingSubmissions { items: PendingSubmission[]; counts: { sales: number; purchases: number; total: number; clients: number } }
+export interface PendingSubmissions { items: PendingSubmission[]; counts: { sales: number; purchases: number; assets?: number; total: number; clients: number } }
 
 const money = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const path = (k: PendingSubmission["kind"]) => (k === "sales" ? "sales-drafts" : "purchase-drafts");
+const ASSET_LIFE: Record<string, number> = { Equipment: 7, "Furniture & Fixtures": 7, Vehicle: 5, "Computer / Electronics": 5, "Leasehold Improvements": 15, Other: 5 };
+
+/** Inline form for recording a client-reported asset: the reviewer picks the accounts and life; straight-line depreciation (use Accounting → Fixed Assets for MACRS / Section 179). */
+function AssetRecordForm({ it, onDone, onCancel }: { it: PendingSubmission; onDone: () => void; onCancel: () => void }) {
+  const notify = useNotify();
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [account, setAccount] = useState("Equipment");
+  const [offset, setOffset] = useState("Cash");
+  const [life, setLife] = useState(String(ASSET_LIFE[it.account || "Other"] || 5));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get<{ accounts: { account_name: string; account_type: string }[] }>("/accounting/coa").then((r) => setAccounts(r.accounts.filter((a) => a.account_type === "Asset").map((a) => a.account_name))).catch(() => {});
+  }, []);
+  async function save() {
+    setSaving(true);
+    try {
+      await api.post(`/client-portal/assets/drafts/${it.draftId}/approve`, { accountName: account, offsetAccount: offset, depreciationMethod: "Straight-Line", usefulLifeYears: Number(life) });
+      onDone();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not record this asset.");
+    } finally { setSaving(false); }
+  }
+  const options = Array.from(new Set(["Equipment", "Furniture & Fixtures", "Vehicles", "Computers & Electronics", "Leasehold Improvements", ...accounts]));
+  return (
+    <div className="cs-assetform">
+      <label>Asset account<input list="cs-asset-accounts" value={account} onChange={(e) => setAccount(e.target.value)} /></label>
+      <datalist id="cs-asset-accounts">{options.map((o) => <option key={o} value={o} />)}</datalist>
+      <label>Paid from<input value={offset} onChange={(e) => setOffset(e.target.value)} /></label>
+      <label>Useful life (years)<input type="number" min="1" value={life} onChange={(e) => setLife(e.target.value)} /></label>
+      <div className="cs-actions">
+        <button type="button" className="action-button btn-sm" disabled={saving} onClick={save}>{saving ? "Recording…" : "Record asset"}</button>
+        <button type="button" className="ghost-button btn-sm" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
 
 /** Shared loader so the Command Center count, tab and inbox all read one source. */
 export function usePendingSubmissions(refreshKey?: unknown): { data: PendingSubmissions | null; reload: () => void } {
@@ -39,6 +75,7 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
   const notify = useNotify();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  const [recording, setRecording] = useState<string | null>(null);
 
   if (!data) return <p className="muted" style={{ padding: 16 }}>Loading client submissions…</p>;
   if (data.items.length === 0) {
@@ -68,7 +105,7 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
     if (reason === null) return;
     setBusy(it.draftId);
     try {
-      await api.post(`/accounting/client-books/${path(it.kind)}/${it.draftId}/dismiss`, { reason });
+      await api.post(it.kind === "asset" ? `/client-portal/assets/drafts/${it.draftId}/dismiss` : `/accounting/client-books/${path(it.kind)}/${it.draftId}/dismiss`, { reason });
       onChanged();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not dismiss this submission.");
@@ -87,6 +124,7 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
     try {
       const sales = rows.filter((r) => r.kind === "sales").map((r) => r.draftId);
       const purchases = rows.filter((r) => r.kind === "purchase").map((r) => r.draftId);
+      // Assets need accounts and a depreciation life, so they are recorded one at a time, never in bulk.
       const results: { ok: boolean; error?: string }[] = [];
       if (sales.length) results.push(...(await api.post<{ results: { ok: boolean; error?: string }[] }>("/accounting/client-books/sales-drafts/approve-bulk", { draftIds: sales })).results);
       if (purchases.length) results.push(...(await api.post<{ results: { ok: boolean; error?: string }[] }>("/accounting/client-books/purchase-drafts/approve-bulk", { draftIds: purchases })).results);
@@ -102,6 +140,7 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
     <div className="cs-list">
       {Array.from(byClient.entries()).map(([clientId, rows]) => {
         const total = rows.reduce((s, r) => s + r.amount, 0);
+        const bulkable = rows.filter((r) => r.kind !== "asset");
         return (
           <section className="cs-group" key={clientId}>
             <header>
@@ -111,15 +150,15 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
               </div>
               <div className="cs-head-actions">
                 <button type="button" className="ghost-button btn-sm" onClick={() => navigate(`/accounting?client=${clientId}&tab=${encodeURIComponent("Client Submissions")}`)}>Review &amp; edit</button>
-                {rows.length > 1 && <button type="button" className="action-button btn-sm" disabled={busy === clientId} onClick={() => approveAll(clientId, rows)}>Approve all ({rows.length})</button>}
+                {bulkable.length > 1 && <button type="button" className="action-button btn-sm" disabled={busy === clientId} onClick={() => approveAll(clientId, bulkable)}>Approve all ({bulkable.length})</button>}
               </div>
             </header>
             {rows.map((it) => (
               <div className="cs-row" key={it.draftId}>
-                <span className={`cs-icon ${it.kind}`}>{it.kind === "sales" ? <Receipt size={16} aria-hidden="true" /> : <ShoppingCart size={16} aria-hidden="true" />}</span>
+                <span className={`cs-icon ${it.kind}`}>{it.kind === "sales" ? <Receipt size={16} aria-hidden="true" /> : it.kind === "asset" ? <Package size={16} aria-hidden="true" /> : <ShoppingCart size={16} aria-hidden="true" />}</span>
                 <div className="cs-main">
                   <div className="cs-title">
-                    {it.kind === "sales" ? "Daily sales" : "Expense"} · {fmtDate(it.date)}
+                    {it.kind === "sales" ? "Daily sales" : it.kind === "asset" ? `Asset — ${it.description}` : "Expense"} · {fmtDate(it.date)}
                     {it.anomaly && <span className="cs-flag" title={it.averageGross !== null ? `Recent daily average ${money(it.averageGross)}` : ""}><TriangleAlert size={12} aria-hidden="true" /> Unusual</span>}
                   </div>
                   <div className="cs-meta">
@@ -132,9 +171,14 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
                 </div>
                 <div className="cs-amount">{money(it.amount)}</div>
                 <div className="cs-actions">
-                  <button type="button" className="action-button btn-sm" disabled={busy === it.draftId} onClick={() => approve(it)}>Approve</button>
+                  {it.kind === "asset"
+                    ? <button type="button" className="action-button btn-sm" onClick={() => setRecording(recording === it.draftId ? null : it.draftId)}>Record…</button>
+                    : <button type="button" className="action-button btn-sm" disabled={busy === it.draftId} onClick={() => approve(it)}>Approve</button>}
                   <button type="button" className="ghost-button btn-sm" disabled={busy === it.draftId} onClick={() => dismiss(it)}>Dismiss</button>
                 </div>
+                {recording === it.draftId && it.kind === "asset" && (
+                  <div style={{ gridColumn: "1 / -1" }}><AssetRecordForm it={it} onCancel={() => setRecording(null)} onDone={() => { setRecording(null); toast(`Recorded ${it.description}.`); onChanged(); }} /></div>
+                )}
               </div>
             ))}
           </section>

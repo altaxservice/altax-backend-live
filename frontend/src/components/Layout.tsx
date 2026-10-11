@@ -5,7 +5,7 @@ import {
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, ShieldAlert, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2, TabletSmartphone,
   PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen, HandCoins,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Package,
   type LucideProps,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -84,6 +84,8 @@ export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: st
   { to: "/tax-payments", label: "Client Tax Payments", roles: ["admin", "staff"], group: "Money", icon: HandCoins, keywords: ["sales tax", "filings", "tax due"] },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
   { to: "/my-books", label: "My Books", navKey: "nav.myBooks", roles: ["client"], icon: NotebookPen, keywords: ["sales", "purchases", "expenses", "p&l", "income"] },
+  { to: "/my-reports", label: "Reports", navKey: "nav.myReports", roles: ["client"], icon: BarChart3, keywords: ["financial statements", "profit and loss", "balance sheet", "sales tax report"] },
+  { to: "/my-assets", label: "Assets", navKey: "nav.myAssets", roles: ["client"], icon: Package, keywords: ["equipment", "vehicles", "depreciation", "fixed assets"] },
   { to: "/my-businesses", label: "My Businesses", navKey: "nav.myBusinesses", roles: ["client"], icon: Building2, keywords: ["switch business", "multiple businesses", "cross business", "all my businesses"] },
   { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature, keywords: ["contracts"] },
   { to: "/gov-filings", label: "Government Filings", navKey: "nav.govFilings", roles: ["client"], icon: Landmark, keywords: ["gov forms"] },
@@ -117,7 +119,7 @@ export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: st
 /** Client portal sidebar: its own grouping and order (labels are translated, so each carries a navKey). */
 const CLIENT_NAV: { to: string; group: string }[] = [
   { to: "/dashboard", group: "" },
-  { to: "/my-books", group: "My Business" }, { to: "/my-business", group: "My Business" }, { to: "/my-businesses", group: "My Business" }, { to: "/agreements", group: "My Business" },
+  { to: "/my-books", group: "My Business" }, { to: "/my-reports", group: "My Business" }, { to: "/my-assets", group: "My Business" }, { to: "/my-business", group: "My Business" }, { to: "/my-businesses", group: "My Business" }, { to: "/agreements", group: "My Business" },
   { to: "/billing", group: "Money" }, { to: "/gov-filings", group: "Money" },
   { to: "/documents", group: "Communicate" }, { to: "/communications", group: "Communicate" },
   { to: "/guide", group: "Help" },
@@ -164,6 +166,8 @@ const TITLES: Record<string, string> = {
   "/guide": "Guide",
   "/my-business": "My Business",
   "/my-books": "My Books",
+  "/my-reports": "Reports",
+  "/my-assets": "Assets",
   "/my-businesses": "My Businesses",
   "/agreements": "Agreements",
   "/gov-filings": "Government Filings",
@@ -180,6 +184,8 @@ const TITLE_KEYS: Record<string, string> = {
   "/my-tax-forms": "nav.myTaxForms",
   "/my-business": "nav.myBusiness",
   "/my-books": "nav.myBooks",
+  "/my-reports": "nav.myReports",
+  "/my-assets": "nav.myAssets",
   "/my-businesses": "nav.myBusinesses",
   "/agreements": "nav.agreements",
   "/gov-filings": "nav.govFilings",

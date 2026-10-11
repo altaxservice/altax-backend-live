@@ -63,6 +63,8 @@ import { PublicContractPage } from "./pages/PublicContractPage";
 import { PublicMessagePage } from "./pages/PublicMessagePage";
 import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
 import { MyBusinessPage } from "./pages/MyBusinessPage";
+import { MyReportsPage } from "./pages/MyReportsPage";
+import { MyAssetsPage } from "./pages/MyAssetsPage";
 import { ClientBooksPage } from "./pages/ClientBooksPage";
 import { CrossBusinessDashboardPage } from "./pages/CrossBusinessDashboardPage";
 import { AgreementsPage } from "./pages/AgreementsPage";
@@ -120,6 +122,8 @@ function App() {
               <Route element={<ProtectedRoute roles={["client"]} />}>
                 <Route path="/my-business" element={<MyBusinessPage />} />
                 <Route path="/my-books" element={<ClientBooksPage />} />
+                <Route path="/my-reports" element={<MyReportsPage />} />
+                <Route path="/my-assets" element={<MyAssetsPage />} />
                 <Route path="/my-businesses" element={<CrossBusinessDashboardPage />} />
                 <Route path="/agreements" element={<AgreementsPage />} />
                 <Route path="/gov-filings" element={<GovFilingsPage />} />

@@ -40,7 +40,9 @@ navBadgesRouter.get("/", requireAuth, asyncHandler(async (req: AuthedRequest, re
       // Client-entered sales/purchases from My Books waiting for staff approval.
       n(`SELECT (SELECT COUNT(*) FROM altax.v3_client_sales_drafts d WHERE d.status = 'Pending' ${scope("d.client_id", 1)})
               + (SELECT COUNT(*) FROM altax.v3_client_purchase_drafts d WHERE d.status = 'Pending' ${scope("d.client_id", 1)}) AS n`,
-        isAdmin ? [] : [aliases]),
+        isAdmin ? [] : [aliases]).then(async (base) => {
+          try { return base + await n(`SELECT COUNT(*) AS n FROM altax.v3_client_asset_drafts d WHERE d.status = 'Pending' ${scope("d.client_id", 1)}`, isAdmin ? [] : [aliases]); } catch { return base; }
+        }),
     ]);
     put("/accounting", submissions, "red");
     put("/tasks", overdueTasks, "red");

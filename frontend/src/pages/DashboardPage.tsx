@@ -25,7 +25,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { GOV_FORM_LABELS } from "../api/govForms";
 import type { GovFormType, GovFormFiling } from "../api/govForms";
 import { useStickyState } from "../utils/listState";
-import { AlertTriangle, Building2, CalendarClock, ClipboardCheck, FileWarning, FolderInput, Landmark, MessageSquare, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
+import { AlertTriangle, BarChart3, Building2, Package, CalendarClock, ClipboardCheck, FileWarning, FolderInput, Landmark, MessageSquare, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -1778,6 +1778,8 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
               {quick(FolderInput, t("dash.quick.upload"), t("dash.quick.uploadSub"), "/documents", "amber")}
               {quick(MessageSquare, t("dash.quick.message"), t("dash.quick.messageSub"), "/communications", "blue")}
               {quick(Wallet, t("dash.quick.invoices"), t("dash.quick.invoicesSub"), "/billing", "teal")}
+              {quick(BarChart3, t("nav.myReports"), t("dash.quick.reportsSub"), "/my-reports", "blue")}
+              {quick(Package, t("nav.myAssets"), t("dash.quick.assetsSub"), "/my-assets", "amber")}
               {quick(Building2, t("nav.myBusiness"), t("dash.quick.profileSub"), "/my-business", "teal")}
             </div>
           </div>

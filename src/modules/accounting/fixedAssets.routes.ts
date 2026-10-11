@@ -55,7 +55,7 @@ function isoDateOnly(v: string | Date | null): string | null {
 }
 
 /** Accumulated depreciation posted so far — the sum of every depreciation GL entry for this asset, regardless of year. */
-async function accumulatedDepreciation(assetId: string): Promise<number> {
+export async function accumulatedDepreciation(assetId: string): Promise<number> {
   const row = await queryOne<any>(
     `SELECT COALESCE(SUM(credit), 0) AS total FROM altax.v3_gl_entries WHERE source = $1 AND ref LIKE $2`,
     [DEPRECIATION_SOURCE, `${assetId}:%`]
@@ -77,75 +77,87 @@ fixedAssetsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHand
   res.json({ assets });
 }));
 
+/**
+ * Validates and records one fixed asset (the asset row plus its purchase journal entry). Shared by the staff "Add asset"
+ * route and by approving an asset a client reported from their portal, so both create exactly the same thing.
+ * Throws ValidationError for anything the caller should see.
+ */
+export async function createFixedAssetRecord(
+  client: { clientId: string; clientName: string },
+  body: Record<string, any>,
+  actorEmail: string
+): Promise<string> {
+  const assetName = String(body.assetName || "").trim();
+  const accountName = String(body.accountName || "").trim();
+  const offsetAccount = String(body.offsetAccount || "").trim();
+  const assetClass = body.assetClass === "Current" ? "Current" : "Fixed";
+  const purchaseDate = String(body.purchaseDate || "").trim();
+  const cost = money(body.cost);
+  const salvageValue = money(body.salvageValue || 0);
+  const depreciationMethod = assetClass !== "Fixed" ? "Straight-Line"
+    : body.depreciationMethod === "MACRS" ? "MACRS"
+    : body.depreciationMethod === "Manual" ? "Manual"
+    : "Straight-Line";
+  const usefulLifeYears = assetClass === "Fixed" && depreciationMethod === "Straight-Line" ? Number(body.usefulLifeYears) : null;
+  const macrsPropertyClass = assetClass === "Fixed" && depreciationMethod === "MACRS" ? body.macrsPropertyClass : null;
+  const section179Amount = depreciationMethod === "MACRS" ? money(body.section179Amount || 0) : 0;
+  const bonusDepreciationPct = depreciationMethod === "MACRS" ? Number(body.bonusDepreciationPct || 0) : 0;
+  const manualMethodLabel = depreciationMethod === "Manual" ? String(body.manualMethodLabel || "").trim() || null : null;
+
+  if (!assetName) throw new ValidationError("Asset name is required.");
+  if (!accountName) throw new ValidationError("Account is required.");
+  if (!offsetAccount) throw new ValidationError("Offsetting account is required.");
+  if (!purchaseDate) throw new ValidationError("Purchase date is required.");
+  if (!(cost > 0)) throw new ValidationError("Cost must be greater than 0.");
+  if (assetClass === "Fixed" && depreciationMethod === "Straight-Line" && !(usefulLifeYears! > 0)) throw new ValidationError("Useful life (years) is required for a Fixed asset.");
+  if (assetClass === "Fixed" && depreciationMethod === "MACRS") {
+    if (!isMacrsPropertyClass(macrsPropertyClass)) throw new ValidationError("Property class (5-Year or 7-Year) is required for MACRS.");
+    if (section179Amount < 0 || section179Amount > cost) throw new ValidationError("Section 179 amount must be between 0 and the asset's cost.");
+    if (bonusDepreciationPct < 0 || bonusDepreciationPct > 100) throw new ValidationError("Bonus depreciation % must be between 0 and 100.");
+  }
+
+  const coaAccount = await queryOne<any>(`SELECT account_id FROM altax.v3_coa WHERE lower(account_name) = lower($1)`, [accountName]);
+  if (!coaAccount) {
+    await query(
+      `INSERT INTO altax.v3_coa (account_id, account_name, account_type, normal_balance, active, current_balance, source_system, source_record_id)
+       VALUES ($1,$2,'Asset','Debit',true,0,'Node Web App',$1)`,
+      [`ACCT-${idSuffix()}`, accountName]
+    );
+  }
+
+  const assetId = `ASSET-${idSuffix()}`;
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_fixed_assets
+         (asset_id, client_id, asset_name, account_name, asset_class, purchase_date, cost, salvage_value,
+          useful_life_years, offset_account, notes, created_by, depreciation_method, macrs_property_class,
+          section_179_amount, bonus_depreciation_pct, manual_method_label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+      [assetId, client.clientId, assetName, accountName, assetClass, purchaseDate, cost, salvageValue,
+        usefulLifeYears, offsetAccount, String(body.notes || "").trim() || null, actorEmail,
+        depreciationMethod, macrsPropertyClass, section179Amount, bonusDepreciationPct, manualMethodLabel]
+    );
+    await appendGl(client.clientId, client.clientName, {
+      entryDate: purchaseDate, ref: assetId, description: `Fixed asset purchase — ${assetName}`,
+      account: accountName, debit: cost, credit: 0, source: PURCHASE_SOURCE,
+    }, db);
+    await appendGl(client.clientId, client.clientName, {
+      entryDate: purchaseDate, ref: assetId, description: `Fixed asset purchase — ${assetName}`,
+      account: offsetAccount, debit: 0, credit: cost, source: PURCHASE_SOURCE,
+    }, db);
+  });
+
+  await logAudit("Accounting", "CREATE_FIXED_ASSET", assetId, "", "", assetName, `Fixed asset "${assetName}" ($${cost.toFixed(2)}) recorded for ${client.clientName} by ${actorEmail}.`, actorEmail);
+  return assetId;
+}
+
 fixedAssetsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const clientId = String(body.clientId || "").trim();
   const loaded = await loadClient(req, clientId);
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-  const { client } = loaded;
-
   try {
-    const assetName = String(body.assetName || "").trim();
-    const accountName = String(body.accountName || "").trim();
-    const offsetAccount = String(body.offsetAccount || "").trim();
-    const assetClass = body.assetClass === "Current" ? "Current" : "Fixed";
-    const purchaseDate = String(body.purchaseDate || "").trim();
-    const cost = money(body.cost);
-    const salvageValue = money(body.salvageValue || 0);
-    const depreciationMethod = assetClass !== "Fixed" ? "Straight-Line"
-      : body.depreciationMethod === "MACRS" ? "MACRS"
-      : body.depreciationMethod === "Manual" ? "Manual"
-      : "Straight-Line";
-    const usefulLifeYears = assetClass === "Fixed" && depreciationMethod === "Straight-Line" ? Number(body.usefulLifeYears) : null;
-    const macrsPropertyClass = assetClass === "Fixed" && depreciationMethod === "MACRS" ? body.macrsPropertyClass : null;
-    const section179Amount = depreciationMethod === "MACRS" ? money(body.section179Amount || 0) : 0;
-    const bonusDepreciationPct = depreciationMethod === "MACRS" ? Number(body.bonusDepreciationPct || 0) : 0;
-    const manualMethodLabel = depreciationMethod === "Manual" ? String(body.manualMethodLabel || "").trim() || null : null;
-
-    if (!assetName) throw new ValidationError("Asset name is required.");
-    if (!accountName) throw new ValidationError("Account is required.");
-    if (!offsetAccount) throw new ValidationError("Offsetting account is required.");
-    if (!purchaseDate) throw new ValidationError("Purchase date is required.");
-    if (!(cost > 0)) throw new ValidationError("Cost must be greater than 0.");
-    if (assetClass === "Fixed" && depreciationMethod === "Straight-Line" && !(usefulLifeYears! > 0)) throw new ValidationError("Useful life (years) is required for a Fixed asset.");
-    if (assetClass === "Fixed" && depreciationMethod === "MACRS") {
-      if (!isMacrsPropertyClass(macrsPropertyClass)) throw new ValidationError("Property class (5-Year or 7-Year) is required for MACRS.");
-      if (section179Amount < 0 || section179Amount > cost) throw new ValidationError("Section 179 amount must be between 0 and the asset's cost.");
-      if (bonusDepreciationPct < 0 || bonusDepreciationPct > 100) throw new ValidationError("Bonus depreciation % must be between 0 and 100.");
-    }
-
-    const coaAccount = await queryOne<any>(`SELECT account_id FROM altax.v3_coa WHERE lower(account_name) = lower($1)`, [accountName]);
-    if (!coaAccount) {
-      await query(
-        `INSERT INTO altax.v3_coa (account_id, account_name, account_type, normal_balance, active, current_balance, source_system, source_record_id)
-         VALUES ($1,$2,'Asset','Debit',true,0,'Node Web App',$1)`,
-        [`ACCT-${idSuffix()}`, accountName]
-      );
-    }
-
-    const assetId = `ASSET-${idSuffix()}`;
-    await withTransaction(async (db) => {
-      await db.query(
-        `INSERT INTO altax.v3_fixed_assets
-           (asset_id, client_id, asset_name, account_name, asset_class, purchase_date, cost, salvage_value,
-            useful_life_years, offset_account, notes, created_by, depreciation_method, macrs_property_class,
-            section_179_amount, bonus_depreciation_pct, manual_method_label)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-        [assetId, client.clientId, assetName, accountName, assetClass, purchaseDate, cost, salvageValue,
-          usefulLifeYears, offsetAccount, String(body.notes || "").trim() || null, req.user!.email,
-          depreciationMethod, macrsPropertyClass, section179Amount, bonusDepreciationPct, manualMethodLabel]
-      );
-      await appendGl(client.clientId, client.clientName, {
-        entryDate: purchaseDate, ref: assetId, description: `Fixed asset purchase — ${assetName}`,
-        account: accountName, debit: cost, credit: 0, source: PURCHASE_SOURCE,
-      }, db);
-      await appendGl(client.clientId, client.clientName, {
-        entryDate: purchaseDate, ref: assetId, description: `Fixed asset purchase — ${assetName}`,
-        account: offsetAccount, debit: 0, credit: cost, source: PURCHASE_SOURCE,
-      }, db);
-    });
-
-    await logAudit("Accounting", "CREATE_FIXED_ASSET", assetId, "", "", assetName, `Fixed asset "${assetName}" ($${cost.toFixed(2)}) recorded for ${client.clientName} by ${req.user!.email}.`, req.user!.email);
+    const assetId = await createFixedAssetRecord(loaded.client, body, req.user!.email);
     res.status(201).json({ ok: true, assetId });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });

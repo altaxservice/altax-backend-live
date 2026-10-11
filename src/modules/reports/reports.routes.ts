@@ -1194,6 +1194,14 @@ function bucketFor(account: string): Bucket {
   return "other";
 }
 
+/** A client login may open the official P&L / Balance Sheet only after staff turn "Show financial statements in portal" on for that business. */
+async function clientMayViewFinancials(clientId: string): Promise<boolean> {
+  try {
+    const row = await queryOne<any>(`SELECT portal_financial_reports_enabled AS v FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    return row?.v === true;
+  } catch { return false; }
+}
+
 async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<ReportClientInfo | null> {
   if (!(await canAccessClient(req.user!, clientId))) return null;
   const client = decryptClientPii(await queryOne<any>(`SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
@@ -2631,7 +2639,8 @@ reportsRouter.get("/pdf/pl", requireAuth, requireRole("admin"), asyncHandler(asy
   res.send(Buffer.from(pdfBytes));
 }));
 
-reportsRouter.get("/pdf/pl/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.get("/pdf/pl/:clientId", requireAuth, requireRole("admin", "staff", "client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role === "client" && !(await clientMayViewFinancials(req.params.clientId))) return res.status(403).json({ error: "Your accountant hasn't published financial statements for this business yet." });
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
   const client = await loadClientInfo(req, req.params.clientId);
@@ -2676,7 +2685,8 @@ reportsRouter.get("/pdf/balance-sheet", requireAuth, requireRole("admin"), async
   res.send(Buffer.from(pdfBytes));
 }));
 
-reportsRouter.get("/pdf/balance-sheet/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.get("/pdf/balance-sheet/:clientId", requireAuth, requireRole("admin", "staff", "client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role === "client" && !(await clientMayViewFinancials(req.params.clientId))) return res.status(403).json({ error: "Your accountant hasn't published financial statements for this business yet." });
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
   const client = await loadClientInfo(req, req.params.clientId);
@@ -2698,7 +2708,7 @@ reportsRouter.get("/pdf/balance-sheet/:clientId", requireAuth, requireRole("admi
   res.send(Buffer.from(pdfBytes));
 }));
 
-reportsRouter.get("/pdf/payroll/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.get("/pdf/payroll/:clientId", requireAuth, requireRole("admin", "staff", "client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
   const client = await loadClientInfo(req, req.params.clientId);
@@ -3766,7 +3776,7 @@ reportsRouter.get("/dc-filing/:clientId/excluded-periods", requireAuth, requireR
   });
 }));
 
-reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", "staff", "client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
   const client = await loadClientInfo(req, req.params.clientId);
