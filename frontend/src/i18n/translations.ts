@@ -562,6 +562,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.sales.saving": { en: "Saving…", ar: "جارٍ الحفظ…" },
   "books.sales.duplicateConfirm": { en: "You already logged sales for this date. Save this as a second entry for the same day?", ar: "لقد سجّلت مبيعات لهذا التاريخ من قبل. هل تريد حفظ هذا كإدخال ثانٍ لنفس اليوم؟" },
   "books.sales.needAmount": { en: "Enter at least one sales amount.", ar: "أدخل مبلغ مبيعات واحداً على الأقل." },
+  "books.sales.taxCol": { en: "Sales tax", ar: "ضريبة المبيعات" },
   "books.sales.recentTitle": { en: "Recent Daily Sales", ar: "المبيعات اليومية الأخيرة" },
   "books.sales.noEntries": { en: "No sales logged yet.", ar: "لم يتم تسجيل أي مبيعات بعد." },
 

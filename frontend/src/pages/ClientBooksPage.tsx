@@ -271,12 +271,13 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
         {!draftsLoading && !draftsError && (
           <div className="table-scroll card-table">
             <table>
-              <thead><tr><th scope="col">{t("books.sales.dateLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.grossTotal")}</th><th scope="col"></th><th scope="col"></th></tr></thead>
+              <thead><tr><th scope="col">{t("books.sales.dateLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.grossTotal")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.taxCol")}</th><th scope="col"></th><th scope="col"></th></tr></thead>
               <tbody>
                 {drafts.map((d) => (
                   <tr key={d.draft_id}>
                     <td data-label={t("books.sales.dateLabel")}><Num>{d.sale_date.slice(0, 10)}</Num></td>
                     <td data-label={t("books.sales.grossTotal")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.gross_sales)}</Num></td>
+                    <td data-label={t("books.sales.taxCol")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.computedTax)}</Num></td>
                     <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} />{d.status === "Dismissed" && <div className="books-dismissed-reason">{d.dismissed_reason ? `${t("books.dismissedWhy")} ${d.dismissed_reason}` : t("books.dismissedNoReason")}</div>}</td>
                     <td>
                       {d.status === "Pending" && (

@@ -8,7 +8,7 @@ export interface BlocksState { cash: BlockState; card: BlockState; snap: string 
 export interface BlockCategory { category_id: string; category_name: string }
 export interface BlocksPreview {
   totalTax?: number; totalTaxDue?: number; grossSales?: number | null;
-  perBlock?: { cash: { tax: number; collected: number; nonTaxable: number }; card: { tax: number; collected: number; nonTaxable: number }; snap: { collected: number } } | null;
+  perBlock?: { cash: { tax: number; collected: number; nonTaxable: number; lineTax?: Record<string, number> }; card: { tax: number; collected: number; nonTaxable: number; lineTax?: Record<string, number> }; snap: { collected: number } } | null;
 }
 export interface BlocksLabels {
   date?: string; cash: string; card: string; snap: string; total: string; taxableAt: string; nonTaxable: string; tax: string; collected: string;
@@ -83,6 +83,7 @@ export function SalesBlocksEditor({ categories, value, onChange, preview, error,
         <div className="sb-sub">{labels.taxableAt}</div>
         {taxable.map((c) => (
           <label key={c.category_id} className="sb-row"><span>{c.category_name}</span>
+            <b className="sb-rowtax" dir="ltr" title={labels.tax}>{num(b.amounts[c.category_id]) > 0 ? `+${money(pb?.lineTax?.[c.category_id] ?? 0)}` : ""}</b>
             <input type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00" aria-label={`${title} — ${c.category_name}`} value={b.amounts[c.category_id] || ""} onChange={(e) => setAmount(k, c.category_id, e.target.value)} />
           </label>
         ))}

@@ -34,8 +34,8 @@ export interface ResolvedBlocks {
   gross: number; tax: number;
   tenderCard: number; tenderEbt: number;
   perBlock: {
-    cash: { total: number; taxable: number; nonTaxable: number; tax: number; collected: number };
-    card: { total: number; taxable: number; nonTaxable: number; tax: number; collected: number };
+    cash: { total: number; taxable: number; nonTaxable: number; tax: number; collected: number; lineTax: Record<string, number> };
+    card: { total: number; taxable: number; nonTaxable: number; tax: number; collected: number; lineTax: Record<string, number> };
     snap: { total: number; collected: number };
   };
 }
@@ -45,7 +45,10 @@ export async function resolveBlocks(blocks: SalesBlocks, taxFn: BlockTaxFn): Pro
     const taxable = r2(b.lines.reduce((s, l) => s + l.taxableAmount, 0));
     if (taxable > b.total + 0.005) throw new ValidationError(`${label}: the taxable amounts ($${taxable.toFixed(2)}) are more than the ${label.toLowerCase()} total ($${b.total.toFixed(2)}).`);
     const t = b.lines.length ? await taxFn(b.lines) : { lines: [], totalTax: 0 };
-    return { total: b.total, taxable, nonTaxable: r2(b.total - taxable), tax: r2(t.totalTax), collected: r2(b.total + t.totalTax) };
+    // Tax per rate row, so the entry screens can show it next to each taxable amount.
+    const lineTax: Record<string, number> = {};
+    for (const l of t.lines) lineTax[l.categoryId] = r2((lineTax[l.categoryId] || 0) + l.taxAmount);
+    return { total: b.total, taxable, nonTaxable: r2(b.total - taxable), tax: r2(t.totalTax), collected: r2(b.total + t.totalTax), lineTax };
   };
   const cash = await per("Cash sales", blocks.cash);
   const card = await per("Card sales", blocks.card);
