@@ -12,7 +12,7 @@ import { fmtMoney } from "../utils/clientFlags";
 import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
 
 interface Overview {
-  clientId: string;
+  clientId: string; pendingEntries?: number; lastApprovedAt?: string | null;
   available: { financialStatements: boolean; salesTax: boolean; payroll: boolean };
   trend: { label: string; from: string; income: number; expenses: number }[];
   ytd: { income: number; expenses: number; net: number; topExpenses: { account: string; amount: number }[] } | null;
@@ -134,6 +134,10 @@ export function MyReportsPage() {
         </div>
       </div>
 
+      {(ov.pendingEntries || 0) > 0 && (
+        <div className="rp-note" role="note">{t("rp.pendingNote").replace("{n}", String(ov.pendingEntries))}{ov.lastApprovedAt ? ` ${t("rp.lastApproval").replace("{date}", fmtDate(ov.lastApprovedAt))}` : ""}</div>
+      )}
+
       {ov.ytd && (
         <div className="cc-kpis">
           <div className="cc-kpi" style={{ cursor: "default" }}><span className="cc-kpi-icon act-tone-green"><Wallet size={20} aria-hidden="true" /></span><span><div className="cc-kpi-label">{t("books.kpi.income")}</div><div className="cc-kpi-value"><Num>{fmtMoney(ov.ytd.income)}</Num></div><div className="cc-kpi-note">{t("rp.ytd")}</div></span></div>
@@ -166,7 +170,7 @@ export function MyReportsPage() {
               {cards.map((c) => (
                 <article className="rp-card" key={c.key}>
                   <span className="cc-kpi-icon act-tone-teal"><c.Icon size={20} aria-hidden="true" /></span>
-                  <div className="rp-card-main"><b>{c.title}</b><small>{c.desc}</small></div>
+                  <div className="rp-card-main"><b>{c.title}</b><small>{c.desc}</small>{(c.key === "pl" || c.key === "bs" || c.key === "st" || c.key === "pr") && ov.lastApprovedAt && <small className="rp-asof">{t("rp.officialAsOf").replace("{date}", fmtDate(ov.lastApprovedAt))}</small>}</div>
                   <div className="rp-card-actions">
                     <button type="button" className="action-button btn-sm" onClick={() => run(() => viewFile(c.path))}><Eye size={13} aria-hidden="true" /> {t("rp.view")}</button>
                     <button type="button" className="ghost-button btn-sm" onClick={() => run(() => downloadFile(c.path, c.file))}><Download size={13} aria-hidden="true" /> {t("rp.download")}</button>

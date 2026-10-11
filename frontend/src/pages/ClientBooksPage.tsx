@@ -33,11 +33,11 @@ type DraftStatus = "Pending" | "Approved" | "Dismissed";
 interface SalesDraft {
   draft_id: string; sale_date: string;
   category_lines: { categoryId: string; categoryName: string; taxableAmount: number | string }[];
-  gross_sales: number | string; computedTax: number | string; notes: string | null; status: DraftStatus;
+  gross_sales: number | string; computedTax: number | string; notes: string | null; status: DraftStatus; dismissed_reason?: string | null;
 }
 interface PurchaseDraft {
   draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
-  account: string; amount: number | string; paid_by_card: boolean; notes: string | null; status: DraftStatus;
+  account: string; amount: number | string; paid_by_card: boolean; notes: string | null; status: DraftStatus; dismissed_reason?: string | null;
   receipt_count?: number;
 }
 interface PurchaseTemplate {
@@ -299,7 +299,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
                   <tr key={d.draft_id}>
                     <td data-label={t("books.sales.dateLabel")}><Num>{d.sale_date.slice(0, 10)}</Num></td>
                     <td data-label={t("books.sales.grossTotal")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.gross_sales)}</Num></td>
-                    <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} /></td>
+                    <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} />{d.status === "Dismissed" && <div className="books-dismissed-reason">{d.dismissed_reason ? `${t("books.dismissedWhy")} ${d.dismissed_reason}` : t("books.dismissedNoReason")}</div>}</td>
                     <td>
                       {d.status === "Pending" && (
                         <div style={{ display: "flex", gap: 6 }}>
@@ -602,7 +602,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
                     <td data-label={t("books.purchases.vendorLabel")}>{d.vendor_name || "—"}</td>
                     <td data-label={t("books.purchases.accountLabel")} className="muted">{d.account}</td>
                     <td data-label={t("books.purchases.amountLabel")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.amount)}</Num></td>
-                    <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} /></td>
+                    <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} />{d.status === "Dismissed" && <div className="books-dismissed-reason">{d.dismissed_reason ? `${t("books.dismissedWhy")} ${d.dismissed_reason}` : t("books.dismissedNoReason")}</div>}</td>
                     <td>
                       {!!d.receipt_count && (
                         <button type="button" className="btn btn-sm" onClick={() => viewReceipt(d.draft_id)}>📎 {d.receipt_count}</button>

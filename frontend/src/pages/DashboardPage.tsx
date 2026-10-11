@@ -1563,13 +1563,14 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
   const [snap, setSnap] = useState<{ totalIncome: number; totalExpenses: number; netIncome: number; pendingSalesCount: number; pendingPurchasesCount: number } | null>(null);
   const [salesTax, setSalesTax] = useState<{ available: boolean; periodEnd?: string; dueDate?: string; totalEstimated?: number } | null>(null);
   const [salesStatus, setSalesStatus] = useState<{ lastSaleDate: string | null; pendingCount: number } | null>(null);
+  const [dismissed, setDismissed] = useState<{ kind: string; draftId: string; date: string; amount: number; label: string; reason: string | null }[]>([]);
   useEffect(() => {
     const qs = activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
     api.get<{ notices: AccountNotice[] }>(`/clients/notices/mine${qs}`).then((res) => setNotices(res.notices)).catch(() => {});
     api.get<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>(`/tasks/mine${qs}`).then(setServices).catch(() => {});
     // Owner's-eye numbers from My Books. A client without books access (or a failed call) simply hides those tiles.
     const id = activeBusinessId || user?.clientId;
-    setSnap(null); setSalesTax(null); setSalesStatus(null);
+    setSnap(null); setSalesTax(null); setSalesStatus(null); setDismissed([]);
     if (id) {
       const d = new Date();
       const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
@@ -1577,6 +1578,7 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
       api.get<NonNullable<typeof snap>>(`/accounting/client-books/pl-preview?clientId=${encodeURIComponent(id)}&from=${from}&to=${ymd(d)}`).then(setSnap).catch(() => {});
       api.get<NonNullable<typeof salesTax>>(`/accounting/client-books/sales-tax-liability?clientId=${encodeURIComponent(id)}`).then(setSalesTax).catch(() => {});
       api.get<NonNullable<typeof salesStatus>>(`/accounting/client-books/sales-status?clientId=${encodeURIComponent(id)}`).then(setSalesStatus).catch(() => {});
+      api.get<{ items: typeof dismissed }>(`/client-portal/dismissed-entries?clientId=${encodeURIComponent(id)}`).then((r) => setDismissed(r.items)).catch(() => {});
     }
   }, [activeBusinessId]);
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
@@ -1635,6 +1637,15 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
       title: ui("dash.serviceWaiting", { service: sv.taskName || sv.serviceLine || "Service" }),
       meta: [sv.period, sv.agencyDueDate ? `${t("dashboard.client.dueLabel")} ${fmtDate(sv.agencyDueDate)}` : ""].filter(Boolean).join(" · "),
       link: "/communications",
+    });
+  }
+  // Entries the accountant couldn't use (last 14 days), with the reason — a dismissal is never a silent disappearance.
+  for (const dm of dismissed) {
+    needs.push({
+      key: `dm-${dm.draftId}`, kind: "dismissed", severity: "high", Icon: FileWarning, score: 78,
+      title: ui(dm.kind === "sales" ? "dash.dismissed.sales" : "dash.dismissed.purchase", { date: fmtDate(dm.date), amount: fmtMoney(dm.amount) }),
+      meta: dm.reason ? `${t("books.dismissedWhy")} ${dm.reason}` : t("dash.dismissed.noReason"),
+      link: "/my-books",
     });
   }
   needs.sort((x, y) => y.score - x.score);
@@ -1702,7 +1713,7 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
       </div>
 
       <div className="cc-kpis">
-        {showMoney && kpi(TrendingUp, snap!.netIncome < 0 ? "red" : "green", ui("dash.kpi.netMonth", { month: monthName }), <Num>{fmtMoney(snap!.netIncome)}</Num>, <><Num>{fmtMoney(snap!.totalIncome)}</Num> {t("books.kpi.income")} · <Num>{fmtMoney(snap!.totalExpenses)}</Num> {t("books.kpi.expenses")}</>, () => navigate("/my-books"))}
+        {showMoney && kpi(TrendingUp, snap!.netIncome < 0 ? "red" : "green", ui("dash.kpi.netMonth", { month: monthName }), <Num>{fmtMoney(snap!.netIncome)}</Num>, <><Num>{fmtMoney(snap!.totalIncome)}</Num> {t("books.kpi.income")} · <Num>{fmtMoney(snap!.totalExpenses)}</Num> {t("books.kpi.expenses")}{(snap!.pendingSalesCount + snap!.pendingPurchasesCount) > 0 ? <> · {ui("dash.includesPending", { n: String(snap!.pendingSalesCount + snap!.pendingPurchasesCount) })}</> : null}</>, () => navigate("/my-books"))}
         {salesTax?.available
           ? kpi(Landmark, "blue", t("dash.kpi.salesTaxOwed"), <Num>{fmtMoney(salesTax.totalEstimated || 0)}</Num>, salesTax.dueDate ? <>{t("dashboard.client.dueLabel")} <Num>{fmtDate(salesTax.dueDate)}</Num>{countdown(salesTax.dueDate) ? ` · ${countdown(salesTax.dueDate)!.text}` : ""}</> : t("books.kpi.estimate"), () => navigate("/my-books"))
           : null}

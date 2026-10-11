@@ -4,6 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText, getUserAliases } from "../../common/assignment";
+import { notifyStaffOfClientEntry, notifyClientOfDismissal } from "../../common/clientEntryNotices";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
@@ -2315,6 +2316,7 @@ accountingRouter.post("/client-books/sales-drafts", requireAuth, asyncHandler(as
   );
   await logAudit("Accounting", "CLIENT_SALES_DRAFT_SUBMITTED", draftId, "", "", String(preview.grossSales),
     `Daily sales submitted via client portal by ${req.user!.email}.`, req.user!.email);
+  void notifyStaffOfClientEntry(clientId, `daily sales of $${Number(preview.grossSales).toFixed(2)} for ${saleDate}`);
   res.status(201).json({ ok: true, draftId });
 }));
 
@@ -2435,6 +2437,7 @@ accountingRouter.post("/client-books/purchase-drafts", requireAuth, asyncHandler
   );
   await logAudit("Accounting", "CLIENT_PURCHASE_DRAFT_SUBMITTED", draftId, "", "", String(amount),
     `Purchase/expense submitted via client portal by ${req.user!.email}.`, req.user!.email);
+  void notifyStaffOfClientEntry(clientId, `an expense of $${Number(amount).toFixed(2)} (${String(body.vendorName || account).trim()}) for ${purchaseDate}`);
   res.status(201).json({ ok: true, draftId });
 }));
 
@@ -2875,10 +2878,11 @@ accountingRouter.post("/client-books/sales-drafts/:draftId/dismiss", requireAuth
   if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   const claimed = await queryOne<any>(
     `UPDATE altax.v3_client_sales_drafts SET status = 'Dismissed', dismissed_by = $2, dismissed_at = now(), dismissed_reason = $3, updated_at = now()
-     WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id`,
+     WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id, client_id, sale_date, gross_sales`,
     [draftId, req.user!.email, String(req.body?.reason || "").trim() || null]
   );
   if (!claimed) return res.status(400).json({ error: "This submission is no longer pending." });
+  void notifyClientOfDismissal(claimed.client_id, "Daily sales", pgDateStr(claimed.sale_date), Number(claimed.gross_sales) || 0, String(req.body?.reason || "").trim() || null);
   res.json({ ok: true });
 }));
 
@@ -2954,10 +2958,11 @@ accountingRouter.post("/client-books/purchase-drafts/:draftId/dismiss", requireA
   if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   const claimed = await queryOne<any>(
     `UPDATE altax.v3_client_purchase_drafts SET status = 'Dismissed', dismissed_by = $2, dismissed_at = now(), dismissed_reason = $3, updated_at = now()
-     WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id`,
+     WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id, client_id, purchase_date, amount, vendor_name, account`,
     [draftId, req.user!.email, String(req.body?.reason || "").trim() || null]
   );
   if (!claimed) return res.status(400).json({ error: "This submission is no longer pending." });
+  void notifyClientOfDismissal(claimed.client_id, `Expense${claimed.vendor_name ? ` (${claimed.vendor_name})` : ""}`, pgDateStr(claimed.purchase_date), Number(claimed.amount) || 0, String(req.body?.reason || "").trim() || null);
   res.json({ ok: true });
 }));
 

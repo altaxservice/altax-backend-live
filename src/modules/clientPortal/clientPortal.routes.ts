@@ -9,6 +9,7 @@ import { accumulatedDepreciation, createFixedAssetRecord } from "../accounting/f
 import { computeClientComplianceTimeline } from "../clients/complianceTimeline";
 import { buildSummaryForClients, isMonthlySummaryEnabled } from "../../common/monthlyClientSummary";
 import { sendChannel } from "../../common/sendChannel";
+import { notifyStaffOfClientEntry, notifyClientOfDismissal } from "../../common/clientEntryNotices";
 
 /**
  * Client-portal Reports overview and Assets. Clients see their own business only (resolveActiveClientId re-checks the
@@ -57,8 +58,12 @@ clientPortalRouter.get("/reports/overview", requireAuth, requireRole("client"), 
     computeClientBooksPl(c.clientId, yStart, ymd(now)).catch(() => null),
     query<any>(`SELECT COALESCE(SUM(tax_due),0) AS paid, COUNT(*) AS n FROM altax.v3_md_filing_payments WHERE client_id = $1 AND paid_date IS NOT NULL AND paid_date >= $2::date`, [c.clientId, yStart]).catch(() => [{ paid: 0, n: 0 }]),
   ]);
+  const approvalInfo = await queryOne<any>(
+    `SELECT GREATEST((SELECT MAX(approved_at) FROM altax.v3_client_sales_drafts WHERE client_id = $1), (SELECT MAX(approved_at) FROM altax.v3_client_purchase_drafts WHERE client_id = $1)) AS last,
+            ((SELECT COUNT(*) FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND status = 'Pending') + (SELECT COUNT(*) FROM altax.v3_client_purchase_drafts WHERE client_id = $1 AND status = 'Pending'))::int AS pending`, [c.clientId]).catch(() => null);
   res.json({
     clientId: c.clientId,
+    pendingEntries: approvalInfo?.pending || 0, lastApprovedAt: approvalInfo?.last ? new Date(approvalInfo.last).toISOString() : null,
     available: { financialStatements: financial, salesTax: !!freq && freq !== "n/a", payroll: row?.payroll_enabled === true },
     trend,
     ytd: ytd ? { income: money2(ytd.totalIncome), expenses: money2(ytd.totalExpenses), net: money2(ytd.netIncome), topExpenses: (ytd.expensesByAccount || []).slice().sort((a: any, b: any) => b.amount - a.amount).slice(0, 6) } : null,
@@ -118,6 +123,7 @@ clientPortalRouter.post("/assets/drafts", requireAuth, requireRole("client"), as
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [draftId, c.clientId, c.clientName, name, category, purchaseDate, cost, String(body.vendorName || "").trim().slice(0, 200) || null, String(body.notes || "").trim().slice(0, 1000) || null, req.user!.email]);
   await logAudit("Accounting", "CLIENT_ASSET_DRAFT_SUBMITTED", draftId, "", "", String(cost), `Asset "${name}" reported via client portal by ${req.user!.email}.`, req.user!.email);
+  void notifyStaffOfClientEntry(c.clientId, `a new asset "${name}" ($${cost.toFixed(2)}, bought ${purchaseDate})`);
   res.status(201).json({ ok: true, draftId });
 }));
 
@@ -158,9 +164,10 @@ clientPortalRouter.post("/assets/drafts/:draftId/dismiss", requireAuth, requireR
   if (!d) return res.status(404).json({ error: "Not found." });
   if (!(await canAccessClient(req.user!, d.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   const claimed = await queryOne<any>(
-    `UPDATE altax.v3_client_asset_drafts SET status = 'Dismissed', dismissed_by = $2, dismissed_at = now(), dismissed_reason = $3, updated_at = now() WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id`,
+    `UPDATE altax.v3_client_asset_drafts SET status = 'Dismissed', dismissed_by = $2, dismissed_at = now(), dismissed_reason = $3, updated_at = now() WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id, client_id, asset_name, purchase_date, cost`,
     [req.params.draftId, req.user!.email, String(req.body?.reason || "").trim() || null]);
   if (!claimed) return res.status(400).json({ error: "This entry is no longer pending." });
+  void notifyClientOfDismissal(claimed.client_id, `Asset "${claimed.asset_name}"`, claimed.purchase_date instanceof Date ? ymd(claimed.purchase_date) : String(claimed.purchase_date).slice(0, 10), Number(claimed.cost) || 0, String(req.body?.reason || "").trim() || null);
   res.json({ ok: true });
 }));
 
@@ -224,4 +231,20 @@ clientPortalRouter.post("/monthly-summary/test", requireAuth, requireRole("admin
   if (built.skipped) return res.status(400).json({ error: "That client has nothing to report this month, so no summary would be sent." });
   const result = await sendChannel("email", req.user!.email, `[TEST] ${built.subject}`, `(Test copy — this is what ${c.client_name} would receive.)\n\n${built.body}`, {});
   res.json({ ok: result.sent, sentTo: req.user!.email, error: result.error });
+}));
+
+/** Entries staff couldn't use in the last 14 days, with their reasons — shown on the client's Command Center and My Books so a dismissal is never a silent disappearance. */
+clientPortalRouter.get("/dismissed-entries", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const c = await activeClient(req, res);
+  if (!c) return;
+  const [sales, purchases] = await Promise.all([
+    query<any>(`SELECT draft_id, sale_date AS d, gross_sales AS amount, dismissed_reason, dismissed_at FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND status = 'Dismissed' AND dismissed_at > now() - interval '14 days' ORDER BY dismissed_at DESC LIMIT 10`, [c.clientId]),
+    query<any>(`SELECT draft_id, purchase_date AS d, amount, vendor_name, dismissed_reason, dismissed_at FROM altax.v3_client_purchase_drafts WHERE client_id = $1 AND status = 'Dismissed' AND dismissed_at > now() - interval '14 days' ORDER BY dismissed_at DESC LIMIT 10`, [c.clientId]),
+  ]);
+  const toDate = (v: any) => (v instanceof Date ? ymd(v) : String(v).slice(0, 10));
+  const items = [
+    ...sales.map((r) => ({ kind: "sales", draftId: r.draft_id, date: toDate(r.d), amount: Number(r.amount) || 0, label: "", reason: r.dismissed_reason, at: r.dismissed_at })),
+    ...purchases.map((r) => ({ kind: "purchase", draftId: r.draft_id, date: toDate(r.d), amount: Number(r.amount) || 0, label: r.vendor_name || "", reason: r.dismissed_reason, at: r.dismissed_at })),
+  ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 10);
+  res.json({ items });
 }));
