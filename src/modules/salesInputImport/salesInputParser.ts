@@ -26,6 +26,9 @@ export interface ParsedSalesInputRow {
   adjustments: number;
   paymentDate: string | null;
   notes: string;
+  /** Optional "Credit Card" / "EBT" columns: amounts collected by card / EBT-SNAP. 0 when the workbook has none (cash is the rest). */
+  cardAmount: number;
+  ebtAmount: number;
 }
 
 export interface SalesInputParseResult {
@@ -124,8 +127,11 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
   const paymentDateIdx = findColumn(header, (h) => h.includes("payment") && h.includes("date"));
   const notesIdx = findColumn(header, (h) => h.includes("note"));
   const yearIdx = findColumn(header, (h) => h === "year");
+  // Optional tender columns — "Credit Card", "Card Sales", "Debit/Credit", "EBT", "SNAP". Never confused with a % rate column.
+  const cardIdx = findColumn(header, (h) => !h.includes("%") && /(creditcard|cardsales|debitcard|cards$|^card$|ccsales)/.test(h));
+  const ebtIdx = findColumn(header, (h) => !h.includes("%") && /(ebt|snap)/.test(h));
 
-  const rateColumns = findRateColumns(header, new Set([dateIdx, grossIdx, adjustmentsIdx, paymentDateIdx, notesIdx, yearIdx].filter((i) => i !== -1)));
+  const rateColumns = findRateColumns(header, new Set([dateIdx, grossIdx, adjustmentsIdx, paymentDateIdx, notesIdx, yearIdx, cardIdx, ebtIdx].filter((i) => i !== -1)));
 
   const rows: ParsedSalesInputRow[] = [];
   const skipped: { rowNumber: number; reason: string }[] = [];
@@ -142,6 +148,8 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
     const categoryAmounts: CategoryAmount[] = rateColumns.map((col) => ({ pct: col.pct, label: col.label, amount: parseMoney(r[col.idx]) }));
     const adjustments = adjustmentsIdx !== -1 ? parseMoney(r[adjustmentsIdx]) : 0;
     const notes = notesIdx !== -1 ? String(r[notesIdx] || "").trim() : "";
+    const cardAmount = cardIdx !== -1 ? parseMoney(r[cardIdx]) : 0;
+    const ebtAmount = ebtIdx !== -1 ? parseMoney(r[ebtIdx]) : 0;
 
     // A blank placeholder row for a future month — no amounts anywhere. The client's
     // reusable template pre-fills a period-end date for every month of the year, so a
@@ -162,7 +170,7 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
     rows.push({
       rowNumber, saleDate, rawDate, grossSales, categoryAmounts, adjustments,
       paymentDate: paymentDateIdx !== -1 ? parseFlexibleDate(String(r[paymentDateIdx] || "")) : null,
-      notes,
+      notes, cardAmount, ebtAmount,
     });
   }
 

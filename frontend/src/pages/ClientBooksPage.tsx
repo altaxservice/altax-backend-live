@@ -10,6 +10,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
+import { TenderSplit } from "../components/TenderSplit";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -33,7 +34,7 @@ type DraftStatus = "Pending" | "Approved" | "Dismissed";
 interface SalesDraft {
   draft_id: string; sale_date: string;
   category_lines: { categoryId: string; categoryName: string; taxableAmount: number | string }[];
-  gross_sales: number | string; computedTax: number | string; notes: string | null; status: DraftStatus; dismissed_reason?: string | null;
+  gross_sales: number | string; tender_card?: number | string | null; tender_ebt?: number | string | null; computedTax: number | string; notes: string | null; status: DraftStatus; dismissed_reason?: string | null;
 }
 interface PurchaseDraft {
   draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
@@ -143,6 +144,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
   const [saleDate, setSaleDate] = useState(todayStr());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
+  const [tender, setTender] = useState({ card: "", ebt: "" });
   const [preview, setPreview] = useState<{ totalTax: number; grossSales: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +182,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
 
   function resetForm() {
     setAmounts({});
+    setTender({ card: "", ebt: "" });
     setNotes("");
     setPreview(null);
     setEditingId(null);
@@ -190,6 +193,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
     setEditingId(d.draft_id);
     setSaleDate(d.sale_date.slice(0, 10));
     setNotes(d.notes || "");
+    setTender({ card: d.tender_card ? String(d.tender_card) : "", ebt: d.tender_ebt ? String(d.tender_ebt) : "" });
     const next: Record<string, string> = {};
     for (const l of d.category_lines) next[l.categoryId] = String(l.taxableAmount);
     setAmounts(next);
@@ -201,7 +205,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
     setSaving(true);
     setError(null);
     try {
-      const payload = { clientId, saleDate, categoryLines, notes, confirmDuplicate };
+      const payload = { clientId, saleDate, categoryLines, notes, confirmDuplicate, tenderCard: Number(tender.card) || 0, tenderEbt: Number(tender.ebt) || 0 };
       if (editingId) await api.patch(`/accounting/client-books/sales-drafts/${editingId}`, payload);
       else await api.post("/accounting/client-books/sales-drafts", payload);
       toast(t("books.common.saved"));
@@ -266,6 +270,12 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
             <label htmlFor="cb-sale-notes">{t("books.sales.notesLabel")}</label>
             <input id="cb-sale-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          {preview && (
+            <TenderSplit
+              total={Number(preview.grossSales) + Number(preview.totalTax)} card={tender.card} ebt={tender.ebt} onChange={setTender}
+              labels={{ title: t("tn.title"), hint: t("tn.hint"), card: t("tn.card"), ebt: t("tn.ebt"), cash: t("tn.cash"), over: t("tn.over"), total: t("tn.total") }}
+            />
+          )}
           {preview && (
             <div className="muted" style={{ marginBottom: 14, fontSize: 13 }}>
               {t("books.sales.grossTotal")}: <strong><Num>{fmtMoney(preview.grossSales)}</Num></strong>

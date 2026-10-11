@@ -10,7 +10,7 @@ import { useToast } from "./Toast";
 export interface PendingSubmission {
   kind: "sales" | "purchase" | "asset"; draftId: string; clientId: string; clientName: string; date: string; amount: number; tax: number;
   notes: string | null; submittedAt: string; submittedBy: string | null; anomaly: boolean; averageGross: number | null;
-  vendor?: string | null; account?: string; description?: string | null; receiptCount?: number;
+  vendor?: string | null; account?: string; description?: string | null; receiptCount?: number; tenderCard?: number; tenderEbt?: number;
 }
 export interface PendingSubmissions { items: PendingSubmission[]; counts: { sales: number; purchases: number; assets?: number; total: number; clients: number } }
 
@@ -164,6 +164,7 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
                   <div className="cs-meta">
                     {it.kind === "purchase" && (it.vendor || it.account) ? `${[it.vendor, it.account].filter(Boolean).join(" · ")} · ` : ""}
                     {it.kind === "sales" && it.tax > 0 ? `Sales tax ${money(it.tax)} · ` : ""}
+                    {it.kind === "sales" && ((it.tenderCard || 0) > 0 || (it.tenderEbt || 0) > 0) ? `Paid: ${(it.tenderCard || 0) > 0 ? `card ${money(it.tenderCard!)}` : ""}${(it.tenderCard || 0) > 0 && (it.tenderEbt || 0) > 0 ? ", " : ""}${(it.tenderEbt || 0) > 0 ? `EBT ${money(it.tenderEbt!)}` : ""}, rest cash · ` : ""}
                     {it.kind === "purchase" && (it.receiptCount || 0) > 0 ? `${it.receiptCount} receipt(s) · ` : ""}
                     submitted {ago(it.submittedAt)}{it.submittedBy ? ` by ${it.submittedBy.split("@")[0]}` : ""}
                     {it.notes ? ` · “${it.notes}”` : ""}

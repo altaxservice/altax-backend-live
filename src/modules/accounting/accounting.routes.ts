@@ -5,6 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText, getUserAliases } from "../../common/assignment";
 import { notifyStaffOfClientEntry, notifyClientOfDismissal } from "../../common/clientEntryNotices";
+import { splitTender, postSalesGl, openClearingItems, hasClearedItems, ensureTenderAccounts } from "../../common/salesTender";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
@@ -533,6 +534,8 @@ export async function computeCategoryLinesTax(rawLines: SalesCategoryLineInput[]
 export interface CreateSalesInputParams {
   saleDate?: string; grossSales: number | string; adjustments: number | string;
   paymentDate?: string; notes?: string; categoryLines: SalesCategoryLineInput[];
+  /** Portion of the total collected (gross + tax) paid by card / EBT-SNAP. Cash is the rest. Omit for an all-cash sale. */
+  tenderCard?: number | string | null; tenderEbt?: number | string | null;
 }
 
 /**
@@ -561,6 +564,8 @@ export async function createSalesInputRecord(
 
   const saleId = `SALE-${idSuffix()}`;
   const grossSales = money(params.grossSales);
+  const tender = splitTender(grossSales + totalTax, params.tenderCard, params.tenderEbt);
+  const hasSplit = tender.card > 0 || tender.ebt > 0;
   let isDuplicate = false;
   let duplicateResponse: any = null;
   await withTransaction(async (db) => {
@@ -569,14 +574,15 @@ export async function createSalesInputRecord(
       if (!reserved) { isDuplicate = true; duplicateResponse = existingResponse; return; }
     }
 
+    if (hasSplit) await ensureTenderAccounts(db);
     await db.query(
       `INSERT INTO altax.v3_sales_input
          (sale_id, client_id, client_name, sale_date, gross_sales, adjustments, payment_date, total_tax_due, notes,
-          source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1)`,
+          source_system, source_record_id, tender_card, tender_ebt)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1,$11,$12)`,
       [saleId, client.client_id, client.client_name, String(params.saleDate || "").trim() || null, grossSales,
         adjustments, String(params.paymentDate || "").trim() || null, totalTax, String(params.notes || "").trim() || null,
-        sourceSystem]
+        sourceSystem, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
     );
     for (const line of computed.lines) {
       await db.query(
@@ -586,18 +592,8 @@ export async function createSalesInputRecord(
       );
     }
 
-    await appendGl(client.client_id, client.client_name, {
-      entryDate: params.saleDate, ref: saleId, description: "Sales receipt / tax collected",
-      account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
-    }, db);
-    await appendGl(client.client_id, client.client_name, {
-      entryDate: params.saleDate, ref: saleId, description: "Sales revenue",
-      account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
-    }, db);
-    await appendGl(client.client_id, client.client_name, {
-      entryDate: params.saleDate, ref: saleId, description: "Sales tax payable",
-      account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
-    }, db);
+    await postSalesGl(db, client, saleId, String(params.saleDate || "").trim() || null, grossSales, totalTax, tender);
+    await openClearingItems(db, client.client_id, saleId, String(params.saleDate || "").trim() || null, tender);
 
     if (idempotencyKey) {
       await saveIdempotencyResponse(db, idempotencyKey, "accounting.create-sales-input",
@@ -632,6 +628,7 @@ accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyn
       saleDate: body.saleDate, grossSales: body.grossSales, adjustments: body.adjustments,
       paymentDate: body.paymentDate, notes: body.notes,
       categoryLines: Array.isArray(body.categoryLines) ? body.categoryLines : [],
+      tenderCard: body.tenderCard, tenderEbt: body.tenderEbt,
     }, req.user!.email, "Node Web App", String(body.idempotencyKey || "").trim() || null);
   } catch (err) {
     // Hard Audit finding, 2026-08-29: this catch wraps createSalesInputRecord's
@@ -754,11 +751,33 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   }
   const totalTax = money(computed.totalTax + adjustments);
 
+  // Tender split: use what the edit supplied, else keep what the sale already had.
+  let tender;
+  try {
+    tender = splitTender(
+      grossSales + totalTax,
+      body.tenderCard !== undefined ? body.tenderCard : existing.tender_card,
+      body.tenderEbt !== undefined ? body.tenderEbt : existing.tender_ebt
+    );
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  const hasSplit = tender.card > 0 || tender.ebt > 0;
+  // Once a card/EBT portion has been matched to a bank deposit it can't be re-split without reversing that deposit entry first.
+  if (await hasClearedItems({ query }, saleId)) {
+    const oldCard = Number(existing.tender_card) || 0, oldEbt = Number(existing.tender_ebt) || 0;
+    if (Math.abs(oldCard - tender.card) > 0.005 || Math.abs(oldEbt - tender.ebt) > 0.005 || pgDateStr(saleDate) !== pgDateStr(existing.sale_date)) {
+      return res.status(400).json({ error: "This sale's card/EBT money has already been matched to a bank deposit. Reverse that deposit entry in Bank Rec before changing the card/EBT amounts or the date." });
+    }
+  }
+
   await withTransaction(async (db) => {
+    if (hasSplit) await ensureTenderAccounts(db);
     await db.query(
-      `UPDATE altax.v3_sales_input SET sale_date=$2, gross_sales=$3, adjustments=$4, payment_date=$5, total_tax_due=$6, notes=$7
+      `UPDATE altax.v3_sales_input SET sale_date=$2, gross_sales=$3, adjustments=$4, payment_date=$5, total_tax_due=$6, notes=$7, tender_card=$8, tender_ebt=$9
        WHERE sale_id = $1`,
-      [saleId, saleDate, grossSales, adjustments, paymentDate, totalTax, notes]
+      [saleId, saleDate, grossSales, adjustments, paymentDate, totalTax, notes, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
     );
     await db.query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
     for (const line of computed.lines) {
@@ -770,18 +789,11 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
     }
 
     await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input'`, [saleId]);
-    await appendGl(existing.client_id, existing.client_name, {
-      entryDate: saleDate, ref: saleId, description: "Sales receipt / tax collected",
-      account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
-    }, db);
-    await appendGl(existing.client_id, existing.client_name, {
-      entryDate: saleDate, ref: saleId, description: "Sales revenue",
-      account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
-    }, db);
-    await appendGl(existing.client_id, existing.client_name, {
-      entryDate: saleDate, ref: saleId, description: "Sales tax payable",
-      account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
-    }, db);
+    await postSalesGl(db, { client_id: existing.client_id, client_name: existing.client_name }, saleId, saleDate, grossSales, totalTax, tender);
+    // Open (not yet deposited) card/EBT items are rebuilt from the new amounts; deposited ones were verified unchanged above.
+    await db.query(`DELETE FROM altax.v3_tender_clearing WHERE sale_id = $1 AND cleared_at IS NULL`, [saleId]);
+    const stillCleared = await db.query(`SELECT 1 FROM altax.v3_tender_clearing WHERE sale_id = $1 LIMIT 1`, [saleId]);
+    if (!stillCleared.length) await openClearingItems(db, existing.client_id, saleId, saleDate, tender);
   });
 
   await logAudit("Accounting", "EDIT_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), String(totalTax),
@@ -801,7 +813,11 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
  * above already performs before re-posting.
  */
 export async function deleteSalesInputRecord(saleId: string): Promise<{ glLinesRemoved: number }> {
+  if (await hasClearedItems({ query }, saleId)) {
+    throw new ValidationError("This sale's card/EBT money has already been matched to a bank deposit. Reverse that deposit entry in Bank Rec first, then delete the sale.");
+  }
   const removedGl = await withTransaction(async (db) => {
+    await db.query(`DELETE FROM altax.v3_tender_clearing WHERE sale_id = $1`, [saleId]);
     const removed = await db.query<any>(
       `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input' RETURNING gl_entry_id`,
       [saleId]
@@ -828,7 +844,13 @@ accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin")
     return res.status(400).json({ error: "Type DELETE to confirm removing this sales record." });
   }
 
-  const { glLinesRemoved } = await deleteSalesInputRecord(saleId);
+  let glLinesRemoved = 0;
+  try {
+    ({ glLinesRemoved } = await deleteSalesInputRecord(saleId));
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
 
   await logAudit("Accounting", "DELETE_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), "",
     `Sales input deleted by ${req.user!.email}; ${glLinesRemoved} GL line(s) reversed.`, req.user!.email);
@@ -2308,11 +2330,16 @@ accountingRouter.post("/client-books/sales-drafts", requireAuth, asyncHandler(as
 
   const preview = await previewSalesDraftTax(clientId, client.state, rawLines);
   const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
+  let tender;
+  try { tender = splitTender(Number(preview.grossSales) + Number(preview.totalTax), body.tenderCard, body.tenderEbt); }
+  catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
+  const hasSplit = tender.card > 0 || tender.ebt > 0;
   const draftId = `CSD-${idSuffix()}`;
   await query(
-    `INSERT INTO altax.v3_client_sales_drafts (draft_id, client_id, client_name, sale_date, category_lines, gross_sales, notes, submitted_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-    [draftId, clientId, client.client_name, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes || "").trim() || null, req.user!.email]
+    `INSERT INTO altax.v3_client_sales_drafts (draft_id, client_id, client_name, sale_date, category_lines, gross_sales, notes, submitted_by, tender_card, tender_ebt)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [draftId, clientId, client.client_name, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes || "").trim() || null, req.user!.email,
+      hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
   );
   await logAudit("Accounting", "CLIENT_SALES_DRAFT_SUBMITTED", draftId, "", "", String(preview.grossSales),
     `Daily sales submitted via client portal by ${req.user!.email}.`, req.user!.email);
@@ -2377,10 +2404,16 @@ accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, async
   // race where staff approve this exact draft in between that check and
   // this write — the UPDATE then simply matches zero rows instead of
   // silently overwriting fields on a draft that's already been posted.
+  let tender;
+  try {
+    tender = splitTender(Number(preview.grossSales) + Number(preview.totalTax),
+      body.tenderCard !== undefined ? body.tenderCard : draft.tender_card, body.tenderEbt !== undefined ? body.tenderEbt : draft.tender_ebt);
+  } catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
+  const hasSplit = tender.card > 0 || tender.ebt > 0;
   const updated = await query(
-    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, updated_at=now()
+    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, tender_card=$6, tender_ebt=$7, updated_at=now()
      WHERE draft_id=$1 AND status='Pending' RETURNING draft_id`,
-    [draftId, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes ?? draft.notes ?? "").trim() || null]
+    [draftId, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes ?? draft.notes ?? "").trim() || null, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
   );
   if (updated.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be edited." });
   res.json({ ok: true });
@@ -2742,7 +2775,7 @@ accountingRouter.get("/client-books/pending-submissions", requireAuth, requireRo
     const anomaly = !!a && a.n >= 5 && a.avg > 0 && (gross > a.avg * 2 || gross < a.avg * 0.4);
     let tax = 0;
     try { tax = (await previewSalesDraftTax(d.client_id, stateById.get(d.client_id) || "MD", d.category_lines || [])).totalTax; } catch { /* preview is advisory */ }
-    return { kind: "sales" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.sale_date), amount: gross, tax, notes: d.notes, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly, averageGross: anomaly && a ? money(a.avg) : null };
+    return { kind: "sales" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.sale_date), amount: gross, tax, notes: d.notes, tenderCard: Number(d.tender_card) || 0, tenderEbt: Number(d.tender_ebt) || 0, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly, averageGross: anomaly && a ? money(a.avg) : null };
   }));
   const purchasesOut = purchases.map((d) => ({
     kind: "purchase" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.purchase_date), amount: Number(d.amount) || 0, tax: 0,
@@ -2826,7 +2859,7 @@ async function approveSalesDraft(draftId: string, approverEmail: string, overrid
     // double-posting — createSalesInputRecord's own idempotency store
     // returns the original result instead of creating a second one.
     const result = await createSalesInputRecord(
-      client, { saleDate: pgDateStr(claimed.sale_date), grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines },
+      client, { saleDate: pgDateStr(claimed.sale_date), grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines, tenderCard: claimed.tender_card, tenderEbt: claimed.tender_ebt },
       approverEmail, "Client Portal", `client-sales-draft-${draftId}`
     );
     await query(`UPDATE altax.v3_client_sales_drafts SET resulting_sale_id = $2 WHERE draft_id = $1`, [draftId, result.saleId]);

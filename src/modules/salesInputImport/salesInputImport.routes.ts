@@ -160,7 +160,7 @@ salesInputImportRouter.post("/preview", requireAuth, requireRole("admin", "staff
     const sameAmounts = onFile && Math.abs(Number(onFile.gross_sales) - row.grossSales) < 0.005 && Math.abs(Number(onFile.total_tax_due) - roundedTax) < 0.005;
     previewRows.push({
       rowNumber: row.rowNumber, saleDate: row.saleDate, rawDate: row.rawDate, grossSales: row.grossSales,
-      adjustments: row.adjustments, paymentDate: row.paymentDate, notes: row.notes,
+      adjustments: row.adjustments, paymentDate: row.paymentDate, notes: row.notes, tenderCard: row.cardAmount || 0, tenderEbt: row.ebtAmount || 0,
       categoryLines: lines, unmappedCategories: unmapped, totalTaxDue: roundedTax,
       action: !onFile ? "create" : sameAmounts ? "duplicate" : "differs",
       existing: onFile ? { saleId: onFile.sale_id, grossSales: Number(onFile.gross_sales), totalTaxDue: Number(onFile.total_tax_due), source: onFile.source_system } : null,
@@ -246,6 +246,7 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
       const result = await createSalesInputRecord(client, {
         saleDate, grossSales: row.grossSales, adjustments: row.adjustments,
         paymentDate: row.paymentDate, notes: row.notes, categoryLines,
+        tenderCard: row.tenderCard, tenderEbt: row.tenderEbt,
       }, req.user!.email, "Sales Input Import");
       if (replacedFrom) {
         // The corrected sale is created first and the old one removed only after that succeeded, so a failure can never leave the period empty.

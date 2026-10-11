@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Download, ClipboardCheck } from "lucide-react";
 import { usePendingSubmissions } from "../components/ClientSubmissionsInbox";
+import { TenderSplit } from "../components/TenderSplit";
+import { CardDepositPanel } from "../components/CardDepositPanel";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
@@ -317,6 +319,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [form, setForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
+  const [tender, setTender] = useState({ card: "", ebt: "" });
   const [lines, setLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -325,6 +328,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const idempotencyKey = useRef<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
+  const [editTender, setEditTender] = useState({ card: "", ebt: "" });
   const [editLines, setEditLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -1288,6 +1292,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
 
   function handleClearForm() {
     setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
+    setTender({ card: "", ebt: "" });
     setLines([{ ...EMPTY_SALES_LINE }]);
     setError(null);
     setImportedFromCalculator(false);
@@ -1303,10 +1308,12 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         clientId, saleDate: form.saleDate, grossSales: Number(form.grossSales) || 0,
         categoryLines: linesForPreview(lines), adjustments: Number(form.adjustments) || 0,
         paymentDate: form.paymentDate, notes: form.notes,
+        tenderCard: Number(tender.card) || 0, tenderEbt: Number(tender.ebt) || 0,
         idempotencyKey: idempotencyKey.current,
       });
       idempotencyKey.current = null;
       setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
+      setTender({ card: "", ebt: "" });
       setLines([{ ...EMPTY_SALES_LINE }]);
       setImportedFromCalculator(false);
       load();
@@ -1350,6 +1357,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       grossSales: String(s.gross_sales ?? ""), adjustments: String(s.adjustments ?? ""),
       paymentDate: s.payment_date ? String(s.payment_date).slice(0, 10) : "", notes: s.notes || "",
     });
+    setEditTender({ card: s.tender_card ? String(s.tender_card) : "", ebt: s.tender_ebt ? String(s.tender_ebt) : "" });
     const existingLines: SalesCategoryLine[] = (s.lines || []).map((l: any) => ({ categoryId: l.category_id, taxableAmount: String(l.taxable_amount ?? "") }));
     setEditLines(existingLines.length > 0 ? existingLines : [{ ...EMPTY_SALES_LINE }]);
   }
@@ -1364,6 +1372,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         saleDate: editForm.saleDate, grossSales: Number(editForm.grossSales) || 0,
         categoryLines: linesForPreview(editLines), adjustments: Number(editForm.adjustments) || 0,
         paymentDate: editForm.paymentDate, notes: editForm.notes,
+        tenderCard: Number(editTender.card) || 0, tenderEbt: Number(editTender.ebt) || 0,
       });
       setEditing(null);
       load();
@@ -1415,6 +1424,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
               <SalesRow label="Total tax" value={fmtMoney(salesPreview.totalTaxDue)} bold />
             </div>
           )}
+          <TenderSplit total={(Number(form.grossSales) || 0) + (salesPreview?.totalTaxDue || 0)} card={tender.card} ebt={tender.ebt} onChange={setTender} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
             <div className="field"><label htmlFor="acct-se-adjustments">Adjustments</label><input id="acct-se-adjustments" type="number" step="0.01" value={form.adjustments} onChange={(e) => setForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
             <div className="field"><label htmlFor="acct-se-payment-date">Payment Date</label><DateInput id="acct-se-payment-date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
@@ -1936,6 +1946,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <SalesRow label="Total tax" value={fmtMoney(editSalesPreview.totalTaxDue)} bold />
               </div>
             )}
+            <TenderSplit total={(Number(editForm.grossSales) || 0) + (editSalesPreview?.totalTaxDue || 0)} card={editTender.card} ebt={editTender.ebt} onChange={setEditTender} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
               <div className="field"><label htmlFor="acct-se-edit-adjustments">Adjustments</label><input id="acct-se-edit-adjustments" type="number" step="0.01" value={editForm.adjustments} onChange={(e) => setEditForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
               <div className="field"><label htmlFor="acct-se-edit-payment-date">Payment Date</label><DateInput id="acct-se-edit-payment-date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
@@ -1986,7 +1997,12 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                         <div>{fmtDate(s.sale_date)}</div>
                         {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
                       </td>
-                      <td style={{ textAlign: "right" }}>{fmtMoney(s.gross_sales)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        {fmtMoney(s.gross_sales)}
+                        {(Number(s.tender_card) > 0 || Number(s.tender_ebt) > 0) && (
+                          <div className="muted" style={{ fontSize: 10.5 }}>{Number(s.tender_card) > 0 ? `Card ${fmtMoney(s.tender_card)}` : ""}{Number(s.tender_card) > 0 && Number(s.tender_ebt) > 0 ? " · " : ""}{Number(s.tender_ebt) > 0 ? `EBT ${fmtMoney(s.tender_ebt)}` : ""}</div>
+                        )}
+                      </td>
                       <td style={{ textAlign: "right" }}>
                         <div style={{ fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</div>
                         {Number(s.adjustments || 0) !== 0 && (
@@ -2026,7 +2042,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
 }
 
 interface SalesInputPreviewRow {
-  rowNumber: number; saleDate: string; rawDate: string; grossSales: number;
+  rowNumber: number; saleDate: string; rawDate: string; grossSales: number; tenderCard?: number; tenderEbt?: number;
   adjustments: number; paymentDate: string | null; notes: string;
   categoryLines: { categoryId: string; taxableAmount: number }[];
   unmappedCategories: string[]; totalTaxDue: number; action: "create" | "duplicate" | "differs";
@@ -2165,7 +2181,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
             <FileDropInput file={file} onChange={setFile} accept=".xls,.xlsx" hint="a workbook containing a Sales_Input tab (.xls/.xlsx)" />
             <p className="muted" style={{ fontSize: 12, margin: "10px 0 16px" }}>
               Only the <strong>Sales_Input</strong> tab is read — every other tab in the workbook (Home, Setup, Employee_Master, etc.) is ignored.
-              Expected columns: Date, Gross Sales, Taxable @ 6%, Special @ 12%, Vape @ 20%, 60% Rate Sales, Adjustments, Payment Date, Notes.
+              Expected columns: Date, Gross Sales, Taxable @ 6%, Special @ 12%, Vape @ 20%, 60% Rate Sales, Adjustments, Payment Date, Notes. Optional: "Credit Card" and "EBT" columns (amounts collected that way) — without them a sale is recorded as all cash.
               A row with all-zero amounts is treated as unfilled and skipped — to import a confirmed zero-sales period (e.g. a registered client with no sales that month), put any text in that row's Notes column.
             </p>
             <button type="button" className="btn btn-primary" disabled={!file || busy} onClick={handlePreview}>
@@ -2212,7 +2228,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
                     <tr key={i} style={{ opacity: row.action === "duplicate" ? 0.6 : 1 }}>
                       <td><input type="checkbox" checked={selected.has(i)} disabled={row.action === "duplicate"} title={row.action === "duplicate" ? "Already on file with the same amounts" : undefined} onChange={() => toggleRow(i)} /></td>
                       <td>{fmtDate(row.saleDate)}</td>
-                      <td style={{ textAlign: "right" }}>{fmtMoney(row.grossSales)}</td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(row.grossSales)}{((row.tenderCard || 0) > 0 || (row.tenderEbt || 0) > 0) && <div className="muted" style={{ fontSize: 10.5 }}>{(row.tenderCard || 0) > 0 ? `Card ${fmtMoney(row.tenderCard)}` : ""}{(row.tenderCard || 0) > 0 && (row.tenderEbt || 0) > 0 ? " · " : ""}{(row.tenderEbt || 0) > 0 ? `EBT ${fmtMoney(row.tenderEbt)}` : ""}</div>}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(row.totalTaxDue)}</td>
                       <td className="muted" style={{ fontSize: 12 }}>
                         {row.categoryLines.length > 0 ? `${row.categoryLines.length} categor${row.categoryLines.length === 1 ? "y" : "ies"}` : "—"}
@@ -7118,6 +7134,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
   const [selectedGl, setSelectedGl] = useState<string | null>(null);
   const [matching, setMatching] = useState(false);
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
+  const [depositFor, setDepositFor] = useState<string | null>(null);
   const [offsetAccount, setOffsetAccount] = useState("");
   const [autoMatching, setAutoMatching] = useState(false);
   const [showMatched, setShowMatched] = useState(false);
@@ -7380,6 +7397,13 @@ function BankRecTab({ clientId }: { clientId: string }) {
       await api.post(`/bank-rec/${lineId}/unmatch`, {});
       load();
     } catch (err) {
+      if (err instanceof ApiError && /Card \/ EBT deposit/.test(err.message)) {
+        const ok = await confirmDialog({ title: "Reverse card / EBT deposit", message: "This line settled card / EBT sales. Reversing removes the deposit entry and puts those sales back to awaiting deposit.", confirmLabel: "Reverse deposit", danger: true });
+        if (!ok) return;
+        try { await api.post(`/bank-rec/${lineId}/reverse-deposit`, {}); load(); }
+        catch (e2) { await notify(e2 instanceof ApiError ? e2.message : "Could not reverse this deposit."); }
+        return;
+      }
       await notify(err instanceof ApiError ? err.message : "Could not unmatch this line.");
     }
   }
@@ -7600,14 +7624,22 @@ function BankRecTab({ clientId }: { clientId: string }) {
                             {b.je_draft_status === "Pending" ? "Suggested below" : "Approved — ready to reconcile"}
                           </span>
                         ) : (
-                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); }}>
+                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); setDepositFor(null); }}>
                             {creatingFor === b.line_id ? "Cancel" : "New Entry"}
+                          </button>
+                        )}
+                        {Number(b.amount) > 0 && !(b.je_draft_status && b.je_draft_status !== "Dismissed") && (
+                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setDepositFor(depositFor === b.line_id ? null : b.line_id); setCreatingFor(null); }} title="This deposit settles card / EBT sales">
+                            {depositFor === b.line_id ? "Cancel" : "Card / EBT"}
                           </button>
                         )}
                         <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleDeleteLine(b.line_id); }}>Delete</button>
                       </div>
                     </div>
                   </div>
+                  {depositFor === b.line_id && (
+                    <CardDepositPanel clientId={clientId} lineId={b.line_id} deposit={Number(b.amount)} onCancel={() => setDepositFor(null)} onDone={() => { setDepositFor(null); load(); }} />
+                  )}
                   {creatingFor === b.line_id && (
                     <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)", display: "flex", gap: 8, alignItems: "center" }}>
                       <select style={{ flex: 1 }} value={offsetAccount} onChange={(e) => setOffsetAccount(e.target.value)}>
