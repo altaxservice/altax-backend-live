@@ -452,19 +452,17 @@ export interface PayrollReportData {
   taxByEmployee?: { employee: string; taxRows: PayrollTaxRow[] }[];
 }
 
-export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  setPdfTitle(doc, [data.client.clientName, "Payroll", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  let { page, c } = await newPage(doc, font, bold);
-  const profile = await getFirmProfile();
-  let y = drawHeader(c, data.client, "PAYROLL DASHBOARD", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+const WHITE = rgb(1, 1, 1);
+const PTC = { tax: 48, ee: PAGE_W - 48 - 210, er: PAGE_W - 48 - 110, tot: PAGE_W - 48 - 10 };
 
+/**
+ * Six summary tiles shared by the Payroll and Employee reports. Row 1 = the paycheck (gross → net); row 2 = the tax
+ * picture with Employee Taxes and Employer Taxes side by side, ending in the total cost to the business.
+ */
+function drawPayrollTiles(c: Cursor, y: number, t: { grossWages: number; checkCount: number; employeeTaxes: number; employerTaxes: number; netPay: number; totalCost: number }): number {
   const tiles: [string, string][] = [
-    ["Gross Wages", money(data.grossWages)], ["Checks", String(data.checkCount)],
-    ["Employee Taxes", money(data.employeeTaxes)], ["Employer Taxes", money(data.employerTaxes)],
-    ["Net Pay", money(data.netPay)], ["Total Payroll Cost", money(data.totalCost)],
+    ["Gross Wages", money(t.grossWages)], ["Net Pay", money(t.netPay)], ["Checks", String(t.checkCount)],
+    ["Employee Taxes", money(t.employeeTaxes)], ["Employer Taxes", money(t.employerTaxes)], ["Total Payroll Cost", money(t.totalCost)],
   ];
   const tileW = (PAGE_W - 96 - 2 * 10) / 3;
   tiles.forEach(([label, value], i) => {
@@ -475,10 +473,12 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
     c.text(x + 10, tileY + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
     c.text(x + 10, tileY + 34, value, { size: 13, bold: true });
   });
-  y += 2 * 54 + 14;
+  return y + 2 * 54 + 14;
+}
 
-  y = sectionLabel(c, y, "Payroll Tax Summary");
-  const colTax = 48, colEe = PAGE_W - 48 - 220, colEr = PAGE_W - 48 - 130, colTot = PAGE_W - 48;
+/** Tax / Employee / Employer / Total table, closed by a solid band: "Total Payroll Tax Summary for <period>". */
+function drawPayrollTaxSummary(c: Cursor, y: number, rows: PayrollTaxRow[], periodLabel: string): number {
+  const colTax = PTC.tax, colEe = PTC.ee, colEr = PTC.er, colTot = PTC.tot;
   c.text(colTax, y, "Tax", { size: 8, bold: true, color: MUTED });
   c.text(colEe, y, "Employee", { size: 8, bold: true, color: MUTED, align: "right" });
   c.text(colEr, y, "Employer", { size: 8, bold: true, color: MUTED, align: "right" });
@@ -486,23 +486,42 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
   y += 6;
   c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
   y += 14;
-  for (const r of data.taxRows) {
-    c.text(colTax, y, r.label, { size: 9 });
+  rows.forEach((r, i) => {
+    if (i % 2 === 1) c.rect(48, y - 11, PAGE_W - 96, 15, TEAL_TINT);
+    c.text(colTax + 6, y, r.label, { size: 9 });
     c.text(colEe, y, money(r.employee), { size: 9, align: "right" });
     c.text(colEr, y, money(r.employer), { size: 9, align: "right" });
     c.text(colTot, y, money(r.employee + r.employer), { size: 9, align: "right" });
     y += 15;
-  }
-  y += 2;
-  c.line(48, y, PAGE_W - 48, y, INK, 1);
-  y += 14;
-  const empTotal = data.taxRows.reduce((s, r) => s + r.employee, 0);
-  const erTotal = data.taxRows.reduce((s, r) => s + r.employer, 0);
-  c.text(colTax, y, "Total", { size: 9, bold: true });
-  c.text(colEe, y, money(empTotal), { size: 9, bold: true, align: "right" });
-  c.text(colEr, y, money(erTotal), { size: 9, bold: true, align: "right" });
-  c.text(colTot, y, money(empTotal + erTotal), { size: 9, bold: true, align: "right" });
-  y += 26;
+  });
+  y += 4;
+  const empTotal = rows.reduce((s, r) => s + r.employee, 0);
+  const erTotal = rows.reduce((s, r) => s + r.employer, 0);
+  c.rect(48, y - 4, PAGE_W - 96, 62, TEAL);
+  c.text(58, y + 12, `Total Payroll Tax Summary for ${periodLabel}`, { size: 10.5, bold: true, color: WHITE });
+  const sub = rgb(0.78, 0.9, 0.9);
+  c.text(colEe, y + 30, "EMPLOYEE", { size: 7, bold: true, color: sub, align: "right" });
+  c.text(colEr, y + 30, "EMPLOYER", { size: 7, bold: true, color: sub, align: "right" });
+  c.text(colTot, y + 30, "TOTAL", { size: 7, bold: true, color: sub, align: "right" });
+  c.text(colEe, y + 48, money(empTotal), { size: 13, bold: true, color: WHITE, align: "right" });
+  c.text(colEr, y + 48, money(erTotal), { size: 13, bold: true, color: WHITE, align: "right" });
+  c.text(colTot, y + 48, money(empTotal + erTotal), { size: 13, bold: true, color: WHITE, align: "right" });
+  return y + 62 + 22;
+}
+
+export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Payroll", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "PAYROLL DASHBOARD", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+
+  y = drawPayrollTiles(c, y, { grossWages: data.grossWages, checkCount: data.checkCount, employeeTaxes: data.employeeTaxes, employerTaxes: data.employerTaxes, netPay: data.netPay, totalCost: data.totalCost });
+
+  y = sectionLabel(c, y, "Payroll Tax Summary");
+  y = drawPayrollTaxSummary(c, y, data.taxRows, `${fmtDate(data.from)} – ${fmtDate(data.to)}`);
 
   // One mini version of the section just above, per employee — the firm-wide
   // table answers "how much did we withhold," this answers "whose withholding
@@ -522,18 +541,18 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
       c.text(48, y, emp.employee, { size: 9.5, bold: true, color: TEAL });
       y += 16;
       for (const r of emp.taxRows) {
-        c.text(colTax + 10, y, r.label, { size: 8.5 });
-        c.text(colEe, y, money(r.employee), { size: 8.5, align: "right" });
-        c.text(colEr, y, money(r.employer), { size: 8.5, align: "right" });
-        c.text(colTot, y, money(r.employee + r.employer), { size: 8.5, align: "right" });
+        c.text(PTC.tax + 10, y, r.label, { size: 8.5 });
+        c.text(PTC.ee, y, money(r.employee), { size: 8.5, align: "right" });
+        c.text(PTC.er, y, money(r.employer), { size: 8.5, align: "right" });
+        c.text(PTC.tot, y, money(r.employee + r.employer), { size: 8.5, align: "right" });
         y += 15;
       }
       c.line(48, y - 2, PAGE_W - 48, y - 2, LINE, 0.5);
       y += 6;
-      c.text(colTax + 10, y, "Total", { size: 8.5, bold: true });
-      c.text(colEe, y, money(empEmpTotal), { size: 8.5, bold: true, align: "right" });
-      c.text(colEr, y, money(empErTotal), { size: 8.5, bold: true, align: "right" });
-      c.text(colTot, y, money(empEmpTotal + empErTotal), { size: 8.5, bold: true, align: "right" });
+      c.text(PTC.tax + 10, y, "Total", { size: 8.5, bold: true });
+      c.text(PTC.ee, y, money(empEmpTotal), { size: 8.5, bold: true, align: "right" });
+      c.text(PTC.er, y, money(empErTotal), { size: 8.5, bold: true, align: "right" });
+      c.text(PTC.tot, y, money(empEmpTotal + empErTotal), { size: 8.5, bold: true, align: "right" });
       y += 20;
     }
   }
@@ -618,21 +637,7 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
     : `ALL EMPLOYEES · ${fmtDate(data.from)} – ${fmtDate(data.to)}`;
   let y = drawHeader(c, data.client, title, periodLabel, profile.firmName);
 
-  const tiles: [string, string][] = [
-    ["Gross Wages", money(data.totals.grossWages)], ["Checks", String(data.totals.checkCount)],
-    ["Employee Taxes", money(data.totals.employeeTaxes)], ["Employer Taxes", money(data.totals.employerTaxes)],
-    ["Net Pay", money(data.totals.netPay)], ["Total Payroll Cost", money(data.totals.totalCost)],
-  ];
-  const tileW = (PAGE_W - 96 - 2 * 10) / 3;
-  tiles.forEach(([label, value], i) => {
-    const col = i % 3, rowI = Math.floor(i / 3);
-    const x = 48 + col * (tileW + 10);
-    const tileY = y + rowI * 54;
-    c.rect(x, tileY, tileW, 44, TEAL_TINT);
-    c.text(x + 10, tileY + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
-    c.text(x + 10, tileY + 34, value, { size: 13, bold: true });
-  });
-  y += 2 * 54 + 14;
+  y = drawPayrollTiles(c, y, data.totals);
 
   if (!data.employeeFilter) {
     y = sectionLabel(c, y, `Employees (${data.summaryRows.length})`);
@@ -669,31 +674,7 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
   }
 
   y = sectionLabel(c, y, "Payroll Tax Summary");
-  const colTax = 48, colEe = PAGE_W - 48 - 220, colEr = PAGE_W - 48 - 130, colTot = PAGE_W - 48;
-  c.text(colTax, y, "Tax", { size: 8, bold: true, color: MUTED });
-  c.text(colEe, y, "Employee", { size: 8, bold: true, color: MUTED, align: "right" });
-  c.text(colEr, y, "Employer", { size: 8, bold: true, color: MUTED, align: "right" });
-  c.text(colTot, y, "Total", { size: 8, bold: true, color: MUTED, align: "right" });
-  y += 6;
-  c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
-  y += 14;
-  for (const r of data.taxRows) {
-    c.text(colTax, y, r.label, { size: 9 });
-    c.text(colEe, y, money(r.employee), { size: 9, align: "right" });
-    c.text(colEr, y, money(r.employer), { size: 9, align: "right" });
-    c.text(colTot, y, money(r.employee + r.employer), { size: 9, align: "right" });
-    y += 15;
-  }
-  y += 2;
-  c.line(48, y, PAGE_W - 48, y, INK, 1);
-  y += 14;
-  const empTotal = data.taxRows.reduce((s, r) => s + r.employee, 0);
-  const erTotal = data.taxRows.reduce((s, r) => s + r.employer, 0);
-  c.text(colTax, y, "Total", { size: 9, bold: true });
-  c.text(colEe, y, money(empTotal), { size: 9, bold: true, align: "right" });
-  c.text(colEr, y, money(erTotal), { size: 9, bold: true, align: "right" });
-  c.text(colTot, y, money(empTotal + erTotal), { size: 9, bold: true, align: "right" });
-  y += 26;
+  y = drawPayrollTaxSummary(c, y, data.taxRows, `${fmtDate(data.from)} – ${fmtDate(data.to)}`);
 
   y = sectionLabel(c, y, `Checks (${data.checks.length})`);
   if (!data.checks.length) {
