@@ -254,6 +254,8 @@ export const translations: Record<string, Record<Lang, string>> = {
   "tn.optional": { en: 'Optional — leave blank if it was all cash.', ar: 'اختياري — اتركه فارغاً إن كان كل شيء نقداً.' },
   "tn.cardShort": { en: 'Card', ar: 'بطاقة' },
   "tn.ebtShort": { en: 'EBT / SNAP', ar: 'EBT / SNAP' },
+  "tn.add": { en: 'Some paid by card or EBT? Add details (optional)', ar: 'هل دُفع جزء بالبطاقة أو EBT؟ أضف التفاصيل (اختياري)' },
+  "tn.hide": { en: 'Hide', ar: 'إخفاء' },
   "dash.welcomeBack": { en: "Welcome back", ar: "مرحباً بعودتك" },
   "dash.needFromYou": { en: "What we need from you", ar: "المطلوب منك" },
   "dash.needFromYouNote": { en: "Most important first", ar: "الأهم أولاً" },

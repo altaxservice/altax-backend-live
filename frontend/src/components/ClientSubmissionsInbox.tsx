@@ -6,6 +6,7 @@ import { useConfirm, useNotify, usePrompt } from "./ConfirmProvider";
 import { ago } from "./WorkTrail";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import { useToast } from "./Toast";
+import { TenderSplit } from "./TenderSplit";
 
 export interface PendingSubmission {
   kind: "sales" | "purchase" | "asset"; draftId: string; clientId: string; clientName: string; date: string; amount: number; tax: number;
@@ -76,6 +77,9 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState<string | null>(null);
+  // Card / EBT the reviewer fills in at approval (the client's own split is optional).
+  const [tenderOpen, setTenderOpen] = useState<string | null>(null);
+  const [tenderEdits, setTenderEdits] = useState<Record<string, { card: string; ebt: string }>>({});
 
   if (!data) return <p className="muted" style={{ padding: 16 }}>Loading client submissions…</p>;
   if (data.items.length === 0) {
@@ -92,7 +96,8 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
     }
     setBusy(it.draftId);
     try {
-      await api.post(`/accounting/client-books/${path(it.kind)}/${it.draftId}/approve`, {});
+      const te = tenderEdits[it.draftId];
+      await api.post(`/accounting/client-books/${path(it.kind)}/${it.draftId}/approve`, it.kind === "sales" && te ? { tenderCard: Number(te.card) || 0, tenderEbt: Number(te.ebt) || 0 } : {});
       toast(`Approved — ${it.clientName}, ${fmtDate(it.date)}.`);
       onChanged();
     } catch (err) {
@@ -172,11 +177,17 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
                 </div>
                 <div className="cs-amount">{money(it.amount)}</div>
                 <div className="cs-actions">
+                  {it.kind === "sales" && <button type="button" className="ghost-button btn-sm" title="How was this day paid? (card / EBT)" onClick={() => { setTenderOpen(tenderOpen === it.draftId ? null : it.draftId); setTenderEdits((m) => m[it.draftId] ? m : { ...m, [it.draftId]: { card: it.tenderCard ? String(it.tenderCard) : "", ebt: it.tenderEbt ? String(it.tenderEbt) : "" } }); }}>Card / EBT</button>}
                   {it.kind === "asset"
                     ? <button type="button" className="action-button btn-sm" onClick={() => setRecording(recording === it.draftId ? null : it.draftId)}>Record…</button>
                     : <button type="button" className="action-button btn-sm" disabled={busy === it.draftId} onClick={() => approve(it)}>Approve</button>}
                   <button type="button" className="ghost-button btn-sm" disabled={busy === it.draftId} onClick={() => dismiss(it)}>Dismiss</button>
                 </div>
+                {tenderOpen === it.draftId && it.kind === "sales" && tenderEdits[it.draftId] && (
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <TenderSplit total={it.amount + it.tax} card={tenderEdits[it.draftId].card} ebt={tenderEdits[it.draftId].ebt} onChange={(v) => setTenderEdits((m) => ({ ...m, [it.draftId]: v }))} />
+                  </div>
+                )}
                 {recording === it.draftId && it.kind === "asset" && (
                   <div style={{ gridColumn: "1 / -1" }}><AssetRecordForm it={it} onCancel={() => setRecording(null)} onDone={() => { setRecording(null); toast(`Recorded ${it.description}.`); onChanged(); }} /></div>
                 )}

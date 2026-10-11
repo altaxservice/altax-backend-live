@@ -2884,6 +2884,15 @@ accountingRouter.post("/client-books/sales-drafts/:draftId/approve", requireAuth
   if (!draft) return res.status(404).json({ error: "Not found." });
   if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   try {
+    // Reviewer may fill in / correct how the day was paid (card / EBT) right at approval — the client's own entry is optional.
+    if (req.body && (req.body.tenderCard !== undefined || req.body.tenderEbt !== undefined)) {
+      const d = await queryOne<any>(`SELECT * FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+      const c = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [draft.client_id]);
+      const prev = await previewSalesDraftTax(draft.client_id, c?.state, req.body?.overrides?.categoryLines || d.category_lines);
+      const tender = splitTender(Number(prev.grossSales) + Number(prev.totalTax), req.body.tenderCard, req.body.tenderEbt);
+      const has = tender.card > 0 || tender.ebt > 0;
+      await query(`UPDATE altax.v3_client_sales_drafts SET tender_card = $2, tender_ebt = $3 WHERE draft_id = $1 AND status = 'Pending'`, [draftId, has ? tender.card : null, has ? tender.ebt : null]);
+    }
     const result = await approveSalesDraft(draftId, req.user!.email, req.body?.overrides);
     res.json({ ok: true, ...result });
   } catch (err) {

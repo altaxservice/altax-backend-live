@@ -275,7 +275,9 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
 
           <TenderSplit
             total={preview ? Number(preview.grossSales) + Number(preview.totalTax) : 0} card={tender.card} ebt={tender.ebt} onChange={setTender}
-            labels={{ title: t("tn.question"), optional: t("tn.optional"), card: t("tn.cardShort"), ebt: t("tn.ebtShort"), cash: t("tn.cash"), ok: t("tn.ok"), over: t("tn.over") }}
+            collapsible defaultOpen={(() => { try { return localStorage.getItem("altax_tender_open") === "1"; } catch { return false; } })()}
+            onOpenChange={(o) => { try { localStorage.setItem("altax_tender_open", o ? "1" : "0"); } catch { /* storage unavailable */ } }}
+            labels={{ title: t("tn.question"), optional: t("tn.optional"), card: t("tn.cardShort"), ebt: t("tn.ebtShort"), cash: t("tn.cash"), ok: t("tn.ok"), over: t("tn.over"), add: t("tn.add"), hide: t("tn.hide") }}
           />
 
           <div className="field" style={{ marginTop: 6, marginBottom: 14 }}>
