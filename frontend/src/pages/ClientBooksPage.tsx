@@ -246,7 +246,6 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
             <DateInput id="cb-sale-date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
           </div>
 
-          <div className="sales-step"><b>1</b><div><h3>{t("books.sales.step1")}</h3><small>{t("books.sales.step1Note")}</small></div></div>
           <div className="table-scroll">
             <table>
               <thead><tr><th scope="col">{t("books.sales.categoryCol")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.amountCol")}</th></tr></thead>
@@ -274,10 +273,9 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
             <span>{t("books.sales.toCollect")}: <span className="big"><Num>{fmtMoney(preview ? Number(preview.grossSales) + Number(preview.totalTax) : 0)}</Num></span></span>
           </div>
 
-          <div className="sales-step" style={{ marginTop: 18 }}><b>2</b><div><h3>{t("tn.title")}</h3></div></div>
           <TenderSplit
             total={preview ? Number(preview.grossSales) + Number(preview.totalTax) : 0} card={tender.card} ebt={tender.ebt} onChange={setTender}
-            labels={{ title: t("tn.question"), explain: t("tn.explain"), allCash: t("tn.allCash"), someCard: t("tn.someCard"), card: t("tn.card"), ebt: t("tn.ebt"), cash: t("tn.cash"), total: t("tn.total"), ok: t("tn.ok"), over: t("tn.over"), allCashNote: t("tn.allCashNote") }}
+            labels={{ title: t("tn.question"), optional: t("tn.optional"), card: t("tn.cardShort"), ebt: t("tn.ebtShort"), cash: t("tn.cash"), ok: t("tn.ok"), over: t("tn.over") }}
           />
 
           <div className="field" style={{ marginTop: 6, marginBottom: 14 }}>

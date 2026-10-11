@@ -1977,19 +1977,13 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 .rp-note { background: var(--amber-soft); border: 1px solid var(--line); border-radius: 4px; padding: 9px 14px; margin-bottom: 14px; font-size: 13px; }
 .rp-asof { color: var(--teal) !important; font-weight: 700; }
 
-/* Tender split (How did customers pay?) + Card/EBT deposit matching */
-.tender-split { border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px 14px; margin: 16px 0; background: var(--surface); }
-.tender-title { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
-.tender-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--paper); }
-.tender-seg button { padding: 8px 16px; border: 0; background: transparent; font: inherit; font-weight: 700; font-size: 13.5px; cursor: pointer; color: var(--muted); }
-.tender-seg button.on { background: var(--teal); color: #fff; }
-.tender-note { margin: 10px 0 0; font-size: 13px; }
-.tender-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; align-items: end; margin-top: 10px; }
-.tender-grid label { display: grid; gap: 4px; font-size: 13px; font-weight: 700; }
-.tender-cash { display: grid; gap: 4px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 4px; background: var(--paper); } .tender-cash small { font-size: 13px; font-weight: 700; } .tender-cash b { font-size: 20px; } .tender-cash.bad b { color: var(--red); }
-.tender-check { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-top: 10px; font-size: 13px; } .tender-check .ok { color: var(--green); font-weight: 800; }
-.tender-warn { color: var(--red); font-weight: 700; }
-.sales-step { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 8px; } .sales-step b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--teal); color: #fff; font-size: 13px; flex: none; } .sales-step h3 { margin: 0; font-size: 15.5px; } .sales-step small { color: var(--muted); font-size: 12.5px; }
+/* Tender split — one compact line under the sales total + Card/EBT deposit matching */
+.tender-inline { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; padding: 12px 14px; margin: 12px 0; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.tender-q { display: grid; gap: 2px; flex: 1 1 200px; } .tender-q b { font-size: 14px; } .tender-q small { color: var(--muted); font-size: 12px; }
+.tender-inline label { display: grid; gap: 3px; font-size: 12.5px; font-weight: 700; } .tender-inline label input { width: 130px; }
+.tender-cash { display: grid; gap: 3px; min-width: 120px; } .tender-cash small { font-size: 12.5px; font-weight: 700; } .tender-cash b { font-size: 18px; } .tender-cash.bad b { color: var(--red); }
+.tender-ok { color: var(--green); font-weight: 800; font-size: 13px; align-self: center; }
+.tender-warn { color: var(--red); font-weight: 700; font-size: 13px; flex-basis: 100%; }
 .sales-totals { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; padding: 10px 14px; margin: 12px 0 0; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); font-size: 13.5px; } .sales-totals .big { font-size: 18px; font-weight: 800; }
 .cdp { padding: 10px 14px 12px; border-bottom: 1px solid var(--line); background: var(--surface); display: grid; gap: 8px; }
 .cdp-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .cdp-head .muted { flex: 1; font-size: 12px; }
