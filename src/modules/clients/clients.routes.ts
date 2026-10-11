@@ -2642,6 +2642,7 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   autoComplianceRemindersEnabled: { column: "auto_compliance_reminders_enabled", boolean: true },
   salesLoggingNudgesEnabled: { column: "sales_logging_nudges_enabled", boolean: true },
   portalFinancialReportsEnabled: { column: "portal_financial_reports_enabled", boolean: true },
+  monthlySummaryEnabled: { column: "monthly_summary_enabled", boolean: true },
   portalEnabled: { column: "portal_enabled", boolean: true },
   address: { column: "address" },
   streetAddress: { column: "street_address" },

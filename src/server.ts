@@ -23,6 +23,7 @@ import { clientPortalRouter } from "./modules/clientPortal/clientPortal.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
 import { runWeeklyDailyLogSummary } from "./modules/dailyLog/weeklySummary";
+import { runMonthlyClientSummaries } from "./common/monthlyClientSummary";
 import { usersRouter } from "./modules/users/users.routes";
 import { kioskRouter } from "./modules/kiosk/kiosk.routes";
 import { publicKioskRouter } from "./modules/publicKiosk/publicKiosk.routes";
@@ -694,6 +695,12 @@ console.log("Monthly management summary scheduled for 7:15AM America/New_York on
 cron.schedule("30 7 * * 1", runScheduledJob("Weekly Daily Log Summary", () => runWeeklyDailyLogSummary("System (Weekly Daily Log Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Weekly Daily Log summary scheduled for 7:30AM America/New_York on Mondays.");
+
+// Monthly client summary — the 2nd of each month, 8:00AM ET (after the books for the month just ended have been entered).
+// One email per owner address covering last month's results, what's waiting on them and the next deadlines; idempotent per recipient per month.
+cron.schedule("0 8 2 * *", runScheduledJob("Monthly Client Summary", () => runMonthlyClientSummaries("System (Monthly Client Summary Job)")), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Monthly client summary scheduled for 8:00AM America/New_York on the 2nd of each month.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except

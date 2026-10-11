@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { MdAnnualReportOverdue } from "../components/MdAnnualReportOverdue";
 import { ComplianceReminderSettingsPanel } from "../components/ComplianceReminderSettingsPanel";
+import { MonthlySummaryPanel } from "../components/MonthlySummaryPanel";
 
 interface DiagnosticCheck {
   id: string;
@@ -182,6 +183,7 @@ export function FixCenterPage() {
       {isAdmin && (
         <>
           <ComplianceReminderSettingsPanel />
+          <MonthlySummaryPanel />
 
           <div className="command-panel" style={{ marginBottom: 16 }}>
             <div className="command-panel-header">

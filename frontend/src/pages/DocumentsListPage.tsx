@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
+import { BankStatementsStrip } from "../components/BankStatementsStrip";
 import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage } from "../context/LanguageContext";
 import { StatusBadge } from "../components/StatusBadge";
@@ -297,6 +298,8 @@ export function DocumentsListPage() {
   return (
     <div dir={dir}>
       {/* No in-page h1 for any role — the topbar already reads "Documents"/"المستندات". */}
+
+      {user?.role === "client" && (activeBusinessId || user.clientId) && <BankStatementsStrip clientId={(activeBusinessId || user.clientId) as string} />}
 
       {scopedClientId && (
         <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>

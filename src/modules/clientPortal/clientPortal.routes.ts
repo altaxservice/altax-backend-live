@@ -6,6 +6,9 @@ import { resolveActiveClientId, canAccessClient } from "../../common/assignment"
 import { logAudit } from "../../common/audit";
 import { computeClientBooksPl } from "../accounting/accounting.routes";
 import { accumulatedDepreciation, createFixedAssetRecord } from "../accounting/fixedAssets.routes";
+import { computeClientComplianceTimeline } from "../clients/complianceTimeline";
+import { buildSummaryForClients, isMonthlySummaryEnabled } from "../../common/monthlyClientSummary";
+import { sendChannel } from "../../common/sendChannel";
 
 /**
  * Client-portal Reports overview and Assets. Clients see their own business only (resolveActiveClientId re-checks the
@@ -159,4 +162,66 @@ clientPortalRouter.post("/assets/drafts/:draftId/dismiss", requireAuth, requireR
     [req.params.draftId, req.user!.email, String(req.body?.reason || "").trim() || null]);
   if (!claimed) return res.status(400).json({ error: "This entry is no longer pending." });
   res.json({ ok: true });
+}));
+
+/**
+ * Key dates ahead — the filing and payment calendar for this business, in plain terms: what's overdue, what's coming up,
+ * and what was filed recently. Same compliance timeline the firm's own client page uses.
+ */
+clientPortalRouter.get("/key-dates", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const c = await activeClient(req, res);
+  if (!c) return;
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [c.clientId]);
+  const lanes = await computeClientComplianceTimeline(c.clientId, row).catch(() => []);
+  const upcoming: any[] = [], overdue: any[] = [], filed: any[] = [];
+  for (const lane of lanes) {
+    for (const p of lane.periods) {
+      const item = { title: lane.title || lane.obligationType, period: p.periodLabel, dueDate: p.dueDate, filedDate: p.filedDate || null };
+      if (p.status === "missing") overdue.push(item);
+      else if (p.status === "notYetDue") upcoming.push(item);
+      else filed.push(item);
+    }
+  }
+  const byDate = (a: any, b: any) => String(a.dueDate).localeCompare(String(b.dueDate));
+  // Internal "missing filing" flags are deliberately not shown here — clients see those only as account notices the firm chose to share.
+  void overdue;
+  res.json({
+    upcoming: upcoming.sort(byDate).slice(0, 8),
+    filed: filed.sort((a, b) => String(b.dueDate).localeCompare(String(a.dueDate))).slice(0, 6),
+  });
+}));
+
+/** Staff preview of the monthly summary email a business owner would get (nothing is sent). */
+clientPortalRouter.get("/monthly-summary/preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const c = await queryOne<any>(`SELECT client_id, client_name, lower(email) AS email FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!c) return res.status(404).json({ error: "Client not found." });
+  const same = c.email ? await query<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE lower(email) = $1 AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived')) ORDER BY client_name`, [c.email]) : [c];
+  const built = await buildSummaryForClients(same.map((x: any) => ({ clientId: x.client_id, clientName: x.client_name })));
+  res.json({ to: c.email, ...built });
+}));
+
+clientPortalRouter.get("/monthly-summary/settings", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const eligible = await queryOne<any>(`SELECT COUNT(*)::int AS n FROM altax.v3_clients WHERE email IS NOT NULL AND email <> '' AND email_allowed = true AND COALESCE(portal_enabled, true) = true AND monthly_summary_enabled = true AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))`);
+  res.json({ enabled: await isMonthlySummaryEnabled(), eligibleClients: eligible?.n || 0 });
+}));
+
+clientPortalRouter.post("/monthly-summary/settings", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const enabled = req.body?.enabled === true;
+  await query(`UPDATE altax.v3_firm_settings SET monthly_client_summary_enabled = $1 WHERE id = 'FIRM-1'`, [enabled]);
+  await logAudit("Settings", "MONTHLY_CLIENT_SUMMARY_SWITCH", "FIRM-1", "monthly_client_summary_enabled", String(!enabled), String(enabled), `Monthly client summary email turned ${enabled ? "ON" : "OFF"} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, enabled });
+}));
+
+/** Sends the real monthly summary for one client, but only to the admin asking — to see exactly what clients will get. */
+clientPortalRouter.post("/monthly-summary/test", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.body?.clientId || "").trim();
+  const c = await queryOne<any>(`SELECT client_id, client_name, lower(email) AS email FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!c) return res.status(404).json({ error: "Client not found." });
+  const same = c.email ? await query<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE lower(email) = $1 AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived')) ORDER BY client_name`, [c.email]) : [c];
+  const built = await buildSummaryForClients(same.map((x: any) => ({ clientId: x.client_id, clientName: x.client_name })));
+  if (built.skipped) return res.status(400).json({ error: "That client has nothing to report this month, so no summary would be sent." });
+  const result = await sendChannel("email", req.user!.email, `[TEST] ${built.subject}`, `(Test copy — this is what ${c.client_name} would receive.)\n\n${built.body}`, {});
+  res.json({ ok: result.sent, sentTo: req.user!.email, error: result.error });
 }));

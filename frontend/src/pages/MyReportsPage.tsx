@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, FileText, Landmark, Lock, Printer, Receipt, Users, Wallet, Download, Eye, type LucideIcon } from "lucide-react";
+import { BarChart3, CalendarClock, FileText, FolderArchive, Landmark, Lock, Printer, Receipt, Users, Wallet, Download, Eye, type LucideIcon } from "lucide-react";
 import { api, ApiError, downloadFile, printFile, viewFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSelectedBusiness } from "../context/SelectedBusinessContext";
@@ -9,7 +9,7 @@ import { useNotify } from "../components/ConfirmProvider";
 import { DateInput } from "../components/DateInput";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { fmtMoney } from "../utils/clientFlags";
-import { fmtDateOnly as fmtDate } from "../utils/date";
+import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
 
 interface Overview {
   clientId: string;
@@ -18,6 +18,17 @@ interface Overview {
   ytd: { income: number; expenses: number; net: number; topExpenses: { account: string; amount: number }[] } | null;
   salesTaxPaidYtd: number; salesTaxFilingsYtd: number;
 }
+interface KeyDate { title: string; period: string; dueDate: string; filedDate: string | null }
+interface FirmDoc { upload_id: string; file_name: string; uploaded_at: string; direction: string; hidden_from_client: boolean; notes: string | null }
+
+const DOC_CATS: { key: string; test: RegExp }[] = [
+  { key: "tax", test: /(1120|1065|1040|tax return|return|8879|k-?1)/i },
+  { key: "w2", test: /(w-?2|w-?3|1099|1096)/i },
+  { key: "fin", test: /(financial|statement|p&l|profit|balance)/i },
+  { key: "filing", test: /(941|940|annual report|sales tax|withholding|form|filing|confirmation)/i },
+];
+const docCat = (name: string) => DOC_CATS.find((c) => c.test.test(name))?.key || "other";
+
 interface TaxRow { task_id: string; task_name: string; agency_due_date: string | null; paid_date: string | null; payment_amount: string | number | null; confirmation_number: string | null; status: string }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -67,6 +78,9 @@ export function MyReportsPage() {
   const clientId = businessId || user?.clientId || "";
   const [ov, setOv] = useState<Overview | null>(null);
   const [rows, setRows] = useState<TaxRow[]>([]);
+  const [keyDates, setKeyDates] = useState<{ upcoming: KeyDate[]; filed: KeyDate[] } | null>(null);
+  const [docs, setDocs] = useState<FirmDoc[]>([]);
+  const [docYear, setDocYear] = useState<string>(String(new Date().getFullYear() - 1));
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodKey>("thisYear");
   const [custom, setCustom] = useState(rangeFor("thisMonth"));
@@ -77,6 +91,8 @@ export function MyReportsPage() {
     setOv(null); setError(null);
     api.get<Overview>(`/client-portal/reports/overview?clientId=${encodeURIComponent(clientId)}`).then(setOv).catch((e) => setError(e instanceof ApiError ? e.message : "Could not load your reports."));
     api.get<{ rows: TaxRow[] }>(`/billing/client-tax-payments?clientId=${encodeURIComponent(clientId)}`).then((r) => setRows(r.rows)).catch(() => setRows([]));
+    api.get<{ upcoming: KeyDate[]; filed: KeyDate[] }>(`/client-portal/key-dates?clientId=${encodeURIComponent(clientId)}`).then(setKeyDates).catch(() => setKeyDates({ upcoming: [], filed: [] }));
+    api.get<{ uploads: FirmDoc[] }>(`/documents/uploads?clientId=${encodeURIComponent(clientId)}`).then((r) => setDocs(r.uploads.filter((u) => u.direction === "Firm to Client" && !u.hidden_from_client))).catch(() => setDocs([]));
   }, [clientId]);
 
   const qs = `from=${from}&to=${to}`;
@@ -102,6 +118,11 @@ export function MyReportsPage() {
 
   const periods: PeriodKey[] = ["thisMonth", "lastMonth", "thisQuarter", "lastQuarter", "thisYear", "lastYear", "custom"];
   const maxExp = Math.max(1, ...(ov.ytd?.topExpenses.map((e) => e.amount) || [1]));
+  const docYears = Array.from(new Set(docs.map((d) => String(new Date(d.uploaded_at).getFullYear())))).sort().reverse();
+  const yearDocs = docs.filter((d) => String(new Date(d.uploaded_at).getFullYear()) === docYear || new RegExp(`\\b${docYear}\\b`).test(d.file_name));
+  const catOrder = ["tax", "w2", "fin", "filing", "other"];
+  const grouped = catOrder.map((k) => ({ key: k, list: yearDocs.filter((d) => docCat(d.file_name) === k) })).filter((g) => g.list.length);
+  async function downloadAll() { for (const d of yearDocs) { await run(() => downloadFile(`/documents/uploads/${d.upload_id}/download`, d.file_name)); } }
 
   return (
     <div dir={dir}>
@@ -183,9 +204,48 @@ export function MyReportsPage() {
               </div>
             )}
           </section>
+
+          <section className="command-panel" style={{ marginBottom: 14 }}>
+            <div className="command-panel-header">
+              <div><h2 className="command-panel-title"><FolderArchive size={14} aria-hidden="true" /> {t("rp.yearEnd")}</h2><div className="command-panel-note">{t("rp.yearEndNote")}</div></div>
+              {docYears.length > 0 && <select className="inline-select" value={docYear} onChange={(e) => setDocYear(e.target.value)} aria-label={t("rp.yearEnd")}>{Array.from(new Set([docYear, ...docYears])).sort().reverse().map((y) => <option key={y}>{y}</option>)}</select>}
+            </div>
+            {yearDocs.length === 0 ? <p className="muted" style={{ padding: 16, margin: 0 }}>{t("rp.yearEndEmpty")}</p> : (
+              <div className="rp-folder">
+                {grouped.map((g) => (
+                  <div key={g.key}>
+                    <div className="rp-folder-cat">{t(`rp.cat.${g.key}`)}</div>
+                    {g.list.map((d) => (
+                      <div className="rp-file" key={d.upload_id}>
+                        <FileText size={15} aria-hidden="true" /><span title={d.file_name}>{d.file_name}</span><small><Num>{fmtDate(d.uploaded_at)}</Num></small>
+                        <button type="button" className="ghost-button btn-sm" onClick={() => run(() => viewFile(`/documents/uploads/${d.upload_id}/download`))}>{t("rp.view")}</button>
+                        <button type="button" className="ghost-button btn-sm" onClick={() => run(() => downloadFile(`/documents/uploads/${d.upload_id}/download`, d.file_name))}>{t("rp.download")}</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div style={{ padding: "8px 16px 14px" }}><button type="button" className="action-button btn-sm" onClick={downloadAll}><Download size={13} aria-hidden="true" /> {t("rp.downloadAll")} (<Num>{yearDocs.length}</Num>)</button></div>
+              </div>
+            )}
+          </section>
         </div>
 
         <aside className="cc-rail">
+          <div className="command-panel">
+            <div className="command-panel-header"><div><h2 className="command-panel-title"><CalendarClock size={14} aria-hidden="true" /> {t("rp.keyDates")}</h2><div className="command-panel-note">{t("rp.keyDatesNote")}</div></div></div>
+            {!keyDates || keyDates.upcoming.length === 0
+              ? <p className="muted" style={{ padding: 16, margin: 0 }}>{t("rp.noKeyDates")}</p>
+              : <div className="rp-keydates">{keyDates.upcoming.map((k, i) => {
+                  const dd = daysUntil(k.dueDate);
+                  return (
+                    <div key={i} className="rp-keydate">
+                      <div><b>{k.title}</b><small>{k.period}</small></div>
+                      <div className="rp-keydate-when"><Num>{fmtDate(k.dueDate)}</Num>{dd !== null && <span className={`status-pill status-${dd <= 7 ? "amber" : "blue"}`}>{dd === 0 ? t("dash.dueToday") : t("dash.daysLeft").replace("{n}", String(dd))}</span>}</div>
+                    </div>
+                  );
+                })}</div>}
+            {keyDates && keyDates.filed.length > 0 && <div className="rp-filed"><small>{t("rp.recentlyFiled")}</small>{keyDates.filed.slice(0, 3).map((k, i) => <div key={i}>✓ {k.title} · {k.period}</div>)}</div>}
+          </div>
           {ov.ytd && ov.ytd.topExpenses.length > 0 && (
             <div className="command-panel">
               <div className="command-panel-header"><div><h2 className="command-panel-title">{t("rp.topExpenses")}</h2><div className="command-panel-note">{t("rp.ytd")}</div></div></div>

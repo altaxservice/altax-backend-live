@@ -147,6 +147,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       // (sql/167_sales_logging_nudge_flag.sql).
       { key: "sales_logging_nudges_enabled", apiKey: "salesLoggingNudgesEnabled", label: "My Books Reminder", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "portal_financial_reports_enabled", apiKey: "portalFinancialReportsEnabled", label: "Show financial statements in portal", kind: "checkbox", hidden: (f) => !hasContact(f) },
+      { key: "monthly_summary_enabled", apiKey: "monthlySummaryEnabled", label: "Monthly summary email", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "referral_source", apiKey: "referralSource", label: "Referral Source", kind: "text", suggestions: REFERRAL_SOURCES },
     ],
   },
@@ -1202,6 +1203,7 @@ export function ClientDetailPage() {
                   <DetailField label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
                   <DetailField label="Auto Reminder" value={client.auto_compliance_reminders_enabled === false ? "Off" : "On"} />
                   <DetailField label="My Books Reminder" value={client.sales_logging_nudges_enabled === false ? "Off" : "On"} />
+                  <DetailField label="Monthly summary email" value={client.monthly_summary_enabled === false ? "Off" : "On (2nd of each month)"} />
                   <DetailField label="Financial statements in portal" value={client.portal_financial_reports_enabled === true ? "Shown to client" : "Hidden (turn on once books are reviewed)"} />
                   <DetailField label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
                   <DetailField label="Referral Source" value={client.referral_source as string | null} />
