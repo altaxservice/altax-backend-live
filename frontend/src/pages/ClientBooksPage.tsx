@@ -1,3 +1,4 @@
+import { PERIOD_KEYS, rangeForPeriod, type PeriodKey } from "../utils/periodRanges";
 import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import { Wallet, TrendingUp, TrendingDown, Landmark, ClipboardCheck, type LucideIcon } from "lucide-react";
@@ -610,12 +611,16 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
 function MyPLTab({ clientId }: { clientId: string }) {
   const { t } = useLanguage();
   const toast = useToast();
-  const [from, setFrom] = useState(monthStartStr());
-  const [to, setTo] = useState(todayStr());
+  const [period, setPeriod] = useState<PeriodKey>("thisMonth");
+  const [custom, setCustom] = useState({ from: monthStartStr(), to: todayStr() });
+  const { from, to } = period === "custom" ? custom : rangeForPeriod(period);
+  const [group, setGroup] = useState<"auto" | "day" | "week" | "month">("auto");
+  const [includePending, setIncludePending] = useState(true);
   const [data, setData] = useState<{
     totalIncome: number; totalExpenses: number; netIncome: number;
     expensesByAccount: { account: string; amount: number }[];
     pendingSalesCount: number; pendingPurchasesCount: number;
+    group: "day" | "week" | "month"; breakdown: { key: string; start: string; end: string; income: number; expenses: number; net: number }[];
   } | null>(null);
   const [plLoading, setPlLoading] = useState(true);
   const [plError, setPlError] = useState(false);
@@ -623,26 +628,43 @@ function MyPLTab({ clientId }: { clientId: string }) {
     available: boolean; periodEnd?: string; dueDate?: string;
     postedTax?: number; pendingTax?: number; totalEstimated?: number; pendingIsEstimate?: boolean;
   } | null>(null);
+  const [partners, setPartners] = useState<{ name: string; percent: number }[]>([]);
+  const [editing, setEditing] = useState<{ name: string; percent: string }[] | null>(null);
+  const [savingSplit, setSavingSplit] = useState(false);
 
+  const query = `from=${from}&to=${to}${group === "auto" ? "" : `&group=${group}`}${includePending ? "" : "&pending=0"}`;
   function loadPl() {
     if (!clientId) return;
     setPlLoading(true);
     setPlError(false);
-    api.get<typeof data>(`/accounting/client-books/pl-preview?clientId=${clientId}&from=${from}&to=${to}`)
+    api.get<typeof data>(`/accounting/client-books/pl-preview?clientId=${clientId}&${query}`)
       .then(setData)
       .catch(() => setPlError(true))
       .finally(() => setPlLoading(false));
   }
-  useEffect(loadPl, [clientId, from, to]);
+  useEffect(loadPl, [clientId, query]);
 
   useEffect(() => {
     if (!clientId) return;
     api.get<typeof taxLiability>(`/accounting/client-books/sales-tax-liability?clientId=${clientId}`)
       .then(setTaxLiability)
       .catch(() => setTaxLiability(null));
+    api.get<{ partners: { name: string; percent: number }[] }>(`/accounting/client-books/partners?clientId=${clientId}`)
+      .then((r) => setPartners(r.partners))
+      .catch(() => setPartners([]));
   }, [clientId]);
 
-  const pdfPath = `/accounting/client-books/pl-pdf?clientId=${clientId}&from=${from}&to=${to}`;
+  const editTotal = editing ? Math.round(editing.reduce((s, p) => s + (Number(p.percent) || 0), 0) * 1000) / 1000 : 0;
+  async function saveSplit(list: { name: string; percent: number }[]) {
+    setSavingSplit(true);
+    try {
+      const r = await api.put<{ partners: { name: string; percent: number }[] }>("/accounting/client-books/partners", { clientId, partners: list });
+      setPartners(r.partners); setEditing(null); toast(t("books.split.saved"));
+    } catch (err) { toast(err instanceof ApiError ? err.message : t("books.common.loadError")); }
+    finally { setSavingSplit(false); }
+  }
+
+  const pdfPath = `/accounting/client-books/pl-pdf?clientId=${clientId}&${query}`;
   async function handleViewPdf() {
     try { await viewFile(pdfPath); } catch (err) { toast(err instanceof ApiError ? err.message : "Could not open the PDF."); }
   }
@@ -690,16 +712,35 @@ function MyPLTab({ clientId }: { clientId: string }) {
       </div>
       <div style={{ padding: 16 }}>
         <p className="muted" style={{ marginBottom: 14 }}>{t("books.pl.disclaimer")}</p>
-        <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div className="rp-periods" style={{ marginBottom: 12 }}>
+          {PERIOD_KEYS.map((p) => <button key={p} type="button" className={`cc-tab${period === p ? " on" : ""}`} style={{ marginBottom: 0 }} onClick={() => setPeriod(p)}>{t(`rp.period.${p}`)}</button>)}
+        </div>
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+          {period === "custom" ? (
+            <>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="cb-pl-from">{t("books.pl.fromLabel")}</label>
+                <DateInput id="cb-pl-from" value={custom.from} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="cb-pl-to">{t("books.pl.toLabel")}</label>
+                <DateInput id="cb-pl-to" value={custom.to} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
+              </div>
+            </>
+          ) : (
+            <div className="muted" style={{ fontSize: 13 }}><Num>{from}</Num> – <Num>{to}</Num></div>
+          )}
           <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="cb-pl-from">{t("books.pl.fromLabel")}</label>
-            <DateInput id="cb-pl-from" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="cb-pl-to">{t("books.pl.toLabel")}</label>
-            <DateInput id="cb-pl-to" value={to} onChange={(e) => setTo(e.target.value)} />
+            <label htmlFor="cb-pl-group">{t("books.pl.groupBy")}</label>
+            <select id="cb-pl-group" value={group} onChange={(e) => setGroup(e.target.value as typeof group)}>
+              {(["auto", "day", "week", "month"] as const).map((g) => <option key={g} value={g}>{t(`books.pl.group.${g}`)}</option>)}
+            </select>
           </div>
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 13 }}>
+          <input type="checkbox" checked={includePending} onChange={(e) => setIncludePending(e.target.checked)} />
+          <span>{t("books.pl.includePending")} <small className="muted">— {t("books.pl.includePendingHint")}</small></span>
+        </label>
         {plLoading && <div className="spinner-wrap">{t("books.common.loading")}</div>}
         {!plLoading && plError && (
           <div style={{ padding: 16, textAlign: "center" }}>
@@ -721,6 +762,66 @@ function MyPLTab({ clientId }: { clientId: string }) {
               <span>{t("books.pl.netIncome")}</span>
               <strong><Num>{fmtMoney(data.netIncome)}</Num></strong>
             </div>
+            <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>{t("books.pl.salesTaxNote")}</p>
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 15 }}>{t("books.split.title")}</h3>
+                {!editing && <button type="button" className="btn btn-sm" onClick={() => setEditing(partners.length ? partners.map((p) => ({ name: p.name, percent: String(p.percent) })) : [{ name: t("books.split.me"), percent: "50" }, { name: t("books.split.partner"), percent: "50" }])}>{partners.length ? t("books.split.edit") : t("books.split.setup")}</button>}
+              </div>
+              {!editing && partners.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t("books.split.intro")}</p>}
+              {!editing && partners.length > 0 && (
+                <div className="table-scroll card-table">
+                  <table>
+                    <thead><tr><th scope="col">{t("books.split.name")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.split.percent")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.split.share")}</th></tr></thead>
+                    <tbody>
+                      {partners.map((p, i) => (
+                        <tr key={i}><td data-label={t("books.split.name")}>{p.name}</td><td data-label={t("books.split.percent")} style={{ textAlign: "right" }}><Num>{p.percent}%</Num></td><td data-label={t("books.split.share")} style={{ textAlign: "right", fontWeight: 700 }}><Num>{fmtMoney(Math.round(Number(data.netIncome) * p.percent) / 100)}</Num></td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>{t("books.split.pdfNote")}</p>
+                </div>
+              )}
+              {editing && (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {editing.map((p, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 90px auto", gap: 8, alignItems: "center" }}>
+                      <input type="text" aria-label={t("books.split.name")} placeholder={t("books.split.name")} value={p.name} maxLength={120} onChange={(e) => setEditing(editing.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                      <input type="number" aria-label={t("books.split.percent")} placeholder="%" min="0" max="100" step="0.01" inputMode="decimal" value={p.percent} onChange={(e) => setEditing(editing.map((x, j) => j === i ? { ...x, percent: e.target.value } : x))} />
+                      <button type="button" className="btn btn-sm" onClick={() => setEditing(editing.filter((_, j) => j !== i))} aria-label={t("books.split.remove")}>✕</button>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    {editing.length < 10 ? <button type="button" className="link-button" onClick={() => setEditing([...editing, { name: "", percent: "" }])}>+ {t("books.split.add")}</button> : <span />}
+                    <b style={{ color: editing.length && Math.abs(editTotal - 100) > 0.005 ? "var(--red)" : "var(--ink)" }}>{t("books.split.total")}: <Num>{editTotal}%</Num></b>
+                  </div>
+                  {editing.length > 0 && Math.abs(editTotal - 100) > 0.005 && <div className="tender-warn">{t("books.split.mustBe100")}</div>}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" className="btn btn-sm btn-primary" disabled={savingSplit || editing.some((p) => !p.name.trim()) || (editing.length > 0 && Math.abs(editTotal - 100) > 0.005)} onClick={() => saveSplit(editing.map((p) => ({ name: p.name.trim(), percent: Number(p.percent) || 0 })))}>{t("books.split.save")}</button>
+                    {partners.length > 0 && <button type="button" className="btn btn-sm btn-danger" disabled={savingSplit} onClick={() => saveSplit([])}>{t("books.split.clear")}</button>}
+                    <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>{t("books.split.cancel")}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {data.breakdown.length > 0 && (
+              <div className="table-scroll card-table" style={{ marginTop: 18 }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>{t(`books.pl.breakdown.${data.group}`)}</h3>
+                <table>
+                  <thead><tr><th scope="col">{t("books.pl.colPeriod")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.pl.income")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.pl.expenses")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.pl.colNet")}</th></tr></thead>
+                  <tbody>
+                    {data.breakdown.map((b) => (
+                      <tr key={b.key}>
+                        <td data-label={t("books.pl.colPeriod")}><Num>{data.group === "day" ? b.start : data.group === "week" ? `${b.start} – ${b.end}` : b.key}</Num></td>
+                        <td data-label={t("books.pl.income")} style={{ textAlign: "right" }}><Num>{fmtMoney(b.income)}</Num></td>
+                        <td data-label={t("books.pl.expenses")} style={{ textAlign: "right" }}><Num>{fmtMoney(b.expenses)}</Num></td>
+                        <td data-label={t("books.pl.colNet")} style={{ textAlign: "right", fontWeight: 700 }}><Num>{fmtMoney(b.net)}</Num></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {data.expensesByAccount.length > 0 && (
               <div className="table-scroll card-table" style={{ marginTop: 16 }}>
                 <table>

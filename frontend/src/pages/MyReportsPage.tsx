@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { BarChart3, CalendarClock, FileText, FolderArchive, Landmark, Lock, Printer, Receipt, Users, Wallet, Download, Eye, type LucideIcon } from "lucide-react";
 import { api, ApiError, downloadFile, printFile, viewFile } from "../api/client";
+import { PERIOD_KEYS, rangeForPeriod as rangeFor, type PeriodKey } from "../utils/periodRanges";
 import { useAuth } from "../auth/AuthContext";
 import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage, Num } from "../context/LanguageContext";
@@ -30,21 +31,6 @@ const DOC_CATS: { key: string; test: RegExp }[] = [
 const docCat = (name: string) => DOC_CATS.find((c) => c.test.test(name))?.key || "other";
 
 interface TaxRow { task_id: string; task_name: string; agency_due_date: string | null; paid_date: string | null; payment_amount: string | number | null; confirmation_number: string | null; status: string }
-
-const pad = (n: number) => String(n).padStart(2, "0");
-const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-type PeriodKey = "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter" | "thisYear" | "lastYear" | "custom";
-function rangeFor(key: PeriodKey): { from: string; to: string } {
-  const n = new Date(); const y = n.getFullYear(); const m = n.getMonth(); const q = Math.floor(m / 3);
-  switch (key) {
-    case "thisMonth": return { from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) };
-    case "lastMonth": return { from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) };
-    case "thisQuarter": return { from: iso(new Date(y, q * 3, 1)), to: iso(new Date(y, q * 3 + 3, 0)) };
-    case "lastQuarter": return { from: iso(new Date(y, (q - 1) * 3, 1)), to: iso(new Date(y, q * 3, 0)) };
-    case "lastYear": return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
-    default: return { from: `${y}-01-01`, to: `${y}-12-31` };
-  }
-}
 
 function TrendChart({ trend, labels }: { trend: Overview["trend"]; labels: { income: string; expenses: string } }) {
   const max = Math.max(1, ...trend.flatMap((m) => [m.income, m.expenses]));
@@ -83,6 +69,7 @@ export function MyReportsPage() {
   const [docYear, setDocYear] = useState<string>(String(new Date().getFullYear() - 1));
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodKey>("thisYear");
+  const [includePending, setIncludePending] = useState(true);
   const [custom, setCustom] = useState(rangeFor("thisMonth"));
   const { from, to } = period === "custom" ? custom : rangeFor(period);
 
@@ -98,7 +85,7 @@ export function MyReportsPage() {
   const qs = `from=${from}&to=${to}`;
   const cards = useMemo(() => {
     const list: { key: string; Icon: LucideIcon; title: string; desc: string; path: string; file: string }[] = [
-      { key: "mine", Icon: Wallet, title: t("rp.card.mine"), desc: t("rp.card.mineDesc"), path: `/accounting/client-books/pl-pdf?clientId=${clientId}&${qs}`, file: "income-expenses.pdf" },
+      { key: "mine", Icon: Wallet, title: t("rp.card.mine"), desc: t("rp.card.mineDesc"), path: `/accounting/client-books/pl-pdf?clientId=${clientId}&${qs}${includePending ? "" : "&pending=0"}`, file: "income-expenses.pdf" },
     ];
     if (ov?.available.financialStatements) {
       list.push({ key: "pl", Icon: BarChart3, title: t("rp.card.pl"), desc: t("rp.card.plDesc"), path: `/reports/pdf/pl/${clientId}?${qs}`, file: "profit-and-loss.pdf" });
@@ -107,7 +94,7 @@ export function MyReportsPage() {
     if (ov?.available.salesTax) list.push({ key: "st", Icon: Receipt, title: t("rp.card.st"), desc: t("rp.card.stDesc"), path: `/reports/pdf/sales-tax/${clientId}?${qs}`, file: "sales-and-sales-tax.pdf" });
     if (ov?.available.payroll) list.push({ key: "pr", Icon: Users, title: t("rp.card.pr"), desc: t("rp.card.prDesc"), path: `/reports/pdf/payroll/${clientId}?${qs}`, file: "payroll-summary.pdf" });
     return list;
-  }, [ov, clientId, qs, t]);
+  }, [ov, clientId, qs, t, includePending]);
 
   async function run(fn: () => Promise<void>) {
     try { await fn(); } catch (err) { await notify(err instanceof ApiError ? err.message : t("rp.openFail")); }
@@ -116,7 +103,7 @@ export function MyReportsPage() {
   if (error) return <ErrorBanner error={error} />;
   if (!ov) return <div className="spinner-wrap">{t("books.common.loading")}</div>;
 
-  const periods: PeriodKey[] = ["thisMonth", "lastMonth", "thisQuarter", "lastQuarter", "thisYear", "lastYear", "custom"];
+  const periods: PeriodKey[] = PERIOD_KEYS;
   const maxExp = Math.max(1, ...(ov.ytd?.topExpenses.map((e) => e.amount) || [1]));
   const docYears = Array.from(new Set(docs.map((d) => String(new Date(d.uploaded_at).getFullYear())))).sort().reverse();
   const yearDocs = docs.filter((d) => String(new Date(d.uploaded_at).getFullYear()) === docYear || new RegExp(`\\b${docYear}\\b`).test(d.file_name));
@@ -166,6 +153,10 @@ export function MyReportsPage() {
                 </span>
               )}
             </div>
+            <label className="rp-pending-toggle" style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px 8px", fontSize: 13 }}>
+              <input type="checkbox" checked={includePending} onChange={(e) => setIncludePending(e.target.checked)} />
+              <span>{t("books.pl.includePending")} <small className="muted">— {t("rp.card.mine")}</small></span>
+            </label>
             <div className="rp-cards">
               {cards.map((c) => (
                 <article className="rp-card" key={c.key}>

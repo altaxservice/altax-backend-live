@@ -2649,28 +2649,102 @@ accountingRouter.post("/client-books/purchase-templates/:templateId/delete", req
  * so the numbers on screen and the numbers on the downloaded PDF can never
  * drift apart.
  */
-export async function computeClientBooksPl(clientId: string, from: string, to: string) {
+export type PlGroup = "day" | "week" | "month";
+
+/** Monday-based week start for an ISO date (yyyy-mm-dd). */
+function weekStartIso(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const back = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+function addDaysIso(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
+}
+/** Day / week / month buckets for a P&L period. Default: day for ≤ 31 days, week for ≤ 120, otherwise month. */
+export function pickPlGroup(from: string, to: string, requested?: string): PlGroup {
+  if (requested === "day" || requested === "week" || requested === "month") return requested;
+  if (!from || !to) return "month";
+  const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000 + 1;
+  return days <= 31 ? "day" : days <= 120 ? "week" : "month";
+}
+
+/** includePending=false limits the numbers to entries the accountant has already approved. */
+export async function computeClientBooksPl(clientId: string, from: string, to: string, requestedGroup?: string, includePending = true) {
   const salesRows = await query<any>(
-    `SELECT sale_date, gross_sales, status FROM altax.v3_client_sales_drafts
-     WHERE client_id = $1 AND status != 'Dismissed' AND ($2 = '' OR sale_date >= $2::date) AND ($3 = '' OR sale_date <= $3::date)`,
-    [clientId, from, to]
+    `SELECT to_char(sale_date, 'YYYY-MM-DD') AS d, gross_sales, status FROM altax.v3_client_sales_drafts
+     WHERE client_id = $1 AND status != 'Dismissed' AND ($4::boolean OR status != 'Pending') AND ($2 = '' OR sale_date >= $2::date) AND ($3 = '' OR sale_date <= $3::date)`,
+    [clientId, from, to, includePending]
   );
   const purchaseRows = await query<any>(
-    `SELECT purchase_date, account, amount, status FROM altax.v3_client_purchase_drafts
-     WHERE client_id = $1 AND status != 'Dismissed' AND ($2 = '' OR purchase_date >= $2::date) AND ($3 = '' OR purchase_date <= $3::date)`,
-    [clientId, from, to]
+    `SELECT to_char(purchase_date, 'YYYY-MM-DD') AS d, account, amount, status FROM altax.v3_client_purchase_drafts
+     WHERE client_id = $1 AND status != 'Dismissed' AND ($4::boolean OR status != 'Pending') AND ($2 = '' OR purchase_date >= $2::date) AND ($3 = '' OR purchase_date <= $3::date)`,
+    [clientId, from, to, includePending]
   );
   const totalIncome = money(salesRows.reduce((s, r) => s + Number(r.gross_sales || 0), 0));
   const byAccount = new Map<string, number>();
   for (const r of purchaseRows) byAccount.set(r.account, money((byAccount.get(r.account) || 0) + Number(r.amount || 0)));
   const totalExpenses = money(Array.from(byAccount.values()).reduce((s, v) => s + v, 0));
+
+  const group = pickPlGroup(from, to, requestedGroup);
+  const bucket = (d: string) => group === "day" ? { key: d, start: d, end: d } : group === "week" ? { key: weekStartIso(d), start: weekStartIso(d), end: addDaysIso(weekStartIso(d), 6) } : { key: d.slice(0, 7), start: `${d.slice(0, 7)}-01`, end: "" };
+  const buckets = new Map<string, { key: string; start: string; end: string; income: number; expenses: number }>();
+  const get = (d: string) => { const b = bucket(d); if (!buckets.has(b.key)) buckets.set(b.key, { ...b, income: 0, expenses: 0 }); return buckets.get(b.key)!; };
+  for (const r of salesRows) get(r.d).income += Number(r.gross_sales || 0);
+  for (const r of purchaseRows) get(r.d).expenses += Number(r.amount || 0);
+  const breakdown = Array.from(buckets.values()).sort((x, y) => x.key.localeCompare(y.key)).map((b) => ({
+    key: b.key, start: b.start, end: b.end, income: money(b.income), expenses: money(b.expenses), net: money(b.income - b.expenses),
+  }));
+
   return {
     totalIncome, totalExpenses, netIncome: money(totalIncome - totalExpenses),
     expensesByAccount: Array.from(byAccount.entries()).map(([account, amount]) => ({ account, amount })).sort((a, b) => a.account.localeCompare(b.account)),
     pendingSalesCount: salesRows.filter((r) => r.status === "Pending").length,
     pendingPurchasesCount: purchaseRows.filter((r) => r.status === "Pending").length,
+    group, breakdown,
   };
 }
+
+async function loadClientPartners(clientId: string): Promise<{ partnerId: string; name: string; percent: number }[]> {
+  try {
+    const rows = await query<any>(`SELECT partner_id, partner_name, percent FROM altax.v3_client_partners WHERE client_id = $1 ORDER BY sort_order, partner_name`, [clientId]);
+    return rows.map((r: any) => ({ partnerId: r.partner_id, name: r.partner_name, percent: Number(r.percent) }));
+  } catch { return []; } // table not migrated yet — behave as "no partners"
+}
+
+accountingRouter.get("/client-books/partners", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  res.json({ partners: await loadClientPartners(clientId) });
+}));
+
+/** Replaces the whole partner list. An empty list clears it; otherwise percentages must add up to exactly 100. */
+accountingRouter.put("/client-books/partners", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.body?.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const raw = Array.isArray(req.body?.partners) ? req.body.partners : [];
+  if (raw.length > 10) return res.status(400).json({ error: "You can split profit between up to 10 people." });
+  const partners = raw.map((p: any) => ({ name: String(p?.name || "").trim().slice(0, 120), percent: Math.round((Number(p?.percent) || 0) * 1000) / 1000 }));
+  if (partners.some((p: any) => !p.name)) return res.status(400).json({ error: "Every person needs a name." });
+  if (partners.some((p: any) => p.percent < 0 || p.percent > 100)) return res.status(400).json({ error: "Each percentage must be between 0 and 100." });
+  if (partners.length) {
+    const total = partners.reduce((t: number, p: any) => t + p.percent, 0);
+    if (Math.abs(total - 100) > 0.005) return res.status(400).json({ error: `The percentages add up to ${Math.round(total * 1000) / 1000}%. They need to add up to 100%.` });
+  }
+  await withTransaction(async (db: any) => {
+    await db.query(`DELETE FROM altax.v3_client_partners WHERE client_id = $1`, [clientId]);
+    for (let i = 0; i < partners.length; i++) {
+      await db.query(
+        `INSERT INTO altax.v3_client_partners (partner_id, client_id, partner_name, percent, sort_order) VALUES ($1,$2,$3,$4,$5)`,
+        [`PT-${Date.now().toString(36)}${i}${Math.random().toString(36).slice(2, 6)}`, clientId, partners[i].name, partners[i].percent, i]
+      );
+    }
+  });
+  await logAudit("Accounting", "CLIENT_PROFIT_SPLIT_SAVED", clientId, "Partners", "", partners.map((p: any) => `${p.name} ${p.percent}%`).join(", "), `Profit split updated by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, partners: await loadClientPartners(clientId) });
+}));
 
 accountingRouter.get("/client-books/pl-preview", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const clientId = String(req.query.clientId || "").trim();
@@ -2678,7 +2752,7 @@ accountingRouter.get("/client-books/pl-preview", requireAuth, asyncHandler(async
   if (!client) return;
   const from = String(req.query.from || "").trim();
   const to = String(req.query.to || "").trim();
-  res.json(await computeClientBooksPl(clientId, from, to));
+  res.json(await computeClientBooksPl(clientId, from, to, String(req.query.group || ""), String(req.query.pending || "1") !== "0"));
 }));
 
 /** Real, downloadable PDF of the client's own income/expense summary — same numbers as the on-screen preview, not a browser print-to-PDF of the page chrome. */
@@ -2688,7 +2762,8 @@ accountingRouter.get("/client-books/pl-pdf", requireAuth, asyncHandler(async (re
   if (!client) return;
   const from = String(req.query.from || "").trim();
   const to = String(req.query.to || "").trim();
-  const pl = await computeClientBooksPl(clientId, from, to);
+  const pl = await computeClientBooksPl(clientId, from, to, String(req.query.group || ""), String(req.query.pending || "1") !== "0");
+  const partners = String(req.query.split || "1") === "0" ? [] : await loadClientPartners(clientId);
   const fullClient = decryptClientPii(await queryOne<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`, [clientId]
   ));
@@ -2697,7 +2772,7 @@ accountingRouter.get("/client-books/pl-pdf", requireAuth, asyncHandler(async (re
       clientId: fullClient.client_id, clientName: fullClient.client_name, ein: fullClient.ein,
       address: fullClient.address, state: fullClient.state, salesTaxFrequency: fullClient.sales_tax_frequency,
     },
-    from, to, ...pl,
+    from, to, ...pl, partners,
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${fullClient.client_name.replace(/[^a-zA-Z0-9]+/g, "-")}-income-expenses.pdf"`);

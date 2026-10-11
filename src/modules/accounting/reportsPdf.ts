@@ -285,6 +285,9 @@ export interface ClientBooksPlReportData {
   totalIncome: number; totalExpenses: number; netIncome: number;
   expensesByAccount: { account: string; amount: number }[];
   pendingSalesCount: number; pendingPurchasesCount: number;
+  group?: "day" | "week" | "month";
+  breakdown?: { key: string; start: string; end: string; income: number; expenses: number; net: number }[];
+  partners?: { name: string; percent: number }[];
 }
 
 /**
@@ -301,7 +304,7 @@ export async function generateClientBooksPlPdf(data: ClientBooksPlReportData): P
   setPdfTitle(doc, [data.client.clientName, "My Income & Expenses", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const { c } = await newPage(doc, font, bold);
+  let { c } = await newPage(doc, font, bold);
   const profile = await getFirmProfile();
   let y = drawHeader(c, data.client, "MY INCOME & EXPENSES", `${fmtDate(data.from)} - ${fmtDate(data.to)}`, profile.firmName);
 
@@ -337,8 +340,53 @@ export async function generateClientBooksPlPdf(data: ClientBooksPlReportData): P
   c.line(48, y, PAGE_W - 48, y, INK, 1);
   y += 16;
   y = row(c, y, "Net Income", money(data.netIncome), { bold: true, accent: true });
+  y += 14;
 
-  drawFooter(c, profile.firmName, "Client-submitted figures pending accountant review — not a substitute for filed tax returns.");
+  const footerNote = anyPending ? "Client-submitted figures pending accountant review — not a substitute for filed tax returns." : "Approved entries only — not a substitute for filed tax returns.";
+  const room = (need: number) => {
+    if (y + need <= PAGE_H - 50) return false;
+    drawFooter(c, profile.firmName, footerNote);
+    return true;
+  };
+
+  if (data.partners?.length) {
+    if (room(40 + data.partners.length * 16)) { ({ c } = await newPage(doc, font, bold)); y = 60; }
+    y = sectionLabel(c, y, "Profit split");
+    for (const p of data.partners) {
+      c.text(L + 12, y, `${p.name}`, { size: 10 });
+      c.text(PAGE_W - 48 - 130, y, `${Math.round(p.percent * 1000) / 1000}%`, { size: 10, color: MUTED, align: "right" });
+      c.text(PAGE_W - 48, y, money(Math.round(data.netIncome * p.percent) / 100), { size: 10, bold: true, align: "right" });
+      y += 16;
+    }
+    c.text(L + 12, y, "Each share is the percentage of Net Income above.", { size: 8.5, color: MUTED });
+    y += 22;
+  }
+
+  if (data.breakdown?.length) {
+    const label = data.group === "day" ? "Day by day" : data.group === "week" ? "Week by week (Mon–Sun)" : "Month by month";
+    if (room(70)) { ({ c } = await newPage(doc, font, bold)); y = 60; }
+    y = sectionLabel(c, y, label);
+    const colA = PAGE_W - 48 - 270, colB = PAGE_W - 48 - 140, colC = PAGE_W - 48;
+    const head = () => {
+      c.text(L, y, data.group === "day" ? "Date" : data.group === "week" ? "Week" : "Month", { size: 8, bold: true, color: MUTED });
+      c.text(colA, y, "Income", { size: 8, bold: true, color: MUTED, align: "right" });
+      c.text(colB, y, "Expenses", { size: 8, bold: true, color: MUTED, align: "right" });
+      c.text(colC, y, "Net", { size: 8, bold: true, color: MUTED, align: "right" });
+      y += 6; c.line(48, y, PAGE_W - 48, y, LINE, 0.75); y += 14;
+    };
+    head();
+    const rowLabel = (b: { key: string; start: string; end: string }) => data.group === "day" ? fmtDate(b.start) : data.group === "week" ? `${fmtDate(b.start)} – ${fmtDate(b.end)}` : new Date(`${b.start}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+    for (const b of data.breakdown) {
+      if (y > PAGE_H - 60) { drawFooter(c, profile.firmName, footerNote); ({ c } = await newPage(doc, font, bold)); y = 60; head(); }
+      c.text(L, y, rowLabel(b), { size: 9 });
+      c.text(colA, y, money(b.income), { size: 9, align: "right" });
+      c.text(colB, y, money(b.expenses), { size: 9, align: "right" });
+      c.text(colC, y, money(b.net), { size: 9, bold: true, align: "right" });
+      y += 14;
+    }
+  }
+
+  drawFooter(c, profile.firmName, footerNote);
   return doc.save();
 }
 
