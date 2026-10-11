@@ -243,7 +243,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
 
           <SalesBlocksEditor
             categories={categories} value={blocks} onChange={setBlocks} preview={preview} error={previewError}
-            labels={{ cash: t("sb.cash"), card: t("sb.card"), snap: t("sb.snap"), total: t("sb.total"), taxableAt: t("sb.taxableAt"), nonTaxable: t("sb.nonTaxable"), tax: t("sb.tax"), collected: t("sb.collected"), snapNote: t("sb.snapNote"), sameMix: t("sb.sameMix"), totalSales: t("sb.totalSales"), salesTax: t("sb.salesTax"), toCollect: t("books.sales.toCollect"), hint: t("sb.hint") }}
+            labels={{ cash: t("sb.cash"), card: t("sb.card"), snap: t("sb.snap"), total: t("sb.total"), taxableAt: t("sb.taxableAt"), nonTaxable: t("sb.nonTaxable"), tax: t("sb.tax"), collected: t("sb.collected"), snapNote: t("sb.snapNote"), sameMix: t("sb.sameMix"), totalSales: t("sb.totalSales"), salesTax: t("sb.salesTax"), toCollect: t("books.sales.toCollect"), hint: t("sb.hint"), salesCol: t("sb.salesCol"), taxCol: t("sb.taxCol"), nonTaxableRow: t("sb.nonTaxableRow") }}
           />
 
           <div className="field" style={{ marginTop: 6, marginBottom: 14 }}>
