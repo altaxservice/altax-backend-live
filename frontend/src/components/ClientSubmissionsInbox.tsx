@@ -11,7 +11,7 @@ import { TenderSplit } from "./TenderSplit";
 export interface PendingSubmission {
   kind: "sales" | "purchase" | "asset"; draftId: string; clientId: string; clientName: string; date: string; amount: number; tax: number;
   notes: string | null; submittedAt: string; submittedBy: string | null; anomaly: boolean; averageGross: number | null;
-  vendor?: string | null; account?: string; description?: string | null; receiptCount?: number; tenderCard?: number; tenderEbt?: number;
+  vendor?: string | null; account?: string; description?: string | null; receiptCount?: number; tenderCard?: number; tenderEbt?: number; hasBlocks?: boolean;
 }
 export interface PendingSubmissions { items: PendingSubmission[]; counts: { sales: number; purchases: number; assets?: number; total: number; clients: number } }
 
@@ -177,7 +177,7 @@ export function ClientSubmissionsInbox({ data, onChanged }: { data: PendingSubmi
                 </div>
                 <div className="cs-amount">{money(it.amount)}</div>
                 <div className="cs-actions">
-                  {it.kind === "sales" && <button type="button" className="ghost-button btn-sm" title="How was this day paid? (card / EBT)" onClick={() => { setTenderOpen(tenderOpen === it.draftId ? null : it.draftId); setTenderEdits((m) => m[it.draftId] ? m : { ...m, [it.draftId]: { card: it.tenderCard ? String(it.tenderCard) : "", ebt: it.tenderEbt ? String(it.tenderEbt) : "" } }); }}>Card / EBT</button>}
+                  {it.kind === "sales" && !it.hasBlocks && <button type="button" className="ghost-button btn-sm" title="How was this day paid? (card / EBT)" onClick={() => { setTenderOpen(tenderOpen === it.draftId ? null : it.draftId); setTenderEdits((m) => m[it.draftId] ? m : { ...m, [it.draftId]: { card: it.tenderCard ? String(it.tenderCard) : "", ebt: it.tenderEbt ? String(it.tenderEbt) : "" } }); }}>Card / EBT</button>}
                   {it.kind === "asset"
                     ? <button type="button" className="action-button btn-sm" onClick={() => setRecording(recording === it.draftId ? null : it.draftId)}>Record…</button>
                     : <button type="button" className="action-button btn-sm" disabled={busy === it.draftId} onClick={() => approve(it)}>Approve</button>}

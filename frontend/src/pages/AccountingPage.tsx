@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Download, ClipboardCheck } from "lucide-react";
 import { usePendingSubmissions } from "../components/ClientSubmissionsInbox";
-import { TenderSplit } from "../components/TenderSplit";
+import { SalesBlocksEditor, emptyBlocks, blocksToPayload, hasAmounts, stateFromBlocks, stateFromLegacyLines, type BlocksState, type BlocksPreview } from "../components/SalesBlocksEditor";
 import { CardDepositPanel } from "../components/CardDepositPanel";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
@@ -200,55 +200,6 @@ function Panel({ title, note, action, children }: { title: string; note?: string
 }
 
 interface SalesTaxCategory { category_id: string; category_name: string; state: string | null; default_rate_id: string | null; display_order: number }
-interface SalesCategoryLine { categoryId: string; taxableAmount: string }
-interface SalesPreviewLine { categoryId: string; categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
-interface SalesPreview { totalTaxDue: number; lines: SalesPreviewLine[] }
-const EMPTY_SALES_LINE: SalesCategoryLine = { categoryId: "", taxableAmount: "" };
-
-/** Category dropdown sorted so the client's own state's categories appear first — advisory ordering only, every active category is always selectable. */
-function sortCategoriesByRelevance(categories: SalesTaxCategory[], clientState?: string | null): SalesTaxCategory[] {
-  return [...categories].sort((a, b) => {
-    const aMatch = clientState && a.state === clientState ? 0 : 1;
-    const bMatch = clientState && b.state === clientState ? 0 : 1;
-    if (aMatch !== bMatch) return aMatch - bMatch;
-    return a.display_order - b.display_order;
-  });
-}
-
-function CategoryLinesEditor({ lines, setLines, categories, clientState }: {
-  lines: SalesCategoryLine[]; setLines: (fn: (lines: SalesCategoryLine[]) => SalesCategoryLine[]) => void;
-  categories: SalesTaxCategory[]; clientState?: string | null;
-}) {
-  const sorted = sortCategoriesByRelevance(categories, clientState);
-  function updateLine(i: number, patch: Partial<SalesCategoryLine>) {
-    setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
-  }
-  function removeLine(i: number) {
-    setLines((prev) => prev.filter((_, idx) => idx !== i));
-  }
-  return (
-    <div>
-      <SubLabel>Sales by Category</SubLabel>
-      {lines.map((line, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
-          <div className="field" style={{ margin: 0 }}>
-            {i === 0 && <label>Category</label>}
-            <select aria-label={i === 0 ? undefined : `Category, row ${i + 1}`} value={line.categoryId} onChange={(e) => updateLine(i, { categoryId: e.target.value })}>
-              <option value="">Select a category…</option>
-              {sorted.map((c) => <option key={c.category_id} value={c.category_id}>{c.category_name}{c.state ? ` (${c.state})` : ""}</option>)}
-            </select>
-          </div>
-          <div className="field" style={{ margin: 0 }}>
-            {i === 0 && <label>Taxable Amount</label>}
-            <input type="number" step="0.01" aria-label={i === 0 ? undefined : `Taxable amount, row ${i + 1}`} value={line.taxableAmount} onChange={(e) => updateLine(i, { taxableAmount: e.target.value })} />
-          </div>
-          <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(i)} aria-label={`Remove row ${i + 1}`}>✕</button>
-        </div>
-      ))}
-      <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, { ...EMPTY_SALES_LINE }])}>+ Add Category</button>
-    </div>
-  );
-}
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -319,8 +270,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [form, setForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
-  const [tender, setTender] = useState({ card: "", ebt: "" });
-  const [lines, setLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
+  const [blocks, setBlocks] = useState<BlocksState>(emptyBlocks());
+  const [blocksError, setBlocksError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Same idempotency-key pattern as the other money-recording forms on this
@@ -328,13 +279,13 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const idempotencyKey = useRef<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
-  const [editTender, setEditTender] = useState({ card: "", ebt: "" });
-  const [editLines, setEditLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
+  const [editBlocks, setEditBlocks] = useState<BlocksState>(emptyBlocks());
+  const [editBlocksError, setEditBlocksError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
-  const [salesPreview, setSalesPreview] = useState<SalesPreview | null>(null);
-  const [editSalesPreview, setEditSalesPreview] = useState<SalesPreview | null>(null);
+  const [salesPreview, setSalesPreview] = useState<BlocksPreview | null>(null);
+  const [editSalesPreview, setEditSalesPreview] = useState<BlocksPreview | null>(null);
   // A Sales Tax Filing/Balance Due flag deep-links here with ?from=&to= set to
   // the exact flagged period, so clicking it actually lands on that period's
   // data instead of the "This month" default — which, for a flag about an
@@ -475,7 +426,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     try {
       const payload = JSON.parse(raw) as { clientId: string; lines: { categoryId: string; taxableAmount: string }[] };
       if (payload.clientId !== clientId || !Array.isArray(payload.lines) || payload.lines.length === 0) return;
-      setLines(payload.lines.map((l) => ({ categoryId: l.categoryId, taxableAmount: String(l.taxableAmount) })));
+      setBlocks(stateFromLegacyLines(payload.lines.map((l) => ({ categoryId: l.categoryId, taxableAmount: l.taxableAmount }))));
       setImportedFromCalculator(true);
       setShowCreate(true);
     } catch {
@@ -484,49 +435,31 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
-  const linesForPreview = (ls: SalesCategoryLine[]) => ls.filter((l) => l.categoryId && Number(l.taxableAmount) > 0).map((l) => ({ categoryId: l.categoryId, taxableAmount: Number(l.taxableAmount) }));
-
-  // Gross Sales (Line 3) is derived from these same lines — including a
-  // Non-Taxable line, since its amount still counts toward gross without
-  // being taxed — instead of a separately typed figure that could drift out
-  // of sync with what was actually entered below.
+  // Gross Sales is derived from the Cash / Card / SNAP blocks (cash + card + SNAP totals) rather than typed separately,
+  // and the preview comes from the same server calculation that is used when the sale is saved.
   useEffect(() => {
-    const payloadLines = linesForPreview(lines);
-    if (payloadLines.length === 0 && !Number(form.adjustments)) { setSalesPreview(null); setForm((f) => ({ ...f, grossSales: "" })); return; }
+    if (!hasAmounts(blocks)) { setSalesPreview(null); setBlocksError(null); setForm((f) => ({ ...f, grossSales: "" })); return; }
     const handle = setTimeout(() => {
-      api.post<SalesPreview>("/accounting/sales/preview", {
-        clientId, categoryLines: payloadLines, adjustments: Number(form.adjustments) || 0,
-      }).then((r) => {
-        setSalesPreview(r);
-        const gross = r.lines.reduce((sum, l) => sum + l.taxableAmount, 0);
-        setForm((f) => ({ ...f, grossSales: gross ? String(Math.round(gross * 100) / 100) : f.grossSales }));
-      }).catch(() => setSalesPreview(null));
+      api.post<BlocksPreview & { totalTaxDue: number }>("/accounting/sales/preview", { clientId, blocks: blocksToPayload(blocks), adjustments: Number(form.adjustments) || 0 })
+        .then((r) => { setSalesPreview(r); setBlocksError(null); setForm((f) => ({ ...f, grossSales: r.grossSales ? String(r.grossSales) : f.grossSales })); })
+        .catch((err) => { setSalesPreview(null); setBlocksError(err instanceof ApiError ? err.message : null); });
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, JSON.stringify(lines), form.adjustments]);
+  }, [clientId, JSON.stringify(blocks), form.adjustments]);
 
-  // Same auto-computed Gross Sales as the create form above — editing a
-  // sale's category lines used to leave the Gross Sales box exactly as it
-  // was when Edit was opened, so changing a line's amount silently stopped
-  // matching what was actually saved. Only runs while a sale is actually
-  // being edited.
+  // Same for the edit form — only while a sale is actually being edited.
   useEffect(() => {
     if (!editing) { setEditSalesPreview(null); return; }
-    const payloadLines = linesForPreview(editLines);
-    if (payloadLines.length === 0 && !Number(editForm.adjustments)) { setEditSalesPreview(null); setEditForm((f) => ({ ...f, grossSales: "" })); return; }
+    if (!hasAmounts(editBlocks)) { setEditSalesPreview(null); setEditBlocksError(null); setEditForm((f) => ({ ...f, grossSales: "" })); return; }
     const handle = setTimeout(() => {
-      api.post<SalesPreview>("/accounting/sales/preview", {
-        clientId, categoryLines: payloadLines, adjustments: Number(editForm.adjustments) || 0,
-      }).then((r) => {
-        setEditSalesPreview(r);
-        const gross = r.lines.reduce((sum, l) => sum + l.taxableAmount, 0);
-        setEditForm((f) => ({ ...f, grossSales: gross ? String(Math.round(gross * 100) / 100) : f.grossSales }));
-      }).catch(() => setEditSalesPreview(null));
+      api.post<BlocksPreview & { totalTaxDue: number }>("/accounting/sales/preview", { clientId, blocks: blocksToPayload(editBlocks), adjustments: Number(editForm.adjustments) || 0 })
+        .then((r) => { setEditSalesPreview(r); setEditBlocksError(null); setEditForm((f) => ({ ...f, grossSales: r.grossSales ? String(r.grossSales) : f.grossSales })); })
+        .catch((err) => { setEditSalesPreview(null); setEditBlocksError(err instanceof ApiError ? err.message : null); });
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, clientId, JSON.stringify(editLines), editForm.adjustments]);
+  }, [editing, clientId, JSON.stringify(editBlocks), editForm.adjustments]);
 
   const salesInPeriod = sales.filter((s) => {
     const d = s.sale_date ? String(s.sale_date).slice(0, 10) : null;
@@ -1292,8 +1225,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
 
   function handleClearForm() {
     setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
-    setTender({ card: "", ebt: "" });
-    setLines([{ ...EMPTY_SALES_LINE }]);
+    setBlocks(emptyBlocks());
     setError(null);
     setImportedFromCalculator(false);
   }
@@ -1306,15 +1238,13 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
       await api.post("/accounting/sales", {
         clientId, saleDate: form.saleDate, grossSales: Number(form.grossSales) || 0,
-        categoryLines: linesForPreview(lines), adjustments: Number(form.adjustments) || 0,
+        blocks: blocksToPayload(blocks), adjustments: Number(form.adjustments) || 0,
         paymentDate: form.paymentDate, notes: form.notes,
-        tenderCard: Number(tender.card) || 0, tenderEbt: Number(tender.ebt) || 0,
         idempotencyKey: idempotencyKey.current,
       });
       idempotencyKey.current = null;
       setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
-      setTender({ card: "", ebt: "" });
-      setLines([{ ...EMPTY_SALES_LINE }]);
+      setBlocks(emptyBlocks());
       setImportedFromCalculator(false);
       load();
       setMdFilingReloadKey((k) => k + 1);
@@ -1357,9 +1287,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       grossSales: String(s.gross_sales ?? ""), adjustments: String(s.adjustments ?? ""),
       paymentDate: s.payment_date ? String(s.payment_date).slice(0, 10) : "", notes: s.notes || "",
     });
-    setEditTender({ card: s.tender_card ? String(s.tender_card) : "", ebt: s.tender_ebt ? String(s.tender_ebt) : "" });
-    const existingLines: SalesCategoryLine[] = (s.lines || []).map((l: any) => ({ categoryId: l.category_id, taxableAmount: String(l.taxable_amount ?? "") }));
-    setEditLines(existingLines.length > 0 ? existingLines : [{ ...EMPTY_SALES_LINE }]);
+    // A sale entered with the Cash / Card / SNAP form reopens as typed; an older one goes into Cash so it can be re-split.
+    setEditBlocks(s.tender_blocks ? stateFromBlocks(s.tender_blocks) : stateFromLegacyLines(s.lines || []));
   }
 
   async function handleSaveEdit(e: FormEvent) {
@@ -1370,9 +1299,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     try {
       await api.patch(`/accounting/sales/${editing.sale_id}`, {
         saleDate: editForm.saleDate, grossSales: Number(editForm.grossSales) || 0,
-        categoryLines: linesForPreview(editLines), adjustments: Number(editForm.adjustments) || 0,
+        blocks: blocksToPayload(editBlocks), adjustments: Number(editForm.adjustments) || 0,
         paymentDate: editForm.paymentDate, notes: editForm.notes,
-        tenderCard: Number(editTender.card) || 0, tenderEbt: Number(editTender.ebt) || 0,
       });
       setEditing(null);
       load();
@@ -1413,18 +1341,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
               <input type="number" step="0.01" value={form.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
             </div>
           </div>
-          <CategoryLinesEditor lines={lines} setLines={setLines} categories={categories} clientState={clientState} />
-          {salesPreview && salesPreview.lines.length > 0 && (
-            <div style={{ marginTop: 8, marginBottom: 12, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-              {salesPreview.lines.map((l) => (
-                <SalesRow key={l.categoryId} label={`${l.categoryName} — ${fmtMoney(l.taxableAmount)} @ ${(l.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%`} value={fmtMoney(l.taxAmount)} />
-              ))}
-              <SalesRow label="Gross sales (Line 3)" value={fmtMoney(Number(form.grossSales) || 0)} />
-              <SalesRow label="Taxable amount" value={fmtMoney(salesPreview.lines.filter((l) => l.rate > 0).reduce((s, l) => s + l.taxableAmount, 0))} />
-              <SalesRow label="Total tax" value={fmtMoney(salesPreview.totalTaxDue)} bold />
-            </div>
-          )}
-          <TenderSplit total={(Number(form.grossSales) || 0) + (salesPreview?.totalTaxDue || 0)} card={tender.card} ebt={tender.ebt} onChange={setTender} />
+          <SalesBlocksEditor categories={categories} value={blocks} onChange={setBlocks} preview={salesPreview} error={blocksError} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
             <div className="field"><label htmlFor="acct-se-adjustments">Adjustments</label><input id="acct-se-adjustments" type="number" step="0.01" value={form.adjustments} onChange={(e) => setForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
             <div className="field"><label htmlFor="acct-se-payment-date">Payment Date</label><DateInput id="acct-se-payment-date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
@@ -1935,18 +1852,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <input type="number" step="0.01" value={editForm.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
               </div>
             </div>
-            <CategoryLinesEditor lines={editLines} setLines={setEditLines} categories={categories} clientState={clientState} />
-            {editSalesPreview && editSalesPreview.lines.length > 0 && (
-              <div style={{ marginTop: 8, marginBottom: 12, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-                {editSalesPreview.lines.map((l) => (
-                  <SalesRow key={l.categoryId} label={`${l.categoryName} — ${fmtMoney(l.taxableAmount)} @ ${(l.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%`} value={fmtMoney(l.taxAmount)} />
-                ))}
-                <SalesRow label="Gross sales (Line 3)" value={fmtMoney(Number(editForm.grossSales) || 0)} />
-                <SalesRow label="Taxable amount" value={fmtMoney(editSalesPreview.lines.filter((l) => l.rate > 0).reduce((s, l) => s + l.taxableAmount, 0))} />
-                <SalesRow label="Total tax" value={fmtMoney(editSalesPreview.totalTaxDue)} bold />
-              </div>
-            )}
-            <TenderSplit total={(Number(editForm.grossSales) || 0) + (editSalesPreview?.totalTaxDue || 0)} card={editTender.card} ebt={editTender.ebt} onChange={setEditTender} />
+            <SalesBlocksEditor categories={categories} value={editBlocks} onChange={setEditBlocks} preview={editSalesPreview} error={editBlocksError} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
               <div className="field"><label htmlFor="acct-se-edit-adjustments">Adjustments</label><input id="acct-se-edit-adjustments" type="number" step="0.01" value={editForm.adjustments} onChange={(e) => setEditForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
               <div className="field"><label htmlFor="acct-se-edit-payment-date">Payment Date</label><DateInput id="acct-se-edit-payment-date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
@@ -2339,19 +2245,6 @@ const EMPTY_PAYROLL_FORM = {
 
 function SubLabel({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "14px 0 6px" }}>{children}</div>;
-}
-
-/** Same label-left/value-right row the Calculators tool uses, so Sales Input's live breakdown looks and reads the same way. */
-function SalesRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div style={{
-      display: "flex", justifyContent: "space-between", gap: 16, padding: "6px 0",
-      borderBottom: "1px solid var(--line)", fontWeight: bold ? 700 : 400,
-    }}>
-      <span style={{ fontSize: 13 }}>{label}</span>
-      <span style={{ fontSize: 13 }}>{value}</span>
-    </div>
-  );
 }
 
 /**

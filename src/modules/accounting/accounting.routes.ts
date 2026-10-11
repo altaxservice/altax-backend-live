@@ -6,6 +6,7 @@ import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText, getUserAliases } from "../../common/assignment";
 import { notifyStaffOfClientEntry, notifyClientOfDismissal } from "../../common/clientEntryNotices";
 import { splitTender, postSalesGl, openClearingItems, hasClearedItems, ensureTenderAccounts } from "../../common/salesTender";
+import { normalizeBlocks, resolveBlocks, hasAnyBlockAmount, type ResolvedBlocks, type SalesBlocks } from "../../common/salesBlocks";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
@@ -531,11 +532,21 @@ export async function computeCategoryLinesTax(rawLines: SalesCategoryLineInput[]
   return { lines, totalTax: money(totalTax) };
 }
 
+/** Turns the Cash / Card / SNAP entry into category lines + tender amounts (see salesBlocks.ts). Throws ValidationError for impossible entries. */
+async function resolveSalesBlocksInput(rawBlocks: unknown, clientId: string, state: string | null | undefined): Promise<{ blocks: SalesBlocks; resolved: ResolvedBlocks }> {
+  const blocks = normalizeBlocks(rawBlocks);
+  if (!hasAnyBlockAmount(blocks)) throw new ValidationError("Enter at least one sales amount.");
+  const resolved = await resolveBlocks(blocks, (lines) => computeCategoryLinesTax(lines, clientId, state));
+  return { blocks, resolved };
+}
+
 export interface CreateSalesInputParams {
   saleDate?: string; grossSales: number | string; adjustments: number | string;
   paymentDate?: string; notes?: string; categoryLines: SalesCategoryLineInput[];
   /** Portion of the total collected (gross + tax) paid by card / EBT-SNAP. Cash is the rest. Omit for an all-cash sale. */
   tenderCard?: number | string | null; tenderEbt?: number | string | null;
+  /** The Cash / Card / SNAP entry exactly as typed, kept so the entry can be reopened and edited. */
+  tenderBlocks?: unknown;
 }
 
 /**
@@ -578,11 +589,11 @@ export async function createSalesInputRecord(
     await db.query(
       `INSERT INTO altax.v3_sales_input
          (sale_id, client_id, client_name, sale_date, gross_sales, adjustments, payment_date, total_tax_due, notes,
-          source_system, source_record_id, tender_card, tender_ebt)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1,$11,$12)`,
+          source_system, source_record_id, tender_card, tender_ebt, tender_blocks)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1,$11,$12,$13)`,
       [saleId, client.client_id, client.client_name, String(params.saleDate || "").trim() || null, grossSales,
         adjustments, String(params.paymentDate || "").trim() || null, totalTax, String(params.notes || "").trim() || null,
-        sourceSystem, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
+        sourceSystem, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null, params.tenderBlocks ? JSON.stringify(params.tenderBlocks) : null]
     );
     for (const line of computed.lines) {
       await db.query(
@@ -624,11 +635,14 @@ accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyn
 
   let result: Awaited<ReturnType<typeof createSalesInputRecord>>;
   try {
+    let fromBlocks: { blocks: SalesBlocks; resolved: ResolvedBlocks } | null = null;
+    if (body.blocks) fromBlocks = await resolveSalesBlocksInput(body.blocks, clientId, client.state);
     result = await createSalesInputRecord(client, {
-      saleDate: body.saleDate, grossSales: body.grossSales, adjustments: body.adjustments,
+      saleDate: body.saleDate, grossSales: fromBlocks ? fromBlocks.resolved.gross : body.grossSales, adjustments: body.adjustments,
       paymentDate: body.paymentDate, notes: body.notes,
-      categoryLines: Array.isArray(body.categoryLines) ? body.categoryLines : [],
-      tenderCard: body.tenderCard, tenderEbt: body.tenderEbt,
+      categoryLines: fromBlocks ? fromBlocks.resolved.categoryLines : (Array.isArray(body.categoryLines) ? body.categoryLines : []),
+      tenderCard: fromBlocks ? fromBlocks.resolved.tenderCard : body.tenderCard, tenderEbt: fromBlocks ? fromBlocks.resolved.tenderEbt : body.tenderEbt,
+      tenderBlocks: fromBlocks ? fromBlocks.blocks : null,
     }, req.user!.email, "Node Web App", String(body.idempotencyKey || "").trim() || null);
   } catch (err) {
     // Hard Audit finding, 2026-08-29: this catch wraps createSalesInputRecord's
@@ -658,8 +672,19 @@ accountingRouter.post("/sales/preview", requireAuth, requireRole("admin", "staff
   }
   const client = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
 
-  const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : [];
+  let rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : [];
   const adjustments = money(body.adjustments);
+  let perBlock: ResolvedBlocks["perBlock"] | null = null;
+  let blockGross: number | null = null;
+  if (body.blocks) {
+    try {
+      const { resolved } = await resolveSalesBlocksInput(body.blocks, clientId, client?.state);
+      rawLines = resolved.categoryLines; perBlock = resolved.perBlock; blockGross = resolved.gross;
+    } catch (err) {
+      if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+  }
   let computed: Awaited<ReturnType<typeof computeCategoryLinesTax>>;
   try {
     computed = await computeCategoryLinesTax(rawLines, clientId, client?.state);
@@ -667,7 +692,7 @@ accountingRouter.post("/sales/preview", requireAuth, requireRole("admin", "staff
     return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
   }
 
-  res.json({ totalTaxDue: money(computed.totalTax + adjustments), lines: computed.lines });
+  res.json({ totalTaxDue: money(computed.totalTax + adjustments), lines: computed.lines, perBlock, grossSales: blockGross });
 }));
 
 /** List a client's sales input records (with category line items nested) — admin/staff, client-scoped. */
@@ -714,16 +739,22 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   const clientId = existing.client_id;
   const client = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
 
+  // The Cash / Card / SNAP entry: when supplied it drives the category lines, gross and tender; a legacy lines-only edit clears it.
+  let editBlocks: { blocks: SalesBlocks; resolved: ResolvedBlocks } | null = null;
+  if (body.blocks) {
+    try { editBlocks = await resolveSalesBlocksInput(body.blocks, clientId, client?.state); }
+    catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
+  }
   const adjustments = body.adjustments !== undefined ? money(body.adjustments) : Number(existing.adjustments);
-  const grossSales = body.grossSales !== undefined ? money(body.grossSales) : Number(existing.gross_sales);
+  const grossSales = editBlocks ? editBlocks.resolved.gross : (body.grossSales !== undefined ? money(body.grossSales) : Number(existing.gross_sales));
   const saleDate = body.saleDate !== undefined ? (String(body.saleDate).trim() || null) : existing.sale_date;
   const paymentDate = body.paymentDate !== undefined ? (String(body.paymentDate).trim() || null) : existing.payment_date;
   const notes = body.notes !== undefined ? (String(body.notes).trim() || null) : existing.notes;
 
   let computed: Awaited<ReturnType<typeof computeCategoryLinesTax>>;
-  if (Array.isArray(body.categoryLines)) {
+  if (editBlocks || Array.isArray(body.categoryLines)) {
     try {
-      computed = await computeCategoryLinesTax(body.categoryLines, clientId, client?.state);
+      computed = await computeCategoryLinesTax(editBlocks ? editBlocks.resolved.categoryLines : body.categoryLines, clientId, client?.state);
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
     }
@@ -754,11 +785,13 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   // Tender split: use what the edit supplied, else keep what the sale already had.
   let tender;
   try {
-    tender = splitTender(
-      grossSales + totalTax,
-      body.tenderCard !== undefined ? body.tenderCard : existing.tender_card,
-      body.tenderEbt !== undefined ? body.tenderEbt : existing.tender_ebt
-    );
+    tender = editBlocks
+      ? splitTender(grossSales + totalTax, editBlocks.resolved.tenderCard, editBlocks.resolved.tenderEbt)
+      : splitTender(
+          grossSales + totalTax,
+          body.tenderCard !== undefined ? body.tenderCard : existing.tender_card,
+          body.tenderEbt !== undefined ? body.tenderEbt : existing.tender_ebt
+        );
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
@@ -781,9 +814,10 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   await withTransaction(async (db) => {
     if (hasSplit) await ensureTenderAccounts(db);
     await db.query(
-      `UPDATE altax.v3_sales_input SET sale_date=$2, gross_sales=$3, adjustments=$4, payment_date=$5, total_tax_due=$6, notes=$7, tender_card=$8, tender_ebt=$9
+      `UPDATE altax.v3_sales_input SET sale_date=$2, gross_sales=$3, adjustments=$4, payment_date=$5, total_tax_due=$6, notes=$7, tender_card=$8, tender_ebt=$9, tender_blocks=$10
        WHERE sale_id = $1`,
-      [saleId, saleDate, grossSales, adjustments, paymentDate, totalTax, notes, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
+      [saleId, saleDate, grossSales, adjustments, paymentDate, totalTax, notes, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null,
+        editBlocks ? JSON.stringify(editBlocks.blocks) : (Array.isArray(body.categoryLines) ? null : (existing.tender_blocks ? JSON.stringify(existing.tender_blocks) : null))]
     );
     await db.query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
     for (const line of computed.lines) {
@@ -2307,6 +2341,16 @@ accountingRouter.post("/client-books/sales-preview", requireAuth, asyncHandler(a
   const clientId = String(body.clientId || "").trim();
   const client = await requireClientBooksAccess(req, res, clientId);
   if (!client) return;
+  if (body.blocks) {
+    try {
+      const { resolved } = await resolveSalesBlocksInput(body.blocks, clientId, client.state);
+      const agg = await previewSalesDraftTax(clientId, client.state, resolved.categoryLines);
+      return res.json({ ...agg, perBlock: resolved.perBlock, tenderCard: resolved.tenderCard, tenderEbt: resolved.tenderEbt });
+    } catch (err) {
+      if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+  }
   const preview = await previewSalesDraftTax(clientId, client.state, Array.isArray(body.categoryLines) ? body.categoryLines : []);
   res.json(preview);
 }));
@@ -2318,7 +2362,13 @@ accountingRouter.post("/client-books/sales-drafts", requireAuth, asyncHandler(as
   if (!client) return;
   const saleDate = String(body.saleDate || "").trim();
   if (!saleDate) return res.status(400).json({ error: "Date is required." });
-  const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : [];
+  let rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : [];
+  let blocksResolved: { blocks: SalesBlocks; resolved: ResolvedBlocks } | null = null;
+  if (body.blocks) {
+    try { blocksResolved = await resolveSalesBlocksInput(body.blocks, clientId, client.state); }
+    catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
+    rawLines = blocksResolved.resolved.categoryLines;
+  }
   if (!rawLines.some((l) => money(l.taxableAmount) > 0)) return res.status(400).json({ error: "Enter at least one sales amount." });
 
   // A same-date draft (Pending or already Approved) usually means a duplicate
@@ -2335,15 +2385,15 @@ accountingRouter.post("/client-books/sales-drafts", requireAuth, asyncHandler(as
   const preview = await previewSalesDraftTax(clientId, client.state, rawLines);
   const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
   let tender;
-  try { tender = splitTender(Number(preview.grossSales) + Number(preview.totalTax), body.tenderCard, body.tenderEbt); }
+  try { tender = splitTender(Number(preview.grossSales) + Number(preview.totalTax), blocksResolved ? blocksResolved.resolved.tenderCard : body.tenderCard, blocksResolved ? blocksResolved.resolved.tenderEbt : body.tenderEbt); }
   catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
   const hasSplit = tender.card > 0 || tender.ebt > 0;
   const draftId = `CSD-${idSuffix()}`;
   await query(
-    `INSERT INTO altax.v3_client_sales_drafts (draft_id, client_id, client_name, sale_date, category_lines, gross_sales, notes, submitted_by, tender_card, tender_ebt)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    `INSERT INTO altax.v3_client_sales_drafts (draft_id, client_id, client_name, sale_date, category_lines, gross_sales, notes, submitted_by, tender_card, tender_ebt, tender_blocks)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [draftId, clientId, client.client_name, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes || "").trim() || null, req.user!.email,
-      hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
+      hasSplit ? tender.card : null, hasSplit ? tender.ebt : null, blocksResolved ? JSON.stringify(blocksResolved.blocks) : null]
   );
   await logAudit("Accounting", "CLIENT_SALES_DRAFT_SUBMITTED", draftId, "", "", String(preview.grossSales),
     `Daily sales submitted via client portal by ${req.user!.email}.`, req.user!.email);
@@ -2401,7 +2451,13 @@ accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, async
     );
     if (existing) return res.status(409).json({ error: "You already have sales logged for that date.", duplicate: true });
   }
-  const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : draft.category_lines;
+  let rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : draft.category_lines;
+  let blocksResolved: { blocks: SalesBlocks; resolved: ResolvedBlocks } | null = null;
+  if (body.blocks) {
+    try { blocksResolved = await resolveSalesBlocksInput(body.blocks, draft.client_id, client.state); }
+    catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
+    rawLines = blocksResolved.resolved.categoryLines;
+  }
   const preview = await previewSalesDraftTax(draft.client_id, client.state, rawLines);
   const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
   // AND status='Pending' here (not just the SELECT check above) closes the
@@ -2410,14 +2466,17 @@ accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, async
   // silently overwriting fields on a draft that's already been posted.
   let tender;
   try {
-    tender = splitTender(Number(preview.grossSales) + Number(preview.totalTax),
-      body.tenderCard !== undefined ? body.tenderCard : draft.tender_card, body.tenderEbt !== undefined ? body.tenderEbt : draft.tender_ebt);
+    tender = blocksResolved
+      ? splitTender(Number(preview.grossSales) + Number(preview.totalTax), blocksResolved.resolved.tenderCard, blocksResolved.resolved.tenderEbt)
+      : splitTender(Number(preview.grossSales) + Number(preview.totalTax),
+          body.tenderCard !== undefined ? body.tenderCard : draft.tender_card, body.tenderEbt !== undefined ? body.tenderEbt : draft.tender_ebt);
   } catch (err) { if (err instanceof ValidationError) return res.status(400).json({ error: err.message }); throw err; }
   const hasSplit = tender.card > 0 || tender.ebt > 0;
   const updated = await query(
-    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, tender_card=$6, tender_ebt=$7, updated_at=now()
+    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, tender_card=$6, tender_ebt=$7, tender_blocks=$8, updated_at=now()
      WHERE draft_id=$1 AND status='Pending' RETURNING draft_id`,
-    [draftId, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes ?? draft.notes ?? "").trim() || null, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null]
+    [draftId, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes ?? draft.notes ?? "").trim() || null, hasSplit ? tender.card : null, hasSplit ? tender.ebt : null,
+      blocksResolved ? JSON.stringify(blocksResolved.blocks) : (Array.isArray(body.categoryLines) ? null : draft.tender_blocks ? JSON.stringify(draft.tender_blocks) : null)]
   );
   if (updated.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be edited." });
   res.json({ ok: true });
@@ -2779,7 +2838,7 @@ accountingRouter.get("/client-books/pending-submissions", requireAuth, requireRo
     const anomaly = !!a && a.n >= 5 && a.avg > 0 && (gross > a.avg * 2 || gross < a.avg * 0.4);
     let tax = 0;
     try { tax = (await previewSalesDraftTax(d.client_id, stateById.get(d.client_id) || "MD", d.category_lines || [])).totalTax; } catch { /* preview is advisory */ }
-    return { kind: "sales" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.sale_date), amount: gross, tax, notes: d.notes, tenderCard: Number(d.tender_card) || 0, tenderEbt: Number(d.tender_ebt) || 0, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly, averageGross: anomaly && a ? money(a.avg) : null };
+    return { kind: "sales" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.sale_date), amount: gross, tax, notes: d.notes, tenderCard: Number(d.tender_card) || 0, tenderEbt: Number(d.tender_ebt) || 0, hasBlocks: !!d.tender_blocks, submittedAt: d.submitted_at, submittedBy: d.submitted_by, anomaly, averageGross: anomaly && a ? money(a.avg) : null };
   }));
   const purchasesOut = purchases.map((d) => ({
     kind: "purchase" as const, draftId: d.draft_id, clientId: d.client_id, clientName: d.client_name, date: pgDateStr(d.purchase_date), amount: Number(d.amount) || 0, tax: 0,
@@ -2863,7 +2922,7 @@ async function approveSalesDraft(draftId: string, approverEmail: string, overrid
     // double-posting — createSalesInputRecord's own idempotency store
     // returns the original result instead of creating a second one.
     const result = await createSalesInputRecord(
-      client, { saleDate: pgDateStr(claimed.sale_date), grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines, tenderCard: claimed.tender_card, tenderEbt: claimed.tender_ebt },
+      client, { saleDate: pgDateStr(claimed.sale_date), grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines, tenderCard: claimed.tender_card, tenderEbt: claimed.tender_ebt, tenderBlocks: claimed.tender_blocks },
       approverEmail, "Client Portal", `client-sales-draft-${draftId}`
     );
     await query(`UPDATE altax.v3_client_sales_drafts SET resulting_sale_id = $2 WHERE draft_id = $1`, [draftId, result.saleId]);
@@ -2887,6 +2946,7 @@ accountingRouter.post("/client-books/sales-drafts/:draftId/approve", requireAuth
     // Reviewer may fill in / correct how the day was paid (card / EBT) right at approval — the client's own entry is optional.
     if (req.body && (req.body.tenderCard !== undefined || req.body.tenderEbt !== undefined)) {
       const d = await queryOne<any>(`SELECT * FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+      if (d?.tender_blocks) throw new ValidationError("This entry already has its Cash / Card / SNAP breakdown — edit it with Review & edit instead.");
       const c = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [draft.client_id]);
       const prev = await previewSalesDraftTax(draft.client_id, c?.state, req.body?.overrides?.categoryLines || d.category_lines);
       const tender = splitTender(Number(prev.grossSales) + Number(prev.totalTax), req.body.tenderCard, req.body.tenderEbt);

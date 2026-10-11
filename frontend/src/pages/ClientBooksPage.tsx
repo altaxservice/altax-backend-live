@@ -10,7 +10,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
-import { TenderSplit } from "../components/TenderSplit";
+import { SalesBlocksEditor, emptyBlocks, blocksToPayload, hasAmounts, stateFromBlocks, stateFromLegacyLines, type BlocksState, type BlocksPreview } from "../components/SalesBlocksEditor";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -34,7 +34,7 @@ type DraftStatus = "Pending" | "Approved" | "Dismissed";
 interface SalesDraft {
   draft_id: string; sale_date: string;
   category_lines: { categoryId: string; categoryName: string; taxableAmount: number | string }[];
-  gross_sales: number | string; tender_card?: number | string | null; tender_ebt?: number | string | null; computedTax: number | string; notes: string | null; status: DraftStatus; dismissed_reason?: string | null;
+  gross_sales: number | string; tender_card?: number | string | null; tender_ebt?: number | string | null; tender_blocks?: any; computedTax: number | string; notes: string | null; status: DraftStatus; dismissed_reason?: string | null;
 }
 interface PurchaseDraft {
   draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
@@ -142,10 +142,10 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [saleDate, setSaleDate] = useState(todayStr());
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [blocks, setBlocks] = useState<BlocksState>(emptyBlocks());
   const [notes, setNotes] = useState("");
-  const [tender, setTender] = useState({ card: "", ebt: "" });
-  const [preview, setPreview] = useState<{ totalTax: number; grossSales: number } | null>(null);
+  const [preview, setPreview] = useState<BlocksPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<SalesDraft[]>([]);
@@ -164,25 +164,22 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
   }
   useEffect(loadDrafts, [clientId]);
 
-  const categoryLines = useMemo(
-    () => Object.entries(amounts).filter(([, v]) => Number(v) > 0).map(([categoryId, v]) => ({ categoryId, taxableAmount: Number(v) })),
-    [amounts]
-  );
-  const categoryLinesKey = JSON.stringify(categoryLines);
+  const blocksPayload = useMemo(() => blocksToPayload(blocks), [blocks]);
+  const blocksKey = JSON.stringify(blocksPayload);
 
   useEffect(() => {
-    if (!clientId || categoryLines.length === 0) { setPreview(null); return; }
+    if (!clientId || !hasAmounts(blocks)) { setPreview(null); setPreviewError(null); return; }
     const timer = setTimeout(() => {
-      api.post<{ totalTax: number; grossSales: number }>("/accounting/client-books/sales-preview", { clientId, categoryLines })
-        .then(setPreview).catch(() => {});
+      api.post<BlocksPreview>("/accounting/client-books/sales-preview", { clientId, blocks: blocksPayload })
+        .then((r) => { setPreview(r); setPreviewError(null); })
+        .catch((err) => { setPreview(null); setPreviewError(err instanceof ApiError ? err.message : null); });
     }, 300);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, categoryLinesKey]);
+  }, [clientId, blocksKey]);
 
   function resetForm() {
-    setAmounts({});
-    setTender({ card: "", ebt: "" });
+    setBlocks(emptyBlocks());
     setNotes("");
     setPreview(null);
     setEditingId(null);
@@ -193,19 +190,17 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
     setEditingId(d.draft_id);
     setSaleDate(d.sale_date.slice(0, 10));
     setNotes(d.notes || "");
-    setTender({ card: d.tender_card ? String(d.tender_card) : "", ebt: d.tender_ebt ? String(d.tender_ebt) : "" });
-    const next: Record<string, string> = {};
-    for (const l of d.category_lines) next[l.categoryId] = String(l.taxableAmount);
-    setAmounts(next);
+    // Entries made with the Cash / Card / SNAP form reopen exactly as typed; an older one goes into Cash so it can be re-split.
+    setBlocks(d.tender_blocks ? stateFromBlocks(d.tender_blocks) : stateFromLegacyLines(d.category_lines));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleSave(confirmDuplicate = false) {
-    if (categoryLines.length === 0) { setError(t("books.sales.needAmount")); return; }
+    if (!hasAmounts(blocks)) { setError(t("books.sales.needAmount")); return; }
     setSaving(true);
     setError(null);
     try {
-      const payload = { clientId, saleDate, categoryLines, notes, confirmDuplicate, tenderCard: Number(tender.card) || 0, tenderEbt: Number(tender.ebt) || 0 };
+      const payload = { clientId, saleDate, blocks: blocksPayload, notes, confirmDuplicate };
       if (editingId) await api.patch(`/accounting/client-books/sales-drafts/${editingId}`, payload);
       else await api.post("/accounting/client-books/sales-drafts", payload);
       toast(t("books.common.saved"));
@@ -246,38 +241,9 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
             <DateInput id="cb-sale-date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
           </div>
 
-          <div className="table-scroll">
-            <table>
-              <thead><tr><th scope="col">{t("books.sales.categoryCol")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.amountCol")}</th></tr></thead>
-              <tbody>
-                {categories.map((c) => (
-                  <tr key={c.category_id}>
-                    <td>{c.category_name}</td>
-                    <td>
-                      <input
-                        type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00"
-                        aria-label={`${c.category_name} — ${t("books.sales.amountCol")}`}
-                        value={amounts[c.category_id] || ""}
-                        onChange={(e) => setAmounts((a) => ({ ...a, [c.category_id]: e.target.value }))}
-                        style={{ textAlign: "right", maxWidth: 140 }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="sales-totals">
-            <span>{t("books.sales.grossTotal")}: <strong><Num>{fmtMoney(preview ? preview.grossSales : 0)}</Num></strong></span>
-            <span>{t("books.sales.estimatedTax")}: <strong><Num>{fmtMoney(preview ? preview.totalTax : 0)}</Num></strong></span>
-            <span>{t("books.sales.toCollect")}: <span className="big"><Num>{fmtMoney(preview ? Number(preview.grossSales) + Number(preview.totalTax) : 0)}</Num></span></span>
-          </div>
-
-          <TenderSplit
-            total={preview ? Number(preview.grossSales) + Number(preview.totalTax) : 0} card={tender.card} ebt={tender.ebt} onChange={setTender}
-            collapsible defaultOpen={(() => { try { return localStorage.getItem("altax_tender_open") === "1"; } catch { return false; } })()}
-            onOpenChange={(o) => { try { localStorage.setItem("altax_tender_open", o ? "1" : "0"); } catch { /* storage unavailable */ } }}
-            labels={{ title: t("tn.question"), optional: t("tn.optional"), card: t("tn.cardShort"), ebt: t("tn.ebtShort"), cash: t("tn.cash"), ok: t("tn.ok"), over: t("tn.over"), add: t("tn.add"), hide: t("tn.hide") }}
+          <SalesBlocksEditor
+            categories={categories} value={blocks} onChange={setBlocks} preview={preview} error={previewError}
+            labels={{ cash: t("sb.cash"), card: t("sb.card"), snap: t("sb.snap"), total: t("sb.total"), taxableAt: t("sb.taxableAt"), nonTaxable: t("sb.nonTaxable"), tax: t("sb.tax"), collected: t("sb.collected"), snapNote: t("sb.snapNote"), sameMix: t("sb.sameMix"), totalSales: t("sb.totalSales"), salesTax: t("sb.salesTax"), toCollect: t("books.sales.toCollect"), hint: t("sb.hint") }}
           />
 
           <div className="field" style={{ marginTop: 6, marginBottom: 14 }}>
