@@ -693,6 +693,8 @@ export interface SalesTaxReportData {
   from: string; to: string;
   byCategory: SalesTaxCategoryRow[];
   sales: SalesTaxSaleRow[];
+  /** Client-submitted daily sales not yet approved into the books — listed separately so a period with only pending entries isn't a blank report. */
+  pending?: { saleDate: string; grossSales: number; estTax: number }[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
   mdFiling?: {
     periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string; markedFiledDate: string | null; markedPaidDate: string | null })[];
@@ -768,7 +770,7 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
 
   y = sectionLabel(c, y, `Sales Recorded (${data.sales.length})`);
   if (!data.sales.length) {
-    emptyNote(c, y);
+    y = emptyNote(c, y) + 12;
   } else {
     // 6 columns need to fit in the same 516pt body width as every other
     // table here — headers run at size 7 (down from 8) specifically in this
@@ -799,6 +801,35 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       c.text(colDue, y, money(s.totalTaxDue), { size: 9, align: "right" });
       y += 14;
     }
+  }
+
+  if (data.pending?.length) {
+    y += 10;
+    if (y > PAGE_H - 120) {
+      drawFooter(c, profile.firmName);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+    y = sectionLabel(c, y, `Awaiting accountant review (${data.pending.length}) — not included in the totals above`);
+    const pDate = 48, pGross = PAGE_W - 48 - 120, pTax = PAGE_W - 48;
+    c.text(pDate, y, "Date", { size: 7, bold: true, color: MUTED });
+    c.text(pGross, y, "Total Sales", { size: 7, bold: true, color: MUTED, align: "right" });
+    c.text(pTax, y, "Estimated Tax", { size: 7, bold: true, color: MUTED, align: "right" });
+    y += 6;
+    c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+    y += 14;
+    for (const p of data.pending) {
+      if (y > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      c.text(pDate, y, fmtDate(p.saleDate), { size: 9 });
+      c.text(pGross, y, money(p.grossSales), { size: 9, align: "right" });
+      c.text(pTax, y, money(p.estTax), { size: 9, align: "right" });
+      y += 14;
+    }
+    y += 6;
   }
 
   if (data.mdFiling && data.mdFiling.periods.length) {
