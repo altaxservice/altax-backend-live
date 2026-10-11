@@ -1337,7 +1337,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label htmlFor="acct-se-sale-date">Date</label><DateInput id="acct-se-sale-date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
             <div className="field">
-              <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
+              <label>Gross Sales <span className="muted">(auto, from the blocks below)</span></label>
               <input type="number" step="0.01" value={form.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
             </div>
           </div>
@@ -1848,7 +1848,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label htmlFor="acct-se-edit-sale-date">Date</label><DateInput id="acct-se-edit-sale-date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
               <div className="field">
-                <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
+                <label>Gross Sales <span className="muted">(auto, from the blocks below)</span></label>
                 <input type="number" step="0.01" value={editForm.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
               </div>
             </div>

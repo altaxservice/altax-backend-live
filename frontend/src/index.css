@@ -1997,6 +1997,8 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 /* Sales entry blocks: Cash / Card / SNAP */
 .sb-hint { margin: 0 0 10px; font-size: 13px; }
 .sb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.sb { container-type: inline-size; }
+@container (max-width: 760px) { .sb-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .sb-grid { grid-template-columns: 1fr; } }
 .sb-card { border: 1px solid var(--line); border-radius: 4px; background: var(--paper); padding: 12px 14px 12px; display: grid; gap: 8px; }
 .sb-card header { display: flex; align-items: center; gap: 8px; margin: -2px 0 2px; color: var(--teal); } .sb-card h3 { margin: 0; font-size: 14.5px; color: var(--ink); }
