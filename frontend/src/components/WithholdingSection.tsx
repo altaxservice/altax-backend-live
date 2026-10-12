@@ -323,6 +323,11 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
                 </button>
               ))}
             </div>
+            <div className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
+              <b style={{ color: "var(--ink)" }}>Total state income tax on this client's paychecks: {money(states.reduce((t, x) => t + x.withheld, 0))}</b>
+              {" "}(all pay dates — the same total as the payroll import) = {states.map((x) => `${x.state} ${money(x.withheld)}`).join(" + ")}.
+              {" "}Each state's amount is for employees whose home address is in that state.
+            </div>
             {meta && !meta.isHome && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                 <label htmlFor="wh-state-freq" style={{ fontSize: 12.5 }}>{meta.state} filing frequency</label>
