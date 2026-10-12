@@ -411,10 +411,13 @@ withholdingFilingsRouter.get("/:clientId/states", requireAuth, requireRole("admi
 
   const [emps, withheld, saved] = await Promise.all([
     query<{ st: string; n: string }>(
-      `SELECT upper(COALESCE(NULLIF(btrim(state), ''), $2)) AS st, count(*) AS n FROM altax.v3_employees
-        WHERE client_id = $1 AND (status IS NULL OR lower(status) = 'active') GROUP BY 1`, [req.params.clientId, home]),
+      `SELECT upper(COALESCE(
+                (SELECT NULLIF(btrim(pp.payroll_state), '') FROM altax.v3_paychecks pp WHERE pp.employee_id = e.employee_id AND NULLIF(btrim(pp.payroll_state), '') IS NOT NULL ORDER BY pp.pay_date DESC LIMIT 1),
+                NULLIF(btrim(e.state), ''), $2)) AS st, count(*) AS n
+         FROM altax.v3_employees e
+        WHERE e.client_id = $1 AND (e.status IS NULL OR lower(e.status) = 'active') GROUP BY 1`, [req.params.clientId, home]),
     query<{ st: string; withheld: string }>(
-      `SELECT upper(COALESCE(NULLIF(btrim(e.state), ''), $2)) AS st, COALESCE(SUM(p.state_tax), 0) AS withheld
+      `SELECT upper(COALESCE(NULLIF(btrim(p.payroll_state), ''), NULLIF(btrim(e.state), ''), $2)) AS st, COALESCE(SUM(p.state_tax), 0) AS withheld
          FROM altax.v3_paychecks p LEFT JOIN altax.v3_employees e ON e.employee_id = p.employee_id
         WHERE p.client_id = $1 AND lower(p.status) <> 'void' GROUP BY 1`, [req.params.clientId, home]),
     query<{ state: string; frequency: string }>(`SELECT state, frequency FROM altax.v3_client_withholding_states WHERE client_id = $1`, [req.params.clientId]),
@@ -441,6 +444,25 @@ withholdingFilingsRouter.get("/:clientId/states", requireAuth, requireRole("admi
     })
     .sort((a, b) => Number(b.isHome) - Number(a.isHome) || b.withheld - a.withheld);
   res.json({ states });
+}));
+
+/**
+ * "Report all of this client's paychecks' state tax to the client's own state." Payroll files imported from Excel only carry
+ * the client's state's withholding, even for employees who live elsewhere — this stamps those paychecks (payroll_state) so
+ * the Withholding tab and the MD return count them. Only paychecks not already stamped are touched; nothing else changes.
+ */
+withholdingFilingsRouter.post("/:clientId/assign-home-state", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (!(await canAccessClient(req.user!, req.params.clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const c = await queryOne<any>(`SELECT client_id, state FROM altax.v3_clients WHERE client_id = $1`, [req.params.clientId]);
+  const home = String(c?.state || "").trim().toUpperCase();
+  if (!c || !home) return res.status(400).json({ error: "This client has no state set on their profile." });
+  const rows = await query<any>(
+    `UPDATE altax.v3_paychecks SET payroll_state = $2 WHERE client_id = $1 AND payroll_state IS NULL AND lower(status) <> 'void' RETURNING paycheck_id`,
+    [c.client_id, home]
+  );
+  await logAudit("Accounting", "WITHHOLDING_ASSIGN_HOME_STATE", c.client_id, "Paychecks", "", `${rows.length} → ${home}`,
+    `${rows.length} paychecks set to report state tax to ${home} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, updated: rows.length, state: home });
 }));
 
 /** Sets the filing frequency for an additional (non-home) state — the home state's is the client profile's Withholding Frequency. */

@@ -325,7 +325,7 @@ export async function loadWithheldByPeriod(clientId: string, clientState: string
        LEFT JOIN altax.v3_employees e ON e.employee_id = p.employee_id
       WHERE p.client_id = $1 AND lower(p.status) <> 'void'
         AND p.pay_date::date >= $2::date AND p.pay_date::date <= $3::date
-        AND upper(COALESCE(NULLIF(btrim(e.state), ''), $4)) = $4`,
+        AND upper(COALESCE(NULLIF(btrim(p.payroll_state), ''), NULLIF(btrim(e.state), ''), $4)) = $4`,
     [clientId, periods[0].start, periods[periods.length - 1].end, clientState.toUpperCase()]
   );
   return periods.map((p) =>

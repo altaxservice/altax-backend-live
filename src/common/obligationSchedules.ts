@@ -230,7 +230,7 @@ async function sutaByPeriod(clientId: string, state: string, spans: WithholdingP
        LEFT JOIN altax.v3_employees e ON e.employee_id = p.employee_id
       WHERE p.client_id = $1 AND lower(p.status) <> 'void'
         AND p.pay_date::date >= $2::date AND p.pay_date::date <= $3::date
-        AND upper(COALESCE(NULLIF(btrim(e.state), ''), $4)) = $4`,
+        AND upper(COALESCE(NULLIF(btrim(p.payroll_state), ''), NULLIF(btrim(e.state), ''), $4)) = $4`,
     [clientId, spans[0].start, spans[spans.length - 1].end, state.toUpperCase()]
   );
   return spans.map((s) => round2(rows.reduce((sum, r) => {

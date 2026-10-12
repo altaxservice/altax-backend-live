@@ -186,6 +186,8 @@ payrollImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"), 
         payDate, payPeriodStart: row.payPeriodStart, payPeriodEnd: row.payPeriodEnd,
         grossWages: row.grossWages, federalWithholding: row.federalWithholding, stateTax: row.stateTax,
         checkNumber: row.checkNumber,
+        // The file's state tax is the client's own state's withholding — report it there, whatever state the employee lives in.
+        payrollState: client.state,
       }, req.user!.email);
       results.push({ index, employeeName, payDate, ...result });
       if (result.ok) existingKeys.add(key);

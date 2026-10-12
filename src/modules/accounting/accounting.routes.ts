@@ -1217,9 +1217,9 @@ export async function createSinglePaycheck(
             regular_hours, regular_rate, regular_pay, overtime_hours, overtime_rate, overtime_pay,
             bonus_pay, commission_pay, other_taxable_pay, non_taxable_reimbursement,
             pre_tax_retirement, pre_tax_health, pre_tax_hsa_fsa, post_tax_deduction, garnishment, other_deduction,
-            total_pre_tax_deductions, total_post_tax_deductions, total_deductions)
+            total_pre_tax_deductions, total_post_tax_deductions, total_deductions, payroll_state)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Created','Node Web App',$1,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,
-                 $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57)`,
+                 $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58)`,
         [paycheckId, client.client_id, client.client_name, payDate, employeeName, employee.employee_id, gross, ssEe, medEe, federal, state,
           employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
           String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
@@ -1241,7 +1241,8 @@ export async function createSinglePaycheck(
           regularHours || null, regularRate || null, regularPay || null, overtimeHours || null, overtimeRate || null, overtimePay || null,
           bonusPay || null, commissionPay || null, otherTaxablePay || null, nonTaxableReimbursement || null,
           preTaxRetirement || null, preTaxHealth || null, preTaxHsaFsa || null, postTaxDeduction || null, garnishment || null, otherDeduction || null,
-          totalPreTaxDeductions || null, totalPostTaxDeductions || null, totalDeductions || null]
+          totalPreTaxDeductions || null, totalPostTaxDeductions || null, totalDeductions || null,
+          String(body.payrollState || "").trim().toUpperCase() || null]
       );
 
       await postPayrollGl(client.client_id, client.client_name, paycheckId, payDate, {

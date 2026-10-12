@@ -323,6 +323,21 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
                 </button>
               ))}
             </div>
+            {states.some((x) => !x.isHome && x.withheld > 0) && (
+              <div className="tender-warn" style={{ marginTop: 8, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 320px" }}>
+                  The payroll file only holds {states.find((x) => x.isHome)?.state || "the client's state"} tax. If all of this state tax belongs to {states.find((x) => x.isHome)?.state || "the client's state"}, count it there.
+                </span>
+                <button type="button" className="btn btn-sm" onClick={async () => {
+                  const home = states.find((x) => x.isHome)?.state || "the client's state";
+                  const other = states.filter((x) => !x.isHome && x.withheld > 0).map((x) => `${x.state} ${money(x.withheld)}`).join(", ");
+                  const ok = await confirmDialog({ title: `Count all state tax as ${home}?`, message: `The state tax now listed under ${other} will be reported under ${home} instead. Employee profiles and addresses are not changed.`, confirmLabel: `Count as ${home}` });
+                  if (!ok) return;
+                  try { await api.post(`/withholding-filings/${clientId}/assign-home-state`, {}); reload(); }
+                  catch (err) { await notify(err instanceof ApiError ? err.message : "Could not update these paychecks."); }
+                }}>Count all as {states.find((x) => x.isHome)?.state || "home state"}</button>
+              </div>
+            )}
             <div className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
               <b style={{ color: "var(--ink)" }}>Total state income tax on this client's paychecks: {money(states.reduce((t, x) => t + x.withheld, 0))}</b>
               {" "}(all pay dates — the same total as the payroll import) = {states.map((x) => `${x.state} ${money(x.withheld)}`).join(" + ")}.
