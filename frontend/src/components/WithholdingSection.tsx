@@ -20,7 +20,7 @@ interface Meta {
   state: string; homeState?: string; isHome?: boolean; frequency: string | null; frequencyRaw: string | null; supported: boolean;
   agency: string; formName: string | null; hasLateCharges: boolean; supportedFrequencies: string[];
 }
-interface ExcludedRow { start: string; end: string; reason: string | null; excludedBy: string | null; excludedAt: string }
+interface ExcludedRow { start: string; end: string; reason: string | null; excludedBy: string | null; excludedAt: string; withheld?: number }
 
 function fmtDate(v: string | null | undefined): string {
   if (!v) return "—";
@@ -431,12 +431,24 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
         </button>
         {showExcluded && (excluded === null ? <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p> : excluded.length === 0 ? <p className="muted" style={{ fontSize: 12.5 }}>No periods excluded.</p> : (
           <div className="table-scroll">
+            {excluded.some((p) => (p.withheld ?? 0) > 0) && (
+              <div className="tender-warn" style={{ marginBottom: 8, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 320px" }}>These periods were excluded, but state tax has been withheld in them ({money(excluded.reduce((t, p) => t + (p.withheld ?? 0), 0))}). Restore them so they appear as filings.</span>
+                <button type="button" className="btn btn-sm" disabled={busyEnd !== null} onClick={async () => {
+                  setBusyEnd("all");
+                  try { for (const p of excluded.filter((x) => (x.withheld ?? 0) > 0)) await api.post(`/withholding-filings/${clientId}/restore-period`, { state: workState, periodEnd: p.end }); reload(); }
+                  catch (err) { await notify(err instanceof ApiError ? err.message : "Could not restore these periods."); }
+                  finally { setBusyEnd(null); }
+                }}>Restore periods with withholding</button>
+              </div>
+            )}
             <table>
-              <thead><tr><th scope="col">Period</th><th scope="col">Reason</th><th scope="col">Excluded</th><th scope="col"></th></tr></thead>
+              <thead><tr><th scope="col">Period</th><th scope="col">Withheld</th><th scope="col">Reason</th><th scope="col">Excluded</th><th scope="col"></th></tr></thead>
               <tbody>
                 {excluded.map((p) => (
                   <tr key={p.end}>
                     <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
+                    <td style={p.withheld ? { color: "var(--red)", fontWeight: 700 } : undefined}>{money(p.withheld ?? 0)}</td>
                     <td className="muted">{p.reason || "—"}</td>
                     <td className="muted">{fmtDate(p.excludedAt)}{p.excludedBy ? ` by ${p.excludedBy}` : ""}</td>
                     <td><button type="button" className="btn btn-sm" disabled={busyEnd === p.end} onClick={() => run(p.end, async () => { await api.post(`/withholding-filings/${clientId}/restore-period`, { state: workState, periodEnd: p.end }); }, "Could not restore this period.")}>{busyEnd === p.end ? "…" : "Restore"}</button></td>

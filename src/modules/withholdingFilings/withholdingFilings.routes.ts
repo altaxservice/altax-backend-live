@@ -173,7 +173,9 @@ withholdingFilingsRouter.get("/:clientId/excluded-periods", requireAuth, require
        FROM altax.v3_withholding_period_exclusions WHERE client_id = $1 AND state = $2 ORDER BY period_end DESC`,
     [loaded.client.clientId, loaded.client.state]
   );
-  res.json({ excluded: rows.map((r) => ({ start: r.period_start, end: r.period_end, reason: r.reason, excludedBy: r.excluded_by, excludedAt: r.excluded_at })) });
+  // Show what's been withheld inside each excluded period — an exclusion made when it read $0 can hide real withholding added later (e.g. a payroll import).
+  const amounts = await loadWithheldByPeriod(loaded.client.clientId, loaded.client.state, rows.map((r: any) => ({ start: r.period_start, end: r.period_end })));
+  res.json({ excluded: rows.map((r: any, i: number) => ({ start: r.period_start, end: r.period_end, reason: r.reason, excludedBy: r.excluded_by, excludedAt: r.excluded_at, withheld: amounts[i] ?? 0 })) });
 }));
 
 async function sendConfirmation(
