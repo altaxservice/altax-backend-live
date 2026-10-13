@@ -132,10 +132,8 @@ function friendlyFor(module: string, action: string): string {
 }
 const humanizeAction = (a: string) => { const t = a.toLowerCase().replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
 
-dailyLogRouter.get("/auto-draft", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const dateRaw = String(req.query.date || "").trim();
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const email = req.user!.email.toLowerCase();
+async function buildAutoDraft(emailRaw: string, date: string) {
+  const email = emailRaw.toLowerCase();
   const range = `>= ($2::date)::timestamp AT TIME ZONE 'America/New_York' AND %COL% < (($2::date + 1)::timestamp AT TIME ZONE 'America/New_York')`;
   const within = (col: string) => `${col} ${range.replace("%COL%", col)}`;
 
@@ -189,7 +187,47 @@ dailyLogRouter.get("/auto-draft", requireAuth, requireRole("admin", "staff"), as
     };
   }).sort((a, b) => new Date(a.firstAt).getTime() - new Date(b.firstAt).getTime());
 
-  res.json({ date, drafts });
+  return drafts;
+}
+
+dailyLogRouter.get("/auto-draft", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const dateRaw = String(req.query.date || "").trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // Always the signed-in person's own activity — staff never see anyone else's.
+  res.json({ date, drafts: await buildAutoDraft(req.user!.email, date) });
+}));
+
+/**
+ * Admin-only "who did what today": for each staff member (and admin) the entries they've saved for the day, the work the app
+ * has recorded for them that isn't saved yet, and when they last did anything. Same drafting logic as /auto-draft, one person at a time.
+ */
+dailyLogRouter.get("/team", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const dateRaw = String(req.query.date || "").trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const people = await query<any>(`SELECT email, name, role FROM altax.v3_users WHERE lower(role) IN ('staff','admin') AND COALESCE(active, true) = true ORDER BY name, email`);
+  const rows = await Promise.all(people.map(async (u: any) => {
+    const email = String(u.email).toLowerCase();
+    const [saved, drafts] = await Promise.all([
+      queryOne<any>(
+        `SELECT count(*) AS entries, COALESCE(sum(time_spent_minutes), 0) AS minutes, count(DISTINCT client_id) AS clients, max(logged_at) AS last_at
+           FROM altax.v3_daily_logs
+          WHERE lower(author_email) = $1 AND logged_at >= ($2::date)::timestamp AT TIME ZONE 'America/New_York' AND logged_at < (($2::date + 1)::timestamp AT TIME ZONE 'America/New_York')`,
+        [email, date]
+      ),
+      buildAutoDraft(email, date),
+    ]);
+    const lastDraft = drafts.reduce<string | null>((m, d) => (!m || d.lastAt > m ? d.lastAt : m), null);
+    const lastSaved = saved?.last_at ? new Date(saved.last_at).toISOString() : null;
+    const lastActivity = [lastDraft, lastSaved].filter(Boolean).sort().pop() || null;
+    return {
+      email: u.email, name: u.name || u.email, role: String(u.role).toLowerCase(),
+      savedEntries: Number(saved?.entries) || 0, savedMinutes: Number(saved?.minutes) || 0, savedClients: Number(saved?.clients) || 0,
+      unsavedClients: drafts.length, unsavedActions: drafts.reduce((t, d) => t + d.count, 0), unsavedMinutes: drafts.reduce((t, d) => t + d.suggestedMinutes, 0),
+      unsavedClientNames: drafts.slice(0, 6).map((d) => d.clientName), lastActivity,
+    };
+  }));
+  rows.sort((a, b) => String(b.lastActivity || "").localeCompare(String(a.lastActivity || "")));
+  res.json({ date, people: rows });
 }));
 
 dailyLogRouter.get("/services", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {

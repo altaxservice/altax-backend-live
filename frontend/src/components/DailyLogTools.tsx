@@ -215,3 +215,76 @@ export function QuickAddBar({ clients, onSaved }: { clients: Client[]; onSaved: 
     </form>
   );
 }
+
+
+interface TeamPerson {
+  email: string; name: string; role: string; savedEntries: number; savedMinutes: number; savedClients: number;
+  unsavedClients: number; unsavedActions: number; unsavedMinutes: number; unsavedClientNames: string[]; lastActivity: string | null;
+}
+
+/** Admin only: what each person on the team did on a day — saved log entries, work the app recorded that they haven't saved yet, and when they were last active. */
+export function TeamTodayPanel() {
+  const [date, setDate] = useState(() => dayKey(new Date()));
+  const [people, setPeople] = useState<TeamPerson[] | null>(null);
+  const [open, setOpen] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  function load(d = date) {
+    setLoading(true);
+    api.get<{ people: TeamPerson[] }>(`/daily-log/team?date=${d}`).then((r) => setPeople(r.people)).catch(() => setPeople([])).finally(() => setLoading(false));
+  }
+  useEffect(() => { load(date); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [date]);
+  useEffect(() => {
+    const again = () => { if (document.visibilityState === "visible") load(date); };
+    document.addEventListener("visibilitychange", again);
+    const t = window.setInterval(again, 180000);
+    return () => { document.removeEventListener("visibilitychange", again); window.clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
+
+  const today = dayKey(new Date());
+  const yesterday = dayKey(new Date(Date.now() - 86400000));
+  const active = (people || []).filter((p) => p.savedEntries + p.unsavedActions > 0);
+  const idle = (people || []).filter((p) => p.savedEntries + p.unsavedActions === 0);
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <div>
+          <h2 className="command-panel-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><Users size={17} aria-hidden="true" /> Team today</h2>
+          <div className="command-panel-note">What each person did — saved log entries, plus work recorded in the app that isn't saved to their log yet. Only you see this.</div>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "Show"}</button>
+      </div>
+      {open && (
+        <>
+          <div style={{ padding: "10px 16px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--line)" }}>
+            <button type="button" className={`tpl-chip${date === today ? " on" : ""}`} onClick={() => setDate(today)}>Today</button>
+            <button type="button" className={`tpl-chip${date === yesterday ? " on" : ""}`} onClick={() => setDate(yesterday)}>Yesterday</button>
+            <div style={{ width: 150 }}><DateInput value={date} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Pick a day" /></div>
+            <button type="button" className="btn btn-sm" disabled={loading} onClick={() => load(date)}>{loading ? "Refreshing…" : "Refresh"}</button>
+          </div>
+          {!people && <div className="spinner-wrap">Loading the team…</div>}
+          {people && active.length === 0 && <p className="muted" style={{ padding: 16, margin: 0 }}>No recorded activity for this day.</p>}
+          {active.length > 0 && (
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th scope="col">Person</th><th scope="col">Saved to log</th><th scope="col">Not saved yet</th><th scope="col">Last activity</th></tr></thead>
+                <tbody>
+                  {active.map((p) => (
+                    <tr key={p.email}>
+                      <td><strong>{p.name}</strong><div className="muted" style={{ fontSize: 11.5 }}>{p.role === "admin" ? "Admin" : "Staff"}</div></td>
+                      <td>{p.savedEntries > 0 ? <>{p.savedEntries} entr{p.savedEntries === 1 ? "y" : "ies"} · {p.savedClients} client{p.savedClients === 1 ? "" : "s"}{p.savedMinutes ? ` · ${fmtMins(p.savedMinutes)}` : ""}</> : <span className="muted">—</span>}</td>
+                      <td>{p.unsavedActions > 0 ? <><b>{p.unsavedActions}</b> action{p.unsavedActions === 1 ? "" : "s"} on {p.unsavedClients} client{p.unsavedClients === 1 ? "" : "s"} · ~{fmtMins(p.unsavedMinutes)}<div className="muted" style={{ fontSize: 11.5 }}>{p.unsavedClientNames.join(", ")}{p.unsavedClients > p.unsavedClientNames.length ? "…" : ""}</div></> : <span className="muted">All saved</span>}</td>
+                      <td>{p.lastActivity ? new Date(p.lastActivity).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {idle.length > 0 && <p className="muted" style={{ padding: "8px 16px 12px", margin: 0, fontSize: 12.5 }}>No activity: {idle.map((p) => p.name).join(", ")}.</p>}
+        </>
+      )}
+    </div>
+  );
+}
