@@ -23,6 +23,7 @@ import { clientPortalRouter } from "./modules/clientPortal/clientPortal.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
 import { runWeeklyDailyLogSummary } from "./modules/dailyLog/weeklySummary";
+import { runDailyLogReminders } from "./modules/dailyLog/reminders";
 import { runMonthlyClientSummaries } from "./common/monthlyClientSummary";
 import { usersRouter } from "./modules/users/users.routes";
 import { kioskRouter } from "./modules/kiosk/kiosk.routes";
@@ -695,6 +696,11 @@ console.log("Monthly management summary scheduled for 7:15AM America/New_York on
 cron.schedule("30 7 * * 1", runScheduledJob("Weekly Daily Log Summary", () => runWeeklyDailyLogSummary("System (Weekly Daily Log Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Weekly Daily Log summary scheduled for 7:30AM America/New_York on Mondays.");
+
+// Daily Log reminder — 5:30PM ET on weekdays: staff with recorded work not yet saved to their log get one email. Master switch (default OFF) lives on Daily Log → Team today.
+cron.schedule("30 17 * * 1-5", runScheduledJob("Daily Log Reminder", () => runDailyLogReminders("System (Daily Log Reminder Job)")), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Daily Log reminder scheduled for 5:30PM America/New_York on weekdays (only sends when its master switch is on).");
 
 // Monthly client summary — the 2nd of each month, 8:00AM ET (after the books for the month just ended have been entered).
 // One email per owner address covering last month's results, what's waiting on them and the next deadlines; idempotent per recipient per month.

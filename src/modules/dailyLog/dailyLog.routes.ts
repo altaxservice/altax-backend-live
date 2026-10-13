@@ -4,6 +4,9 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { FIRM_SERVICES } from "../contracts/contractContent";
+import { sendChannel } from "../../common/sendChannel";
+import { getFirmProfile } from "../../common/firmProfile";
+import { escapeHtml } from "../../common/html";
 
 const FIRM_SERVICE_KEYS = new Set(FIRM_SERVICES.map((s) => s.key));
 
@@ -135,9 +138,15 @@ function friendlyFor(module: string, action: string): string {
 }
 const humanizeAction = (a: string) => { const t = a.toLowerCase().replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
 
+/** Saved Daily Log minutes vs Time Tracking minutes "disagree by a lot": 60+ minutes apart and more than 40% of the larger figure. */
+export function timesDisagree(logMin: number, ttMin: number): boolean {
+  const diff = Math.abs(logMin - ttMin), big = Math.max(logMin, ttMin);
+  return diff >= 60 && big > 0 && diff / big > 0.4;
+}
+
 const ACTIVE_GAP_MIN = 20, BREAK_CREDIT_MIN = 2, LAST_ACTION_MIN = 3;
 
-async function buildAutoDraft(emailRaw: string, date: string) {
+export async function buildAutoDraft(emailRaw: string, date: string) {
   const email = emailRaw.toLowerCase();
   const range = `>= ($2::date)::timestamp AT TIME ZONE 'America/New_York' AND %COL% < (($2::date + 1)::timestamp AT TIME ZONE 'America/New_York')`;
   const within = (col: string) => `${col} ${range.replace("%COL%", col)}`;
@@ -213,6 +222,73 @@ dailyLogRouter.get("/auto-draft", requireAuth, requireRole("admin", "staff"), as
  * Admin-only "who did what today": for each staff member (and admin) the entries they've saved for the day, the work the app
  * has recorded for them that isn't saved yet, and when they last did anything. Same drafting logic as /auto-draft, one person at a time.
  */
+/** Reminder email settings (admin): the master switch lives on v3_firm_settings and defaults OFF. */
+dailyLogRouter.get("/reminder-settings", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const { isDailyLogReminderEnabled } = await import("./reminders");
+  const staff = await queryOne<any>(`SELECT count(*) AS n FROM altax.v3_users WHERE lower(role) = 'staff' AND COALESCE(active, true) = true`);
+  res.json({ enabled: await isDailyLogReminderEnabled(), staffCount: Number(staff?.n) || 0, sendTime: "5:30 PM Eastern, weekdays" });
+}));
+
+dailyLogRouter.put("/reminder-settings", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const enabled = Boolean(req.body?.enabled);
+  await query(`UPDATE altax.v3_firm_settings SET daily_log_reminder_enabled = $1 WHERE id = 'FIRM-1'`, [enabled]);
+  await logAudit("Settings", "DAILY_LOG_REMINDER_SWITCH", "FIRM-1", "daily_log_reminder_enabled", String(!enabled), String(enabled), `Daily Log 5:30 PM reminder turned ${enabled ? "ON" : "OFF"} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, enabled });
+}));
+
+/** Sends the signed-in admin their own reminder email right now (works while the switch is off) so they can see exactly what staff would get. */
+dailyLogRouter.post("/reminder-test", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { composeReminder } = await import("./reminders");
+  const { publicBaseUrl } = await import("../../common/publicUrl");
+  const date = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const drafts = await buildAutoDraft(req.user!.email, date);
+  const sample = drafts.length ? drafts : [{ clientName: "Sample Client LLC", count: 3, suggestedMinutes: 15 }];
+  const base = publicBaseUrl(req);
+  const { subject, body } = composeReminder(req.user!.email.split("@")[0], sample, base ? `${base}/daily-log` : null);
+  const result = await sendChannel("email", req.user!.email, `[Test] ${subject}`, escapeHtml(body).replace(/\n/g, "<br>"), { firmName: (await getFirmProfile()).firmName });
+  if (!result.sent) return res.status(502).json({ error: result.error || "The test email could not be sent." });
+  res.json({ ok: true, sentTo: req.user!.email, usedSample: drafts.length === 0 });
+}));
+
+/**
+ * Admin only: hours by person and client for a date range, from saved Daily Log entries, set beside Time Tracking
+ * (hours tracked, billable hours and the amounts) so what people say they did can be compared with what's billed.
+ */
+dailyLogRouter.get("/weekly-report", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const from = String(req.query.from || "").trim(), to = String(req.query.to || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return res.status(400).json({ error: "from and to (YYYY-MM-DD) are required." });
+  const people = await query<any>(`SELECT lower(email) AS email, name, lower(role) AS role FROM altax.v3_users WHERE lower(role) IN ('staff','admin') AND COALESCE(active, true) = true ORDER BY name`);
+  const logs = await query<any>(
+    `SELECT lower(l.author_email) AS email, l.client_id, c.client_name, count(*) AS entries, COALESCE(sum(l.time_spent_minutes), 0) AS minutes
+       FROM altax.v3_daily_logs l LEFT JOIN altax.v3_clients c ON c.client_id = l.client_id
+      WHERE (l.logged_at AT TIME ZONE 'America/New_York')::date BETWEEN $1::date AND $2::date GROUP BY 1, 2, 3`, [from, to]);
+  const tt = await query<any>(
+    `SELECT lower(user_email) AS email, client_id, max(client_name) AS client_name, COALESCE(sum(hours), 0) AS hours,
+            COALESCE(sum(CASE WHEN billable THEN hours ELSE 0 END), 0) AS billable_hours,
+            COALESCE(sum(CASE WHEN billable THEN hours * COALESCE(hourly_rate, 0) ELSE 0 END), 0) AS billable_amount,
+            COALESCE(sum(CASE WHEN billed THEN hours * COALESCE(hourly_rate, 0) ELSE 0 END), 0) AS billed_amount
+       FROM altax.v3_time_entries WHERE entry_date BETWEEN $1::date AND $2::date AND COALESCE(lower(status), '') <> 'rejected' GROUP BY 1, 2`, [from, to]).catch(() => [] as any[]);
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const out = people.map((p: any) => {
+    const clients = new Map<string, { clientId: string | null; clientName: string; logMinutes: number; entries: number; ttMinutes: number }>();
+    const get = (id: string | null, name: string | null) => { const k = id || "_general"; if (!clients.has(k)) clients.set(k, { clientId: id, clientName: name || "General / internal", logMinutes: 0, entries: 0, ttMinutes: 0 }); return clients.get(k)!; };
+    for (const l of logs.filter((x: any) => x.email === p.email)) { const c = get(l.client_id, l.client_name); c.logMinutes += Number(l.minutes) || 0; c.entries += Number(l.entries) || 0; }
+    let ttAll = 0, billableH = 0, billableAmt = 0, billedAmt = 0;
+    for (const t of tt.filter((x: any) => x.email === p.email)) {
+      const c = get(t.client_id, t.client_name); const m = Math.round((Number(t.hours) || 0) * 60); c.ttMinutes += m; ttAll += m;
+      billableH += Number(t.billable_hours) || 0; billableAmt += Number(t.billable_amount) || 0; billedAmt += Number(t.billed_amount) || 0;
+    }
+    const clientRows = Array.from(clients.values()).sort((a, b) => (b.logMinutes + b.ttMinutes) - (a.logMinutes + a.ttMinutes));
+    const logMinutes = clientRows.reduce((s, c) => s + c.logMinutes, 0);
+    return {
+      email: p.email, name: p.name || p.email, role: p.role, logMinutes, logEntries: clientRows.reduce((s, c) => s + c.entries, 0), ttMinutes: ttAll,
+      billableHours: round2(billableH), billableAmount: round2(billableAmt), billedAmount: round2(billedAmt),
+      mismatch: timesDisagree(logMinutes, ttAll), clients: clientRows.map((c) => ({ ...c, mismatch: timesDisagree(c.logMinutes, c.ttMinutes) })),
+    };
+  }).filter((p) => p.logMinutes + p.ttMinutes + p.logEntries > 0);
+  res.json({ from, to, people: out });
+}));
+
 /** Admin only: everyone who can keep a Daily Log, for the "Logged by" filter. */
 dailyLogRouter.get("/people", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const people = await query<any>(`SELECT email, name, role FROM altax.v3_users WHERE lower(role) IN ('staff','admin') AND COALESCE(active, true) = true ORDER BY name, email`);
@@ -225,7 +301,7 @@ dailyLogRouter.get("/team", requireAuth, requireRole("admin"), asyncHandler(asyn
   const people = await query<any>(`SELECT email, name, role FROM altax.v3_users WHERE lower(role) IN ('staff','admin') AND COALESCE(active, true) = true ORDER BY name, email`);
   const rows = await Promise.all(people.map(async (u: any) => {
     const email = String(u.email).toLowerCase();
-    const [saved, drafts] = await Promise.all([
+    const [saved, drafts, tt] = await Promise.all([
       queryOne<any>(
         `SELECT count(*) AS entries, COALESCE(sum(time_spent_minutes), 0) AS minutes, count(DISTINCT client_id) AS clients, max(logged_at) AS last_at
            FROM altax.v3_daily_logs
@@ -233,7 +309,9 @@ dailyLogRouter.get("/team", requireAuth, requireRole("admin"), asyncHandler(asyn
         [email, date]
       ),
       buildAutoDraft(email, date),
+      queryOne<any>(`SELECT COALESCE(sum(hours), 0) AS hours FROM altax.v3_time_entries WHERE lower(user_email) = $1 AND entry_date = $2::date AND COALESCE(lower(status), '') <> 'rejected'`, [email, date]).catch(() => null),
     ]);
+    const ttMinutes = Math.round((Number(tt?.hours) || 0) * 60);
     const lastDraft = drafts.reduce<string | null>((m, d) => (!m || d.lastAt > m ? d.lastAt : m), null);
     const lastSaved = saved?.last_at ? new Date(saved.last_at).toISOString() : null;
     const lastActivity = [lastDraft, lastSaved].filter(Boolean).sort().pop() || null;
@@ -242,6 +320,7 @@ dailyLogRouter.get("/team", requireAuth, requireRole("admin"), asyncHandler(asyn
       savedEntries: Number(saved?.entries) || 0, savedMinutes: Number(saved?.minutes) || 0, savedClients: Number(saved?.clients) || 0,
       unsavedClients: drafts.length, unsavedActions: drafts.reduce((t, d) => t + d.count, 0), unsavedMinutes: drafts.reduce((t, d) => t + d.suggestedMinutes, 0),
       unsavedClientNames: drafts.slice(0, 6).map((d) => d.clientName), lastActivity,
+      timeTrackingMinutes: ttMinutes, timeMismatch: timesDisagree(Number(saved?.minutes) || 0, ttMinutes),
     };
   }));
   rows.sort((a, b) => String(b.lastActivity || "").localeCompare(String(a.lastActivity || "")));

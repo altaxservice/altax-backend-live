@@ -9,7 +9,7 @@ import { useToast } from "../components/Toast";
 import { DailyLogFormModal } from "../components/DailyLogFormModal";
 import { NoteFormModal } from "../components/NoteFormModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
-import { AutoDraftPanel, DayStats, QuickAddBar, TeamTodayPanel, type DraftedToday } from "../components/DailyLogTools";
+import { AutoDraftPanel, DayStats, QuickAddBar, TeamTodayPanel, WeeklyTotalsPanel, type DraftedToday } from "../components/DailyLogTools";
 import { exportCsv } from "../components/FilterBar";
 
 interface FirmServiceOption { key: string; label: string }
@@ -176,6 +176,7 @@ export function DailyLogPage() {
     <div style={{ padding: 20 }}>
       <DayStats logs={logs || []} me={(user?.email || "").toLowerCase()} drafted={drafted} />
       {isAdmin && <TeamTodayPanel />}
+      {isAdmin && <WeeklyTotalsPanel />}
       <AutoDraftPanel onSaved={load} onDraftChange={setDrafted} />
       <div className="command-panel">
         <div className="command-panel-header">
