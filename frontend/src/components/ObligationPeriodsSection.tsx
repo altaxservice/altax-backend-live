@@ -316,7 +316,13 @@ export function ObligationPeriodsSection({ clientId, kind, refreshKey }: { clien
               ))}
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                 {p.sentAt ? (
+                  <>
                   <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={async () => {
+                    if (!(await confirmDialog({ title: "Resend confirmation?", message: `The client was already sent this filing confirmation on ${fmtDate(p.sentAt!)}. Send it again?`, confirmLabel: "Resend" }))) return;
+                    await run(p.end, async () => { await api.post(actionUrl("send", p), {}); }, "Could not send this confirmation.");
+                  }}>{busy ? "…" : "Resend"}</button>
+                </>
                 ) : (
                   <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run(p.end, async () => { await api.post(actionUrl("send", p), {}); }, "Could not send this confirmation.")}>{busy ? "…" : "Send"}</button>
                 )}

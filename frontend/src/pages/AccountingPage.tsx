@@ -752,7 +752,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   }
 
   /** Independently (re-)sends the filing-confirmation email for an already-filed period — same standalone action EFTPS Deposits already has, not just a one-time choice bundled into "Mark Filed." */
-  async function handleSendMdConfirmation(p: { end: string }) {
+  async function handleSendMdConfirmation(p: { end: string; sentAt?: string | null }, resend = false) {
+    if (resend && !(await confirmDialog({ title: "Resend confirmation?", message: `The client was already sent this filing confirmation${p.sentAt ? ` on ${fmtDate(p.sentAt)}` : ""}. Send it again?`, confirmLabel: "Resend" }))) return;
     setMarkingPeriodEnd(p.end);
     try {
       await api.post(`/reports/md-filing/${clientId}/send`, { periodEnd: p.end });
@@ -886,7 +887,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     }
   }
 
-  async function handleSendDcConfirmation(p: { end: string }) {
+  async function handleSendDcConfirmation(p: { end: string; sentAt?: string | null }, resend = false) {
+    if (resend && !(await confirmDialog({ title: "Resend confirmation?", message: `The client was already sent this filing confirmation${p.sentAt ? ` on ${fmtDate(p.sentAt)}` : ""}. Send it again?`, confirmLabel: "Resend" }))) return;
     setMarkingPeriodEnd(p.end);
     try {
       await api.post(`/reports/dc-filing/${clientId}/send`, { periodEnd: p.end });
@@ -1004,7 +1006,10 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           ) : p.markedPaidDate ? (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
               {p.sentAt ? (
-                <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                <>
+                  <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendDcConfirmation(p, true)}>{markingPeriodEnd === p.end ? "…" : "Resend"}</button>
+                </>
               ) : (
                 <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendDcConfirmation(p)}>
                   {markingPeriodEnd === p.end ? "…" : "Send"}
@@ -1033,7 +1038,10 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 </button>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                   {p.sentAt ? (
-                    <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                    <>
+                  <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendDcConfirmation(p, true)}>{markingPeriodEnd === p.end ? "…" : "Resend"}</button>
+                </>
                   ) : (
                     <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendDcConfirmation(p)}>
                       {markingPeriodEnd === p.end ? "…" : "Send"}
@@ -1140,7 +1148,10 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           ) : p.markedPaidDate ? (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
               {p.sentAt ? (
-                <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                <>
+                  <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p, true)}>{markingPeriodEnd === p.end ? "…" : "Resend"}</button>
+                </>
               ) : (
                 <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
                   {markingPeriodEnd === p.end ? "…" : "Send"}
@@ -1169,7 +1180,10 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 </button>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                   {p.sentAt ? (
-                    <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                    <>
+                  <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p, true)}>{markingPeriodEnd === p.end ? "…" : "Resend"}</button>
+                </>
                   ) : (
                     <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
                       {markingPeriodEnd === p.end ? "…" : "Send"}
