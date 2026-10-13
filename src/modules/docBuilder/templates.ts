@@ -231,7 +231,7 @@ Thank you,
     description: "Sets out who owns an LLC, how it is run, how profits are shared and how an owner can leave.",
     reviewNote: "Have an attorney review an operating agreement before the members sign it, especially for multi-member LLCs.",
     steps: [
-      { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), state({ id: "formedIn", label: "State where the LLC is formed" } as Partial<Question>), date("formationDate", "Date formed", { required: true }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" })] },
+      { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), state({ id: "formedIn", label: "State where the LLC is formed" } as Partial<Question>), date("formationDate", "Date formed", { required: true }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
       { title: "Members", questions: [list("members", "Members (owners)", [text("name", "Name", { required: true }), text("address", "Address"), money("contribution", "Capital contributed", { required: true }), num("percent", "Ownership %", { required: true })], { required: true, addLabel: "Add a member" })] },
       { title: "How it runs", questions: [
         pick("management", "Who manages the LLC?", [["members", "All members together (member-managed)"], ["manager", "A named manager (manager-managed)"]], { required: true, default: "members" }),
@@ -1407,6 +1407,180 @@ Signature: ______________________________   Date: ______________
 
 BUYER: {{buyer}}
 Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "lease_residential", title: "Residential Lease Agreement", category: REAL_ESTATE,
+    description: "A landlord rents a home or apartment to one or more tenants: term, rent, deposit, rules, repairs and move-out.",
+    reviewNote: "Check current Maryland and local rules before using it: the security deposit may not exceed two months' rent, a late fee may not exceed 5% of the monthly rent, most rental properties need a city or county rental license, and homes built before 1978 have lead-paint registration and disclosure duties. Have an attorney review it.",
+    steps: [
+      { title: "Landlord and tenants", questions: [text("landlord", "Landlord (owner or manager)", { required: true }), text("landlordAddress", "Landlord's address for notices"), text("landlordPhone", "Landlord's phone"),
+        list("tenants", "Tenants who sign the lease", [text("name", "Full name", { required: true })], { required: true, addLabel: "Add a tenant" }), text("occupants", "Other people who will live there (names, optional)"), effective(), state()] },
+      { title: "The home", questions: [text("propertyAddress", "Address (include unit number)", { required: true }), text("county", "County or city", { required: true }),
+        pick("homeType", "Type of home", [["house", "House"], ["apartment", "Apartment"], ["condo", "Condominium"], ["room", "Room in a shared home"]], { required: true, default: "apartment" }),
+        text("licenseNumber", "Rental license / registration number (if required where it is)"), yesno("preYear78", "The home was built before 1978"),
+        area("included", "Appliances and furnishings included", { placeholder: "e.g. Refrigerator, stove, dishwasher, washer and dryer" }), text("parking", "Parking", { placeholder: "e.g. One assigned space" })] },
+      { title: "Term and rent", questions: [
+        pick("termType", "Lease type", [["fixed", "Fixed term (set start and end)"], ["monthly", "Month to month"]], { required: true, default: "fixed" }),
+        date("startDate", "Starts", { required: true }), date("endDate", "Ends", { showIf: { id: "termType", equals: "fixed" }, required: true }),
+        num("noticeDays", "Days' written notice to end a month-to-month tenancy", { showIf: { id: "termType", equals: "monthly" }, default: "60", required: true }),
+        money("rent", "Monthly rent", { required: true }), num("rentDay", "Rent is due on day", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
+        yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true, help: "Maryland caps a residential late fee at 5% of the monthly rent." }),
+        text("payHow", "How rent is paid", { default: "Check, money order or bank transfer to the landlord's address or account" }),
+        money("deposit", "Security deposit", { required: true, help: "Maryland caps the deposit at two months' rent." })] },
+      { title: "Rules", questions: [
+        pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }), text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true }),
+        yesno("pets", "Pets are allowed"), text("petTerms", "Which pets, and any pet fee or deposit", { showIf: { id: "pets", equals: true }, required: true }),
+        yesno("noSmoking", "No smoking anywhere in the home", { default: true }), num("entryHours", "Hours' notice before the landlord enters", { default: "24", required: true }),
+        yesno("subletAllowed", "Tenant may sublet or take roommates only with written consent", { default: true }),
+      ] },
+    ],
+    body: `RESIDENTIAL LEASE AGREEMENT
+
+This Lease is made on {{effectiveDate}} between {{landlord}}{{#if landlordAddress}}, {{landlordAddress}}{{/if}}{{#if landlordPhone}}, phone {{landlordPhone}}{{/if}} ("Landlord"), and the following tenant(s), together "Tenant":
+{{#list tenants}}• {{name}}
+{{/list}}
+1. THE HOME
+Landlord rents to Tenant the {{homeType}} at {{propertyAddress}}, {{county}} (the "Home"){{#if parking}}, with {{parking}}{{/if}}.{{#if included}} Included: {{included}}.{{/if}}{{#if occupants}} Other permitted occupants: {{occupants}}.{{/if}} Only the people named in this Lease may live in the Home.{{#if licenseNumber}} Rental license / registration: {{licenseNumber}}.{{/if}}
+
+2. TERM
+{{#if termType=fixed}}This Lease runs from {{startDate}} to {{endDate}}. It ends on that date unless the parties sign a new lease or extension.{{else}}This tenancy begins on {{startDate}} and continues month to month. Either party may end it by giving at least {{noticeDays}} days' written notice before the end of a rental month.{{/if}}
+
+3. RENT
+Tenant pays {{rent}} per month, due on day {{rentDay}} of each month, by {{payHow}}. {{#if lateFee}}Rent not received within {{graceDays}} days after the due date is subject to a late fee of {{lateFeeAmount}}. {{/if}}Landlord may not charge more than the law allows for late payment.
+
+4. SECURITY DEPOSIT
+Tenant pays a security deposit of {{deposit}}. Landlord holds it as the law requires and returns it, with an itemized list of any deductions for unpaid rent or damage beyond normal wear, within 45 days after the Lease ends and Tenant has moved out and given a forwarding address. Tenant may ask in writing, at least 15 days before moving out, to be present when Landlord inspects the Home. The deposit is not a limit on what Tenant owes.
+
+5. UTILITIES
+{{#if utilities=tenant}}Tenant pays all utilities for the Home.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Home.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
+
+6. USE AND RULES
+Tenant uses the Home only as a private home, obeys the law and any building or association rules, and keeps the Home clean and free of nuisance. {{#if noSmoking}}Smoking is not allowed anywhere in the Home. {{/if}}{{#if pets}}Pets are allowed on these terms: {{petTerms}}. {{else}}No pets are allowed without Landlord's written consent. {{/if}}{{#if subletAllowed}}Tenant may not sublet, assign or take in roommates without Landlord's written consent.{{/if}}
+
+7. REPAIRS AND CONDITION
+Landlord keeps the Home fit to live in and repairs problems Tenant reports in writing, except those caused by Tenant or Tenant's guests. Tenant tells Landlord promptly about leaks, pests, broken heat or other problems, and pays for damage caused by Tenant or guests. Tenant makes no alterations, locks or paint changes without Landlord's written consent.
+
+8. LANDLORD'S ENTRY
+Landlord may enter the Home to inspect, repair or show it after giving at least {{entryHours}} hours' notice, except in an emergency.
+
+{{#if preYear78}}9. LEAD-BASED PAINT
+The Home was built before 1978. Landlord has given Tenant the federal lead-based paint disclosure and the lead hazard pamphlet, and will meet the lead registration, inspection and notice requirements that apply to the Home.
+
+{{/if}}10. INSURANCE AND LIABILITY
+Landlord is not responsible for loss of Tenant's belongings unless caused by Landlord's negligence. Tenant is encouraged to carry renter's insurance.
+
+11. DEFAULT AND ENDING EARLY
+If Tenant does not pay rent when due or breaks another term, Landlord may give the written notice the law requires and then pursue the remedies the law allows, including ending the tenancy through the court. If Tenant leaves early, Tenant remains responsible for rent until the Home is re-rented or the Lease ends, but Landlord will make reasonable efforts to re-rent it.
+
+12. MOVING OUT
+At the end of the tenancy Tenant returns all keys, removes belongings, and leaves the Home clean and in the condition it was in at move-in, normal wear excepted.
+
+13. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by Landlord and Tenant, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above or to the Home. If any part is not enforceable, the rest remains in effect.
+
+LANDLORD: {{landlord}}
+Signature: ______________________________   Date: ______________
+
+{{#list tenants}}TENANT: {{name}}
+Signature: ______________________________   Date: ______________
+
+{{/list}}`,
+  },
+  {
+    key: "lease_commercial", title: "Commercial Lease Agreement", category: REAL_ESTATE,
+    description: "A full commercial lease for a store, office or warehouse: rent and increases, who pays taxes and upkeep, improvements, insurance, default and renewal.",
+    reviewNote: "A commercial lease can bind the parties for years and for large sums. Have an attorney review it before signing — especially the rent type (gross vs. net), personal guarantee, renewal and default sections.",
+    steps: [
+      { title: "Parties", questions: [text("landlord", "Landlord", { required: true }), text("landlordAddress", "Landlord's address for notices"), text("tenant", "Tenant (business name)", { prefill: "clientName", required: true }), text("tenantAddress", "Tenant's address for notices", { prefill: "clientAddress" }), effective(), state()] },
+      { title: "The space and its use", questions: [text("premises", "Address of the space (include suite)", { required: true }), text("county", "County or city", { required: true }), text("size", "Size", { placeholder: "e.g. About 2,400 square feet" }),
+        text("use", "Permitted use", { required: true, placeholder: "e.g. Retail convenience store and deli" }), text("parkingText", "Parking and common areas included", { placeholder: "e.g. Six reserved spaces and shared loading area" }), yesno("signage", "Tenant may install its own sign, subject to law and landlord's approval", { default: true })] },
+      { title: "Term and rent", questions: [
+        date("startDate", "Lease starts", { required: true }), date("endDate", "Lease ends", { required: true }), money("rent", "Monthly base rent", { required: true }), num("rentDay", "Rent due on day", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
+        num("increasePercent", "Rent increases each year by (%, 0 for none)", { default: "3", required: true }),
+        pick("rentType", "Who pays property taxes, insurance and common-area costs?", [["gross", "Landlord pays them (gross lease)"], ["nnn", "Tenant pays its share on top of rent (triple net)"], ["modified", "Shared as listed below (modified gross)"]], { required: true, default: "gross" }),
+        text("costNote", "How costs are shared", { showIf: { id: "rentType", equals: "modified" }, required: true }), num("sharePercent", "Tenant's share of the building's costs (%)", { showIf: { id: "rentType", equals: "nnn" }, default: "100", required: true }),
+        money("deposit", "Security deposit", { required: true }), yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }),
+        yesno("renewal", "Tenant has the option to renew"), text("renewalTerms", "Renewal terms", { showIf: { id: "renewal", equals: true }, required: true, placeholder: "e.g. One 3-year renewal, 6 months' notice, rent at market" }),
+      ] },
+      { title: "Upkeep, insurance, guarantee", questions: [
+        pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }), text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true }),
+        pick("repairs", "Repairs", [["standard", "Landlord: roof, structure and building systems. Tenant: everything inside the space"], ["tenantAll", "Tenant repairs and maintains the whole space"]], { required: true, default: "standard" }),
+        money("liabilityAmount", "Tenant's liability insurance (minimum per occurrence)", { default: "1000000", required: true }),
+        num("holdoverPercent", "Rent if tenant stays past the end date (% of the last rent)", { default: "150", required: true }),
+        yesno("guarantee", "Someone personally guarantees the tenant's obligations"), text("guarantor", "Guarantor's name", { showIf: { id: "guarantee", equals: true }, required: true }),
+        yesno("brokerUsed", "A real-estate broker was involved"), text("brokerName", "Broker / brokerage and who pays the commission", { showIf: { id: "brokerUsed", equals: true } }),
+      ] },
+    ],
+    body: `COMMERCIAL LEASE AGREEMENT
+
+This Lease is made on {{effectiveDate}} between {{landlord}}{{#if landlordAddress}}, {{landlordAddress}}{{/if}} ("Landlord") and {{tenant}}{{#if tenantAddress}}, {{tenantAddress}}{{/if}} ("Tenant").
+
+1. PREMISES
+Landlord leases to Tenant the space at {{premises}}, {{county}}{{#if size}} ({{size}}){{/if}} (the "Premises"){{#if parkingText}}, together with {{parkingText}}{{/if}}.
+
+2. USE
+Tenant will use the Premises only for {{use}}, in compliance with all laws and with every license and permit the use requires, and will not create a nuisance or a hazard.{{#if signage}} Tenant may install a sign with Landlord's written approval, which will not be unreasonably withheld, at Tenant's cost and in compliance with local law; Tenant removes it and repairs any damage at the end of the Lease.{{/if}}
+
+3. TERM
+The Lease runs from {{startDate}} to {{endDate}}.{{#if renewal}} Renewal: {{renewalTerms}}.{{/if}}
+
+4. RENT
+Tenant pays base rent of {{rent}} per month, due on day {{rentDay}} of each month. {{#if increasePercent}}Each year on the anniversary of the start date, base rent increases by {{increasePercent}}% of the rent in effect. {{/if}}Rent not received within {{graceDays}} days after the due date is {{#if lateFee}}subject to a late fee of {{lateFeeAmount}} and {{/if}}late; Landlord may also charge interest at the highest rate the law allows on unpaid amounts.
+
+5. TAXES, INSURANCE AND COMMON-AREA COSTS
+{{#if rentType=gross}}Landlord pays property taxes, building insurance and common-area costs; they are included in the rent.{{/if}}{{#if rentType=nnn}}In addition to base rent, Tenant pays {{sharePercent}}% of the building's property taxes, building insurance and common-area maintenance costs, in monthly estimates adjusted after each year ends. Landlord shows Tenant the records on request.{{/if}}{{#if rentType=modified}}Property taxes, building insurance and common-area costs are shared as follows: {{costNote}}{{/if}}
+
+6. SECURITY DEPOSIT
+Tenant pays a security deposit of {{deposit}}, held by Landlord and returned within 45 days after the Lease ends and Tenant has surrendered the Premises, less amounts needed for unpaid rent or for damage beyond normal wear.
+
+7. UTILITIES
+{{#if utilities=tenant}}Tenant pays all utilities for the Premises.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Premises.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
+
+8. REPAIRS AND MAINTENANCE
+{{#if repairs=standard}}Landlord repairs and maintains the roof, structure, foundation and building systems serving the Premises, except damage caused by Tenant. Tenant keeps the inside of the Premises clean and in good repair, including fixtures, windows, doors and Tenant's equipment.{{else}}Tenant repairs and maintains the entire Premises, including the roof, structure and building systems serving them, except for the cost of replacing major structural elements, which Landlord bears.{{/if}}
+
+9. ALTERATIONS
+Tenant makes no structural changes or alterations without Landlord's written consent. Improvements Tenant makes become Landlord's property at the end of the Lease unless the parties agree otherwise in writing, and Tenant keeps the Premises free of liens for work Tenant orders.
+
+10. INSURANCE AND INDEMNITY
+Tenant carries commercial general liability insurance of at least {{liabilityAmount}} per occurrence, naming Landlord as an additional insured, plus insurance on Tenant's own property, and gives Landlord proof on request. Tenant protects Landlord from claims arising from Tenant's use of the Premises, except those caused by Landlord's negligence.
+
+11. DAMAGE AND CONDEMNATION
+If the Premises are damaged and cannot be used, rent is reduced until they are repaired; if repairs would take more than 120 days, either party may end the Lease by written notice. If a government takes all or a substantial part of the Premises, the Lease ends on the date of the taking.
+
+12. ASSIGNMENT AND SUBLETTING
+Tenant may not assign this Lease or sublet any part of the Premises without Landlord's written consent, which will not be unreasonably withheld. A transfer of control of Tenant counts as an assignment. Tenant stays responsible after an assignment unless Landlord releases it in writing.
+
+13. LANDLORD'S ENTRY
+Landlord may enter the Premises at reasonable times on reasonable notice to inspect, repair or show it to buyers, lenders or new tenants, and at any time in an emergency.
+
+14. DEFAULT AND REMEDIES
+Tenant is in default if it does not pay rent within 10 days after written notice, or breaks another term and does not fix it within 30 days after written notice. Landlord may then end the Lease or Tenant's right to possession, re-enter as the law allows, and recover unpaid rent, damages and reasonable collection and legal costs, giving credit for amounts received from re-renting. Landlord defaults if it does not fix a failure within 30 days after written notice from Tenant.
+
+15. SUBORDINATION AND ESTOPPEL
+This Lease is subject to any mortgage on the building, provided the lender agrees not to disturb Tenant while Tenant is not in default. Within 15 days of a request, each party will confirm in writing the Lease's terms and whether any default exists.
+
+16. END OF LEASE AND HOLDING OVER
+At the end of the Lease Tenant returns the Premises clean and in good condition, normal wear and approved alterations excepted, and removes its own property. If Tenant stays after the end date without a new written lease, rent is {{holdoverPercent}}% of the last monthly rent, prorated by day, and the tenancy continues month to month.
+
+{{#if guarantee}}17. GUARANTEE
+{{guarantor}} personally guarantees that Tenant will pay all rent and perform all obligations under this Lease, and signs below to confirm it. Landlord need not first pursue Tenant before asking the guarantor to pay.
+
+{{/if}}{{#if brokerUsed}}18. BROKER
+{{brokerName}} acted in this Lease. Each party will protect the other from any other broker's claim based on its own dealings.
+
+{{/if}}19. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, binds their heirs, successors and permitted assigns, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above. Time is of the essence. If any part is not enforceable, the rest remains in effect. This Lease may be signed in counterparts, including electronically.
+
+LANDLORD: {{landlord}}
+Signature: ______________________________   Date: ______________
+
+TENANT: {{tenant}}
+Signature: ______________________________   Date: ______________
+{{#if guarantee}}
+GUARANTOR: {{guarantor}}
+Signature: ______________________________   Date: ______________
+{{/if}}`,
   },
 ];
 

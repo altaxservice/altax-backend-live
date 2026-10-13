@@ -30,6 +30,8 @@ const SPEC: Record<string, Spec[]> = {
   workplace_incident_report: [{ role: "Person involved", nameId: "person" }],
   affidavit_general: [{ role: "Affiant", nameId: "affiant" }],
   child_travel_consent: [{ role: "Parent / guardian", nameId: "parent" }, { role: "Second parent / guardian", nameId: "parent2", onlyIf: "secondParent" }],
+  lease_residential: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", listId: "tenants", listNameId: "name" }],
+  lease_commercial: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Guarantor", nameId: "guarantor", onlyIf: "guarantee" }],
   property_sale_residential: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   property_sale_commercial: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
 };
