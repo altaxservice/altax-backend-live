@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Clock, Sparkles, Users, Zap } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
@@ -72,16 +72,44 @@ export function AutoDraftPanel({ onSaved }: { onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function load(d = date) {
-    setDrafts(null);
+  const prevDrafts = useRef<Map<string, Draft>>(new Map());
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  /** keep=true refreshes in place: new work is added and untouched rows are updated, but anything you already edited stays as you left it. */
+  function load(d = date, keep = false) {
+    if (keep) setRefreshing(true); else setDrafts(null);
     api.get<{ drafts: Draft[] }>(`/daily-log/auto-draft?date=${d}`)
       .then((r) => {
         setDrafts(r.drafts);
-        setEdits(Object.fromEntries(r.drafts.map((x) => [x.clientId, { body: x.lines.map((l) => `• ${l}`).join("\n"), minutes: String(x.suggestedMinutes), checked: true }])));
+        const autoBody = (x: Draft) => x.lines.map((l) => `• ${l}`).join("\n");
+        setEdits((cur) => {
+          const next: Record<string, Edit> = {};
+          for (const x of r.drafts) {
+            const old = keep ? cur[x.clientId] : undefined;
+            const was = prevDrafts.current.get(x.clientId);
+            const untouched = old && was && old.body === autoBody(was) && old.minutes === String(was.suggestedMinutes);
+            next[x.clientId] = old && !untouched ? old : { body: autoBody(x), minutes: String(x.suggestedMinutes), checked: old ? old.checked : true };
+          }
+          return next;
+        });
+        prevDrafts.current = new Map(r.drafts.map((x) => [x.clientId, x]));
+        setUpdatedAt(new Date());
+        setError(null);
       })
-      .catch((err) => { setError(err instanceof ApiError ? err.message : "Could not build today's draft."); setDrafts([]); });
+      .catch((err) => { setError(err instanceof ApiError ? err.message : "Could not build today's draft."); if (!keep) setDrafts([]); })
+      .finally(() => setRefreshing(false));
   }
   useEffect(() => { load(date); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [date]);
+  // The draft is built from what you've done so far, so a page left open goes stale: refresh when you come back to the tab and every couple of minutes.
+  useEffect(() => {
+    const again = () => { if (document.visibilityState === "visible" && !saving) load(date, true); };
+    document.addEventListener("visibilitychange", again);
+    window.addEventListener("focus", again);
+    const t = window.setInterval(again, 120000);
+    return () => { document.removeEventListener("visibilitychange", again); window.removeEventListener("focus", again); window.clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, saving]);
 
   const picked = (drafts || []).filter((d) => edits[d.clientId]?.checked);
   async function saveAll() {
@@ -93,7 +121,7 @@ export function AutoDraftPanel({ onSaved }: { onSaved: () => void }) {
       }
       toast(`Saved ${picked.length} log entr${picked.length === 1 ? "y" : "ies"}.`);
       onSaved();
-      load();
+      load(date, true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save the log entries.");
     } finally { setSaving(false); }
@@ -114,6 +142,8 @@ export function AutoDraftPanel({ onSaved }: { onSaved: () => void }) {
         <button type="button" className={`tpl-chip${date === today ? " on" : ""}`} onClick={() => setDate(today)}>Today</button>
         <button type="button" className={`tpl-chip${date === yesterday ? " on" : ""}`} onClick={() => setDate(yesterday)}>Yesterday</button>
         <div style={{ width: 150 }}><DateInput value={date} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Pick a day" /></div>
+        <button type="button" className="btn btn-sm" disabled={refreshing || saving} onClick={() => load(date, true)}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+        {updatedAt && <span className="muted" style={{ fontSize: 12 }}>Updated {updatedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
         <button type="button" className="btn btn-primary" style={{ marginLeft: "auto" }} disabled={saving || picked.length === 0} onClick={saveAll}>
           {saving ? "Saving…" : `Save ${picked.length} to my log`}
         </button>
