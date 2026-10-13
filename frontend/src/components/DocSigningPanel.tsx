@@ -37,15 +37,22 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
   useEffect(load, [docId]); // eslint-disable-line react-hooks/exhaustive-deps
   const setRow = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
-  async function send() {
+  /** signNow = index of the person who signs right now on this device: their link isn't messaged, it opens straight away. */
+  async function send(signNow?: number) {
+    // Open the tab inside the click so the browser doesn't block it; it is pointed at the signing page once the link exists.
+    const tab = signNow !== undefined ? window.open("", "_blank") : null;
     setBusy(true); setError(null);
     try {
-      const r = await api.post<{ results: { signerId: string; emailed: boolean; texted: boolean; error: string | null }[] }>(`/doc-builder/docs/${docId}/signing/send`, { signers: rows });
+      const list = rows.map((r, i) => (i === signNow ? { ...r, delivery: "link" as const } : r));
+      const r = await api.post<{ results: { signerId: string; emailed: boolean; texted: boolean; error: string | null }[] }>(`/doc-builder/docs/${docId}/signing/send`, { signers: list });
       const failed = r.results.filter((x) => x.error);
-      toast(failed.length ? `Sent, but ${failed.length} message(s) could not be delivered — copy their links below.` : "Sent for signature.");
+      const fresh = await api.get<Info>(`/doc-builder/docs/${docId}/signing`);
+      if (tab && signNow !== undefined) { const link = fresh.signers[signNow]?.link; if (link) tab.location.href = link; else tab.close(); }
+      toast(signNow !== undefined ? "Opened the signing page." : failed.length ? `Sent, but ${failed.length} message(s) could not be delivered — copy their links below.` : "Sent for signature.");
       load(); onChanged?.();
-    } catch (e) { setError(e instanceof ApiError ? e.message : "Could not send for signature."); } finally { setBusy(false); }
+    } catch (e) { tab?.close(); setError(e instanceof ApiError ? e.message : "Could not send for signature."); } finally { setBusy(false); }
   }
+  const addMyself = () => setRows((rs) => [...rs, { role: "Firm representative", name: user?.name || "", email: user?.email || "", phone: "", delivery: "link" }]);
   async function remind(signerId?: string) {
     setBusy(true);
     try { const r = await api.post<{ reminded: number; skipped: string[] }>(`/doc-builder/docs/${docId}/signing/remind`, { signerId }); toast(r.reminded ? `Reminder sent to ${r.reminded}.` : "Nobody to remind (a reminder was already sent in the last hour, or the link was shared by hand)."); load(); }
@@ -77,6 +84,12 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
 
         {(!sent || !info.locked) && !done && (
           <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <b style={{ fontSize: 13 }}>Who needs to sign?</b>
+              <button type="button" className="btn btn-sm" onClick={addMyself}>+ Add myself</button>
+              <button type="button" className="btn btn-sm" onClick={() => setRows([...rows, { role: "Signer", name: "", email: "", phone: "", delivery: "email" }])}>+ Add another person</button>
+              <span className="muted" style={{ fontSize: 12 }}>To sign yourself right now, add yourself and press <b>Sign now</b>.</span>
+            </div>
             {rows.map((r, i) => (
               <div key={i} className="card" style={{ padding: "10px 12px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, alignItems: "end" }}>
                 <div className="field" style={{ margin: 0 }}><label>Role</label><input value={r.role} onChange={(e) => setRow(i, { role: e.target.value })} /></div>
@@ -87,12 +100,14 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
                   <select value={r.delivery} onChange={(e) => setRow(i, { delivery: e.target.value as Row["delivery"] })}>
                     <option value="email">Email</option><option value="sms">Text message</option><option value="both">Email + text</option><option value="link">Don't send — I'll share the link</option>
                   </select></div>
-                <button type="button" className="btn btn-sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={busy || !r.name.trim()} onClick={() => send(i)} title="Sign this one now on this device — the others still get their links">Sign now</button>
+                  <button type="button" className="btn btn-sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
+                </div>
               </div>
             ))}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="btn btn-sm" onClick={() => setRows([...rows, { role: "Signer", name: "", email: "", phone: "", delivery: "email" }])}>+ Add a person</button>
-              <button type="button" className="btn btn-primary" disabled={busy || rows.length === 0} onClick={send}><Send size={14} aria-hidden="true" /> {sent ? "Save & send again" : "Send for signature"}</button>
+              <button type="button" className="btn btn-primary" disabled={busy || rows.length === 0} onClick={() => send()}><Send size={14} aria-hidden="true" /> {sent ? "Save & send again" : "Send for signature"}</button>
             </div>
             <div className="muted" style={{ fontSize: 12 }}>Everyone gets their own private link and can read the whole document before signing. Text messages go only to the numbers you enter here.</div>
           </div>
