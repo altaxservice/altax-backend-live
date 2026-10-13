@@ -9,7 +9,7 @@ import { printText } from "../utils/printDocument";
 interface Signer { signerId: string; role: string; name: string; email: string | null; phone: string | null; delivery: string; status: string; sentAt: string | null; viewedAt: string | null; signedAt: string | null; declinedAt: string | null; declineReason: string | null; reminders: number; link: string | null }
 interface Info {
   doc: { docId: string; title: string; clientName: string; contractId: string; status: string; lang: string; body: string };
-  signers: Signer[]; suggestions: { role: string; name: string }[]; needsNotary: boolean; locked: boolean;
+  signers: Signer[]; suggestions: { role: string; name: string }[]; needsNotary: boolean; locked: boolean; file: { name: string; pages: number | null } | null;
 }
 interface Row { role: string; name: string; email: string; phone: string; delivery: "email" | "sms" | "both" | "link" }
 
@@ -135,6 +135,7 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
           {waiting.length > 1 && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => remind()}>Remind everyone waiting</button>}
           {sent && !done && <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={cancel}>Cancel signing request</button>}
           {sent && <button type="button" className="btn btn-sm" onClick={() => viewFile(`/doc-builder/docs/${docId}/signed-pdf`)}>{done ? "Signed copy (PDF)" : "Current copy (PDF)"}</button>}
+          {info.file && <button type="button" className="btn btn-sm" onClick={() => viewFile(`/doc-builder/docs/${docId}/file`)}>View the uploaded PDF{info.file.pages ? ` (${info.file.pages} pages)` : ""}</button>}
           {sent && info.doc.lang !== "en" && <button type="button" className="btn btn-sm" onClick={() => printText(info.doc.title, info.doc.body)}>Print / Save as PDF (Arabic text)</button>}
         </div>
         {info.doc.lang !== "en" && <div className="muted" style={{ fontSize: 12 }}>For Arabic and bilingual documents, the PDF above shows the signatures but leaves out the Arabic paragraphs — signers read the full Arabic text on their signing page, and "Print / Save as PDF" prints it.</div>}

@@ -1,11 +1,14 @@
 import { Router, Request, Response } from "express";
-import { randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
+import { PDFDocument } from "pdf-lib";
 import { query, queryOne, withTransaction } from "../../config/db";
 import { AuthedRequest } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { rateLimit } from "../../common/rateLimit";
+import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
+import { scanFileForMalware } from "../../common/malwareScan";
 import { sendEmail, sendSms } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { escapeHtml } from "../../common/html";
@@ -21,6 +24,17 @@ import { suggestSigners, NEEDS_NOTARY } from "./signerSpec";
  */
 const newId = (p: string) => `${p}-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
 const iso = (v: unknown) => (v ? new Date(v as string).toISOString() : null);
+
+
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+
+/** The original PDF for an uploaded document, or null when the document was built from a template. */
+async function loadOriginalPdf(docId: string): Promise<{ bytes: Buffer; name: string; pages: number; sha256: string } | null> {
+  const f = await queryOne<any>(`SELECT * FROM altax.v3_esign_files WHERE doc_id = $1`, [docId]);
+  if (!f) return null;
+  const b64 = await readUploadBlob(`ESIGN-${docId}`, f.file_data, f.blob_backend);
+  return { bytes: Buffer.from(b64, "base64"), name: f.file_name, pages: f.page_count, sha256: f.sha256 };
+}
 
 async function loadDoc(req: AuthedRequest, res: Response, docId: string) {
   const doc = await queryOne<any>(
@@ -81,13 +95,80 @@ export function registerSigningRoutes(router: Router) {
     const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
     const tpl = getDocTemplate(doc.template_key);
     const { _lang, ...answers } = (doc.answers || {}) as Record<string, any>;
+    const uploaded = doc.template_key === "uploaded";
     res.json({
       doc: { docId: doc.doc_id, title: doc.contract_title, clientId: doc.client_id, clientName: doc.client_name, contractId: doc.contract_id, status: doc.contract_status, lang: _lang || "en", templateKey: doc.template_key, body: doc.rendered_body },
       signers: rows.map((r) => signerView(r, true, base)),
-      suggestions: rows.length ? [] : suggestSigners(doc.template_key, answers),
+      suggestions: rows.length ? [] : uploaded ? [{ role: "Client", name: doc.client_name || "" }] : suggestSigners(doc.template_key, answers),
+      file: uploaded ? { name: answers.fileName || "document.pdf", pages: answers.pages || null } : null,
       needsNotary: NEEDS_NOTARY.has(doc.template_key), templateTitle: tpl?.title || doc.title,
       locked: rows.some((r) => r.status === "Signed" || r.status === "Declined") || doc.contract_status === "Signed" || doc.contract_status === "Void",
     });
+  }));
+
+
+  /** Upload a PDF to be signed (the E-Sign tab). It becomes a draft document for the chosen client, ready to add signers and send. */
+  router.post("/esign/upload", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const clientId = String(req.body?.clientId || "").trim();
+    if (!clientId) return res.status(400).json({ error: "Choose the client this document belongs to." });
+    if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+    const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    if (!client) return res.status(404).json({ error: "Client not found." });
+    const fileName = String(req.body?.fileName || "document.pdf").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 200);
+    const b64 = String(req.body?.fileBase64 || "").replace(/^data:[^,]*,/, "");
+    if (!b64) return res.status(400).json({ error: "Choose a PDF to upload." });
+    const bytes = Buffer.from(b64, "base64");
+    if (bytes.length > MAX_FILE_BYTES) return res.status(400).json({ error: "That file is larger than 8 MB. Reduce its size and try again." });
+    if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") return res.status(400).json({ error: "Only PDF files can be uploaded for signing. Save a Word document as PDF first." });
+    const scan = await scanFileForMalware(bytes, fileName);
+    if (scan.scanned && !scan.clean) return res.status(400).json({ error: "This file was flagged by malware scanning and was not uploaded." });
+    let pages = 0;
+    try { pages = (await PDFDocument.load(bytes)).getPageCount(); }
+    catch { return res.status(400).json({ error: "This PDF could not be read — it may be password-protected or damaged. Remove the password or re-save it, then try again." }); }
+    if (pages < 1) return res.status(400).json({ error: "This PDF has no pages." });
+    const title = String(req.body?.title || "").trim().slice(0, 200) || fileName.replace(/\.pdf$/i, "");
+    const sha = createHash("sha256").update(bytes).digest("hex");
+    const docId = newId("DOC"), contractId = newId("CT");
+    const blob = await writeUploadBlob(`ESIGN-${docId}`, bytes.toString("base64"));
+    await query(`INSERT INTO altax.v3_client_contracts (contract_id, client_id, service_key, title, rendered_body, status, created_by) VALUES ($1,$2,'doc_upload',$3,$4,'Draft',$5)`,
+      [contractId, clientId, title, `Uploaded document: ${fileName} (${pages} page${pages === 1 ? "" : "s"}).`, req.user!.email]);
+    await query(`INSERT INTO altax.v3_doc_builder_docs (doc_id, client_id, template_key, title, answers, contract_id, created_by) VALUES ($1,$2,'uploaded',$3,$4,$5,$6)`,
+      [docId, clientId, title, JSON.stringify({ fileName, pages, sha256: sha, _lang: "en" }), contractId, req.user!.email]);
+    await query(`INSERT INTO altax.v3_esign_files (doc_id, file_name, size_bytes, page_count, sha256, file_data, blob_backend, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [docId, fileName, bytes.length, pages, sha, blob.fileData, blob.blobBackend, req.user!.email]);
+    await logAudit("Contracts", "ESIGN_UPLOAD", contractId, "file", "", fileName, `"${title}" (${fileName}, ${pages} pages) uploaded for e-signature for ${client.client_name} by ${req.user!.email}.`, req.user!.email);
+    res.status(201).json({ ok: true, docId, contractId, pages });
+  }));
+
+  /** The original uploaded PDF, for staff. */
+  router.get("/docs/:docId/file", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const doc = await loadDoc(req, res, req.params.docId); if (!doc) return;
+    const f = await loadOriginalPdf(doc.doc_id);
+    if (!f) return res.status(404).json({ error: "This document has no uploaded file." });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${f.name.replace(/"/g, "")}"`);
+    res.send(f.bytes);
+  }));
+
+  /** Everything out for signature or finished — documents built from templates and uploaded PDFs together — for the E-Sign tab. */
+  router.get("/esign/list", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const status = String(req.query.status || "all");
+    const rows = await query<any>(
+      `SELECT d.doc_id, d.title, d.template_key, d.client_id, cl.client_name, c.status, c.created_at, c.sent_at, c.signed_at, d.created_by,
+              (SELECT count(*) FROM altax.v3_doc_signers s WHERE s.doc_id = d.doc_id AND s.status <> 'Cancelled') AS total,
+              (SELECT count(*) FROM altax.v3_doc_signers s WHERE s.doc_id = d.doc_id AND s.status = 'Signed') AS signed,
+              (SELECT count(*) FROM altax.v3_doc_signers s WHERE s.doc_id = d.doc_id AND s.status = 'Declined') AS declined
+         FROM altax.v3_doc_builder_docs d JOIN altax.v3_client_contracts c ON c.contract_id = d.contract_id LEFT JOIN altax.v3_clients cl ON cl.client_id = d.client_id
+        WHERE c.status <> 'Void' ${status === "waiting" ? "AND c.status = 'Sent'" : status === "completed" ? "AND c.status = 'Signed'" : status === "draft" ? "AND c.status = 'Draft'" : ""}
+        ORDER BY GREATEST(c.updated_at, c.created_at) DESC LIMIT 300`);
+    const allowed = new Map<string, boolean>();
+    const out: any[] = [];
+    for (const r of rows) {
+      if (!allowed.has(r.client_id)) allowed.set(r.client_id, await canAccessClient(req.user!, r.client_id));
+      if (!allowed.get(r.client_id)) continue;
+      out.push({ docId: r.doc_id, title: r.title, uploaded: r.template_key === "uploaded", clientId: r.client_id, clientName: r.client_name, status: r.status, createdAt: iso(r.created_at), sentAt: iso(r.sent_at), signedAt: iso(r.signed_at), createdBy: r.created_by, total: Number(r.total), signed: Number(r.signed), declined: Number(r.declined) });
+    }
+    res.json({ docs: out });
   }));
 
   router.post("/docs/:docId/signing/send", asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -166,11 +247,23 @@ async function buildSignedPdf(contractId: string): Promise<Uint8Array | null> {
   const c = await queryOne<any>(`SELECT c.*, cl.client_name FROM altax.v3_client_contracts c LEFT JOIN altax.v3_clients cl ON cl.client_id = c.client_id WHERE c.contract_id = $1`, [contractId]);
   if (!c) return null;
   const signers = await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [contractId]);
-  return generateContractPdf({
-    contractId: c.contract_id, title: c.title, clientName: c.client_name || "", clientId: c.client_id, renderedBody: c.rendered_body, effectiveDate: c.effective_date, status: c.status,
+  // An uploaded PDF is kept exactly as it was received; the signatures go on a certificate page added after its last page.
+  const docRow = await queryOne<any>(`SELECT doc_id FROM altax.v3_doc_builder_docs WHERE contract_id = $1`, [contractId]);
+  const original = docRow ? await loadOriginalPdf(docRow.doc_id) : null;
+  const certBody = original ? `Signature page for the attached document "${original.name}" (${original.pages} page${original.pages === 1 ? "" : "s"}).\n\nDocument fingerprint (SHA-256), so any later change to the pages above can be detected:\n${original.sha256}` : null;
+  const cert = await generateContractPdf({
+    contractId: c.contract_id, title: c.title, clientName: c.client_name || "", clientId: c.client_id, renderedBody: certBody ?? c.rendered_body, effectiveDate: c.effective_date, status: c.status,
     signerName: null, signerTitle: null, signedAt: c.signed_at, signerIp: null, signatureMethod: "Online", recordedBy: null, headerLabel: "DOCUMENT",
     signers: signers.map((s) => ({ role: s.role_label, name: s.signed_name || s.signer_name, status: s.status, signedAt: iso(s.signed_at), ip: s.signer_ip, image: s.signature_image })),
   });
+  if (!original) return cert;
+  const merged = await PDFDocument.create();
+  const src = await PDFDocument.load(original.bytes);
+  (await merged.copyPages(src, src.getPageIndices())).forEach((p) => merged.addPage(p));
+  const certDoc = await PDFDocument.load(cert);
+  (await merged.copyPages(certDoc, certDoc.getPageIndices())).forEach((p) => merged.addPage(p));
+  merged.setTitle(c.title);
+  return merged.save();
 }
 
 /* ───────────── Public side: what a signer sees and does with their private link ───────────── */
@@ -193,7 +286,9 @@ publicSignRouter.get("/:token", signLimiter, asyncHandler(async (req: Request, r
   if (s.status === "Sent") await query(`UPDATE altax.v3_doc_signers SET status = 'Viewed', viewed_at = now() WHERE signer_id = $1 AND status = 'Sent'`, [s.signer_id]);
   const others = await query<any>(`SELECT signer_id, role_label, signer_name, status, signed_at FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [s.contract_id]);
   const firm = await getFirmProfile();
+  const upload = await queryOne<any>(`SELECT f.file_name, f.page_count FROM altax.v3_esign_files f JOIN altax.v3_doc_builder_docs d ON d.doc_id = f.doc_id WHERE d.contract_id = $1`, [s.contract_id]);
   res.json({
+    file: upload ? { name: upload.file_name, pages: upload.page_count } : null,
     doc: { title: c.title, body: c.rendered_body, effectiveDate: c.effective_date, clientName: c.client_name || "", status: c.status, firmName: firm.firmName, completed: c.status === "Signed" },
     signer: { name: s.signer_name, role: s.role_label, status: s.status === "Sent" ? "Viewed" : s.status, signedAt: iso(s.signed_at), signedName: s.signed_name },
     others: others.map((o) => ({ role: o.role_label, name: o.signer_name, status: o.status, signedAt: iso(o.signed_at), isYou: o.signer_id === s.signer_id })),
@@ -263,6 +358,18 @@ publicSignRouter.post("/:token/decline", signLimiter, asyncHandler(async (req: R
     if (creator) await sendEmail({ to: creator, subject: `Declined: ${c.title}`, html: await wrapEmailHtml(`<p>${escapeHtml(s.signer_name)} (${escapeHtml(s.role_label)}) declined to sign <strong>${escapeHtml(c.title)}</strong>.${reason ? ` Reason: ${escapeHtml(reason)}` : ""}</p>`) });
   } catch { /* ignore */ }
   res.json({ ok: true });
+}));
+
+publicSignRouter.get("/:token/file", signLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const f = await findSigner(req.params.token);
+  if (!f) return res.status(404).json({ error: "This link is invalid or has expired." });
+  if (f.c.status === "Void" || f.s.status === "Cancelled") return res.status(410).json({ error: "This document is no longer available." });
+  const d = await queryOne<any>(`SELECT doc_id FROM altax.v3_doc_builder_docs WHERE contract_id = $1`, [f.s.contract_id]);
+  const orig = d ? await loadOriginalPdf(d.doc_id) : null;
+  if (!orig) return res.status(404).json({ error: "No file." });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${orig.name.replace(/"/g, "")}"`);
+  res.send(orig.bytes);
 }));
 
 publicSignRouter.get("/:token/pdf", signLimiter, asyncHandler(async (req: Request, res: Response) => {

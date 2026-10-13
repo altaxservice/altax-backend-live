@@ -7,6 +7,7 @@ import { PublicPageShell } from "../components/PublicPageShell";
 
 interface Other { role: string; name: string; status: string; signedAt: string | null; isYou: boolean }
 interface Data {
+  file?: { name: string; pages: number } | null;
   doc: { title: string; body: string; effectiveDate: string | null; clientName: string; status: string; firmName: string; completed: boolean };
   signer: { name: string; role: string; status: string; signedAt: string | null; signedName: string | null };
   others: Other[];
@@ -86,8 +87,15 @@ export function PublicSignPage() {
 
         {doc.completed && <div className="tender-warn" style={{ background: "var(--green-soft, #e8f6ee)" }}>✓ Everyone has signed this document. You can view, print or save the signed copy below.</div>}
 
-        <div className="command-panel"><div className="command-panel-header"><h2 className="command-panel-title">Read the document</h2></div>
-          <div style={{ padding: 16, maxHeight: "60vh", overflow: "auto", font: "14px/1.6 Georgia, 'Times New Roman', 'Geeza Pro', serif", background: "var(--paper, #fff)" }}><ContractBodyText text={doc.body} /></div>
+        <div className="command-panel"><div className="command-panel-header"><h2 className="command-panel-title">Read the document before you sign</h2></div>
+          {data.file ? (
+            <div style={{ padding: 12, display: "grid", gap: 8 }}>
+              <iframe title={data.file.name} src={resolveFileUrl(`/public/signatures/${token}/file`)} style={{ width: "100%", height: "70vh", border: "1px solid var(--line, #ddd)", borderRadius: 6, background: "#fff" }} />
+              <a href={resolveFileUrl(`/public/signatures/${token}/file`)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>Open the document in its own tab ({data.file.name}, {data.file.pages} page{data.file.pages === 1 ? "" : "s"}) — easier to read on a phone</a>
+            </div>
+          ) : (
+            <div style={{ padding: 16, maxHeight: "60vh", overflow: "auto", font: "14px/1.6 Georgia, 'Times New Roman', 'Geeza Pro', serif", background: "var(--paper, #fff)" }}><ContractBodyText text={doc.body} /></div>
+          )}
         </div>
 
         <div className="command-panel"><div className="command-panel-header"><h2 className="command-panel-title">Who has signed</h2></div>

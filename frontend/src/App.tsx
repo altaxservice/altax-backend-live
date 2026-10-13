@@ -20,6 +20,7 @@ import { TasksListPage } from "./pages/TasksListPage";
 import { NotesPage } from "./pages/NotesPage";
 import { DailyLogPage } from "./pages/DailyLogPage";
 import { DocumentBuilderPage } from "./pages/DocumentBuilderPage";
+import { ESignPage } from "./pages/ESignPage";
 import { PublicSignPage } from "./pages/PublicSignPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { DocumentsListPage } from "./pages/DocumentsListPage";
@@ -171,6 +172,7 @@ function App() {
                 <Route path="/notes" element={<NotesPage />} />
                 <Route path="/daily-log" element={<DailyLogPage />} />
                 <Route path="/document-builder" element={<DocumentBuilderPage />} />
+                <Route path="/e-sign" element={<ESignPage />} />
                 <Route path="/calendar" element={<TaskCalendarPage />} />
                 <Route path="/time-tracking" element={<TimeTrackingPage />} />
                 <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
