@@ -9,7 +9,7 @@ import { useToast } from "../components/Toast";
 import { DailyLogFormModal } from "../components/DailyLogFormModal";
 import { NoteFormModal } from "../components/NoteFormModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
-import { AutoDraftPanel, DayStats, QuickAddBar } from "../components/DailyLogTools";
+import { AutoDraftPanel, DayStats, QuickAddBar, type DraftedToday } from "../components/DailyLogTools";
 import { exportCsv } from "../components/FilterBar";
 
 interface FirmServiceOption { key: string; label: string }
@@ -95,6 +95,7 @@ export function DailyLogPage() {
   const isAdmin = user?.role === "admin";
 
   const [logs, setLogs] = useState<DailyLogEntry[] | null>(null);
+  const [drafted, setDrafted] = useState<DraftedToday | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [serviceOptions, setServiceOptions] = useState<FirmServiceOption[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -171,8 +172,8 @@ export function DailyLogPage() {
 
   return (
     <div style={{ padding: 20 }}>
-      <DayStats logs={logs || []} me={(user?.email || "").toLowerCase()} />
-      <AutoDraftPanel onSaved={load} />
+      <DayStats logs={logs || []} me={(user?.email || "").toLowerCase()} drafted={drafted} />
+      <AutoDraftPanel onSaved={load} onDraftChange={setDrafted} />
       <div className="command-panel">
         <div className="command-panel-header">
           <h2 className="command-panel-title">Daily Log</h2>

@@ -11,7 +11,8 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 const fmtMins = (m: number) => { const h = Math.floor(m / 60), r = m % 60; return h && r ? `${h}h ${r}m` : h ? `${h}h` : `${r}m`; };
 
 /** Four numbers that answer "how is my logging going": time today, entries today, clients touched, time this week — plus time per client for the week. */
-export function DayStats({ logs, me }: { logs: LogLite[]; me: string }) {
+export interface DraftedToday { mins: number; clients: number; entries: number; clientIds: string[] }
+export function DayStats({ logs, me, drafted }: { logs: LogLite[]; me: string; drafted?: DraftedToday | null }) {
   const stats = useMemo(() => {
     const mine = logs.filter((l) => l.authorEmail.toLowerCase() === me);
     const today = dayKey(new Date());
@@ -28,6 +29,11 @@ export function DayStats({ logs, me }: { logs: LogLite[]; me: string }) {
     };
   }, [logs, me]);
   const max = Math.max(1, ...stats.top.map((t) => t.mins));
+  // Work the app has already drafted for today (not saved yet) counts too — otherwise the boxes read 0 until you press Save.
+  const d = drafted || { mins: 0, clients: 0, entries: 0, clientIds: [] };
+  const savedClientIds = new Set(logs.filter((l) => l.authorEmail.toLowerCase() === me && dayKey(new Date(l.loggedAt)) === dayKey(new Date())).map((l) => l.clientId).filter(Boolean) as string[]);
+  const clientsToday = new Set([...savedClientIds, ...d.clientIds]).size;
+  const draftNote = (saved: string) => (d.entries > 0 ? `${saved} · ${d.entries} drafted, not saved yet` : saved);
   const tile = (Icon: typeof Clock, label: string, value: string, note: string) => (
     <div className="card" style={{ padding: "12px 16px", display: "flex", gap: 12, alignItems: "center" }}>
       <span className="act-icon act-tone-teal"><Icon size={18} aria-hidden="true" /></span>
@@ -37,9 +43,9 @@ export function DayStats({ logs, me }: { logs: LogLite[]; me: string }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
-        {tile(Clock, "Time logged today", fmtMins(stats.todayMins), `${stats.todayCount} entr${stats.todayCount === 1 ? "y" : "ies"}`)}
-        {tile(Users, "Clients today", String(stats.todayClients), "worked on")}
-        {tile(Zap, "Last 7 days", fmtMins(stats.weekMins), `${stats.weekCount} entries`)}
+        {tile(Clock, "Time logged today", fmtMins(stats.todayMins + d.mins), draftNote(`${stats.todayCount} saved`))}
+        {tile(Users, "Clients today", String(clientsToday), "worked on")}
+        {tile(Zap, "Last 7 days", fmtMins(stats.weekMins + d.mins), draftNote(`${stats.weekCount} saved`))}
       </div>
       {stats.top.length > 0 && (
         <div className="card" style={{ marginTop: 12, padding: "12px 16px" }}>
@@ -64,7 +70,7 @@ interface Edit { body: string; minutes: string; checked: boolean }
  * "Your day, drafted": everything the app already recorded under your name for a day, grouped per client in plain
  * English with an estimated time, ready to save into the log in one click. Review, tweak, save — no writing from memory.
  */
-export function AutoDraftPanel({ onSaved }: { onSaved: () => void }) {
+export function AutoDraftPanel({ onSaved, onDraftChange }: { onSaved: () => void; onDraftChange?: (d: DraftedToday | null) => void }) {
   const toast = useToast();
   const [date, setDate] = useState(() => dayKey(new Date()));
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
@@ -81,6 +87,7 @@ export function AutoDraftPanel({ onSaved }: { onSaved: () => void }) {
     if (keep) setRefreshing(true); else setDrafts(null);
     api.get<{ drafts: Draft[] }>(`/daily-log/auto-draft?date=${d}`)
       .then((r) => {
+        r.drafts.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime()); // latest activity on top
         setDrafts(r.drafts);
         const autoBody = (x: Draft) => x.lines.map((l) => `• ${l}`).join("\n");
         setEdits((cur) => {
@@ -112,6 +119,12 @@ export function AutoDraftPanel({ onSaved }: { onSaved: () => void }) {
   }, [date, saving]);
 
   const picked = (drafts || []).filter((d) => edits[d.clientId]?.checked);
+  useEffect(() => {
+    if (!onDraftChange) return;
+    if (!drafts || date !== dayKey(new Date())) { onDraftChange(null); return; }
+    onDraftChange({ mins: picked.reduce((t, d) => t + (Number(edits[d.clientId]?.minutes) || 0), 0), clients: picked.length, entries: picked.length, clientIds: picked.map((d) => d.clientId) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drafts, edits, date]);
   async function saveAll() {
     setSaving(true); setError(null);
     try {
