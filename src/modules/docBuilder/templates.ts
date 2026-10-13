@@ -1253,14 +1253,20 @@ Notary Public: ______________________________   Commission expires: ____________
     reviewNote: "Have a real-estate attorney or title company review this before signing. Maryland sellers of most residential property must give the buyer the state's Residential Property Disclosure or Disclaimer Statement, and homes built before 1978 need the federal lead-paint disclosure — attach them.",
     steps: [
       { title: "Seller and buyer", questions: [text("seller", "Seller(s) — full legal name(s)", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer(s) — full legal name(s)", { required: true }), text("buyerAddress", "Buyer's address"), effective(), state()] },
-      { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), area("legalDescription", "Legal description (from the deed)"),
+      { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), text("idNumbers", "Ward / section / block / lot (Baltimore City) or other property ID"), area("legalDescription", "Legal description (from the deed)"),
         area("included", "Items that stay with the property", { default: "All fixtures and attached items, including built-in appliances, heating and cooling equipment, plumbing and lighting fixtures, window coverings and fencing." }), area("excluded", "Items the seller keeps")] },
       { title: "Price and payment", questions: [money("price", "Purchase price", { required: true }), money("deposit", "Earnest-money deposit", { required: true }), text("depositHolder", "Deposit held by", { required: true, placeholder: "Title company or escrow agent" }),
         pick("financing", "How will the buyer pay?", [["cash", "Cash — no financing"], ["mortgage", "A mortgage loan"], ["seller", "Financing from the seller"]], { required: true, default: "mortgage" }),
         money("loanAmount", "Loan amount", { showIf: { id: "financing", equals: "mortgage" }, required: true }), num("loanDays", "Days for the buyer to get loan approval", { showIf: { id: "financing", equals: "mortgage" }, default: "30", required: true }),
         text("sellerFinanceTerms", "Seller-financing terms", { showIf: { id: "financing", equals: "seller" }, required: true, placeholder: "Amount, interest rate, term, payment schedule" })] },
       { title: "Inspection and closing", questions: [num("inspectionDays", "Days for the buyer to inspect (0 for none)", { default: "10", required: true }), yesno("appraisalContingency", "The sale depends on the property appraising at or above the price"), yesno("saleContingency", "The sale depends on the buyer selling another home"),
-        date("closingDate", "Closing date", { required: true }), date("possessionDate", "Buyer takes possession on", { required: true }), text("titleCompany", "Title company or settlement agent"),
+        pick("closingMode", "Closing happens", [["date", "On a set date"], ["days", "Within a number of days after the buyer's conditions are met"]], { required: true, default: "date" }), date("closingDate", "Closing date", { showIf: { id: "closingMode", equals: "date" }, required: true }), num("closingDays", "Days after the conditions are met", { showIf: { id: "closingMode", equals: "days" }, default: "30", required: true }),
+        pick("deedType", "Deed", [["special", "Special warranty deed"], ["general", "General warranty deed"]], { required: true, default: "special" }),
+        pick("transferTaxes", "Transfer and recordation taxes are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { required: true, default: "split" }),
+        yesno("brokerUsed", "A real-estate agent or broker was used"), text("brokerName", "Agent / brokerage", { showIf: { id: "brokerUsed", equals: true } }), pick("commissionPaidBy", "Commission is paid by", [["seller", "The seller"], ["buyer", "The buyer"], ["split", "Split between them"]], { showIf: { id: "brokerUsed", equals: true }, default: "seller" }),
+        yesno("hoa", "The property is in a homeowners', condominium or similar association"),
+        pick("possession", "Buyer takes possession", [["closing", "At closing"], ["date", "On a set date"]], { required: true, default: "closing" }), date("possessionDate", "Possession date", { showIf: { id: "possession", equals: "date" }, required: true }), text("titleCompany", "Title company or settlement agent"),
+        pick("disclosureType", "Seller's Maryland disclosure", [["disclosure", "Residential Property Disclosure Statement"], ["disclaimer", "Residential Property Disclaimer Statement"], ["exempt", "Not required for this sale"]], { required: true, default: "disclosure" }),
         pick("closingCosts", "Closing costs are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { default: "split", required: true }),
         yesno("preYear78", "The home was built before 1978"), yesno("asIs", "The buyer accepts the property as-is after inspection", { default: false })] },
     ],
@@ -1269,7 +1275,7 @@ Notary Public: ______________________________   Commission expires: ____________
 This Agreement is made on {{effectiveDate}} between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
 
 1. THE PROPERTY
-Seller agrees to sell and Buyer agrees to buy the residential property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
+Seller agrees to sell and Buyer agrees to buy the residential property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}}{{#if idNumbers}}, {{idNumbers}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
 {{legalDescription}}{{/if}}.
 Included: {{included}}
 {{#if excluded}}Excluded: {{excluded}}
@@ -1290,13 +1296,13 @@ This Agreement depends on the Property appraising at or above the purchase price
 This Agreement depends on Buyer selling another property and closing on that sale by the closing date below.
 
 {{/if}}7. TITLE
-At closing Seller delivers a deed conveying good and marketable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
+At closing Seller delivers {{#if deedType=general}}a general warranty deed{{else}}a special warranty deed{{/if}} conveying good and merchantable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
 
 8. CLOSING, POSSESSION AND COSTS
-Closing takes place on {{closingDate}}. Buyer takes possession on {{possessionDate}}, with the Property clean and in the condition it was in at the inspection, normal wear excepted. Closing costs are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}, except that Seller pays any transfer or recordation taxes the law places on the seller. Property taxes, water and sewer charges and any association fees are adjusted as of the closing date.
+Closing takes place {{#if closingMode=date}}on {{closingDate}}{{else}}within {{closingDays}} days after the conditions in this Agreement that protect Buyer have been met or waived{{/if}}. Buyer takes possession {{#if possession=closing}}at closing{{else}}on {{possessionDate}}{{/if}}, with the Property clean and in the condition it was in at the inspection, normal wear excepted. Transfer and recordation taxes are paid {{#if transferTaxes=split}}equally by Buyer and Seller{{/if}}{{#if transferTaxes=buyer}}by Buyer{{/if}}{{#if transferTaxes=seller}}by Seller{{/if}}. All other closing costs, including recording fees, title search and insurance, survey and loan charges, are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}. Property taxes, water and sewer charges and any association fees are adjusted as of the closing date.
 
 9. DISCLOSURES
-Seller will give Buyer the disclosures the law requires for this sale, including the state's residential property disclosure or disclaimer statement.{{#if preYear78}} Because the home was built before 1978, Seller will give Buyer the federal lead-based paint disclosure and the opportunity to test for lead-based paint.{{/if}}
+Seller will give Buyer the disclosures the law requires for this sale. {{#if disclosureType=disclosure}}Seller will deliver the Maryland Residential Property Disclosure Statement, completed to the best of Seller's knowledge.{{/if}}{{#if disclosureType=disclaimer}}Seller will deliver the Maryland Residential Property Disclaimer Statement, stating that Seller makes no representations about the Property's condition and Buyer is relying on Buyer's own inspection.{{/if}}{{#if disclosureType=exempt}}The parties state that no Maryland residential disclosure or disclaimer statement is required for this sale.{{/if}}{{#if preYear78}} Because the home was built before 1978, Seller will give Buyer the federal lead-based paint disclosure and the opportunity to test for lead-based paint.{{/if}}
 
 10. RISK OF LOSS
 Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged before closing, Buyer may cancel and the deposit is returned.
@@ -1304,8 +1310,18 @@ Seller bears the risk of loss or damage to the Property until closing. If the Pr
 11. DEFAULT
 If Buyer defaults, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
 
+{{#if brokerUsed}}0. BROKERS AND COMMISSION
+{{#if brokerName}}{{brokerName}} acted as agent in this sale. {{/if}}The real-estate commission is paid by {{#if commissionPaidBy=seller}}Seller{{/if}}{{#if commissionPaidBy=buyer}}Buyer{{/if}}{{#if commissionPaidBy=split}}Buyer and Seller equally{{/if}} at closing. Each party will protect the other from any other broker's claim based on that party's own dealings.{{else}}0. BROKERS AND COMMISSION
+Each party states that it has not used a real-estate broker or agent in this transaction, and each will protect the other from any commission claim based on that party's own dealings. This promise continues after closing.{{/if}}
+
+{{#if hoa}}0. ASSOCIATION
+The Property is in an association. Seller will give Buyer the association's governing documents, current fees and any resale information the law requires, and Buyer may cancel within the period the law allows after receiving them. Association fees and assessments are adjusted as of the closing date.
+
+{{/if}}0. REPORTING TO THE IRS
+Buyer and Seller will give the settlement agent the information needed to file the report the Internal Revenue Code requires for real-estate sales (Form 1099-S). This promise continues after closing.
+
 12. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above.
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Time is of the essence. This Agreement binds the parties and their heirs, representatives and permitted assigns, and may be signed in counterparts, including electronically, which together form one agreement.
 
 SELLER: {{seller}}
 Signature: ______________________________   Date: ______________
@@ -1319,7 +1335,7 @@ Signature: ______________________________   Date: ______________`,
     reviewNote: "Commercial sales carry large tax, zoning, environmental and lease consequences — have a real-estate attorney review this, and a title company handle the closing.",
     steps: [
       { title: "Seller and buyer", questions: [text("seller", "Seller — full legal name", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer — full legal name", { required: true }), text("buyerAddress", "Buyer's address"), effective(), state()] },
-      { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), area("legalDescription", "Legal description (from the deed)"),
+      { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), text("idNumbers", "Ward / section / block / lot (Baltimore City) or other property ID"), area("legalDescription", "Legal description (from the deed)"),
         text("use", "Current use", { required: true, placeholder: "e.g. Retail store with upstairs apartment" }), text("zoning", "Zoning (if known)"),
         area("included", "Included with the sale", { default: "The land, the building and improvements, fixtures attached to them, and the personal property listed below." }), area("personalProperty", "Equipment, inventory or other personal property included"), area("excluded", "Items the seller keeps")] },
       { title: "Tenants", questions: [yesno("tenants", "Part of the property is leased to tenants"), area("tenantList", "Tenants, rents and lease end dates", { showIf: { id: "tenants", equals: true }, required: true, placeholder: "e.g. Unit A — Corner Deli LLC, $3,200/month, ends June 30, 2028" }), yesno("assumeLeases", "The buyer takes over the existing leases and deposits", { showIf: { id: "tenants", equals: true }, default: true })] },
@@ -1327,14 +1343,19 @@ Signature: ______________________________   Date: ______________`,
         pick("financing", "How will the buyer pay?", [["cash", "Cash — no financing"], ["mortgage", "A commercial loan"], ["seller", "Financing from the seller"]], { required: true, default: "mortgage" }),
         money("loanAmount", "Loan amount", { showIf: { id: "financing", equals: "mortgage" }, required: true }), num("loanDays", "Days to get loan approval", { showIf: { id: "financing", equals: "mortgage" }, default: "45", required: true }), text("sellerFinanceTerms", "Seller-financing terms", { showIf: { id: "financing", equals: "seller" }, required: true }),
         num("dueDiligenceDays", "Due-diligence period (days)", { default: "30", required: true }), yesno("environmental", "Buyer may order an environmental assessment", { default: true }), yesno("exchange1031", "Seller or buyer may complete the sale as part of a 1031 exchange"),
-        date("closingDate", "Closing date", { required: true }), text("titleCompany", "Title company or settlement agent"), pick("closingCosts", "Closing costs are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { default: "split", required: true })] },
+        pick("closingMode", "Closing happens", [["date", "On a set date"], ["days", "Within a number of days after the buyer's conditions are met"]], { required: true, default: "date" }), date("closingDate", "Closing date", { showIf: { id: "closingMode", equals: "date" }, required: true }), num("closingDays", "Days after the conditions are met", { showIf: { id: "closingMode", equals: "days" }, default: "30", required: true }),
+        pick("deedType", "Deed", [["special", "Special warranty deed"], ["general", "General warranty deed"]], { required: true, default: "special" }),
+        pick("transferTaxes", "Transfer and recordation taxes are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { required: true, default: "split" }),
+        yesno("brokerUsed", "A real-estate agent or broker was used"), text("brokerName", "Agent / brokerage", { showIf: { id: "brokerUsed", equals: true } }), pick("commissionPaidBy", "Commission is paid by", [["seller", "The seller"], ["buyer", "The buyer"], ["split", "Split between them"]], { showIf: { id: "brokerUsed", equals: true }, default: "seller" }),
+        yesno("hoa", "The property is in a homeowners', condominium or similar association"),
+        text("titleCompany", "Title company or settlement agent"), pick("closingCosts", "Closing costs are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { default: "split", required: true })] },
     ],
     body: `COMMERCIAL PROPERTY SALE AGREEMENT
 
 This Agreement is made on {{effectiveDate}} between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
 
 1. THE PROPERTY
-Seller agrees to sell and Buyer agrees to buy the commercial property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
+Seller agrees to sell and Buyer agrees to buy the commercial property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}}{{#if idNumbers}}, {{idNumbers}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
 {{legalDescription}}{{/if}}.
 Current use: {{use}}.{{#if zoning}} Zoning: {{zoning}}.{{/if}}
 Included: {{included}}
@@ -1354,13 +1375,13 @@ For {{dueDiligenceDays}} days after signing, Buyer may inspect the Property and 
 The Property is leased to the following tenants: {{tenantList}} Seller states that the leases are in effect, the rents shown are correct, and no tenant is more than 30 days late except as disclosed in writing. {{#if assumeLeases}}At closing Buyer takes over the leases and the security deposits, which Seller transfers or credits to Buyer, and rents and expenses are adjusted as of the closing date.{{else}}Seller will give each tenant the notices the leases and the law require.{{/if}}
 
 {{/if}}6. TITLE AND SURVEY
-At closing Seller delivers a deed conveying good and marketable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
+At closing Seller delivers {{#if deedType=general}}a general warranty deed{{else}}a special warranty deed{{/if}} conveying good and merchantable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
 
 7. SELLER'S STATEMENTS
 Seller states that, to Seller's knowledge, there are no pending lawsuits, condemnation proceedings or unpaid assessments affecting the Property, no violations of law have been received in writing that have not been fixed, and Seller has disclosed all known environmental problems.
 
 8. CLOSING AND COSTS
-Closing takes place on {{closingDate}}, and Buyer takes possession then, free of occupants other than the tenants listed. Closing costs are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}, except that Seller pays any transfer or recordation taxes the law places on the seller. Property taxes, utilities, rents and operating expenses are adjusted as of the closing date.{{#if exchange1031}} Each party will reasonably cooperate if the other wishes to complete the sale as part of a tax-deferred exchange, at no added cost or delay to the cooperating party.{{/if}}
+Closing takes place {{#if closingMode=date}}on {{closingDate}}{{else}}within {{closingDays}} days after due diligence and the other conditions in this Agreement that protect Buyer have been met or waived{{/if}}, and Buyer takes possession then, free of occupants other than the tenants listed. Transfer and recordation taxes are paid {{#if transferTaxes=split}}equally by Buyer and Seller{{/if}}{{#if transferTaxes=buyer}}by Buyer{{/if}}{{#if transferTaxes=seller}}by Seller{{/if}}. All other closing costs, including recording fees, title search and insurance, survey and loan charges, are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}. Property taxes, utilities, rents and operating expenses are adjusted as of the closing date.{{#if exchange1031}} Each party will reasonably cooperate if the other wishes to complete the sale as part of a tax-deferred exchange, at no added cost or delay to the cooperating party.{{/if}}
 
 9. RISK OF LOSS
 Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged or taken before closing, Buyer may cancel and the deposit is returned.
@@ -1368,8 +1389,18 @@ Seller bears the risk of loss or damage to the Property until closing. If the Pr
 10. DEFAULT
 If Buyer defaults, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
 
+{{#if brokerUsed}}0. BROKERS AND COMMISSION
+{{#if brokerName}}{{brokerName}} acted as agent in this sale. {{/if}}The real-estate commission is paid by {{#if commissionPaidBy=seller}}Seller{{/if}}{{#if commissionPaidBy=buyer}}Buyer{{/if}}{{#if commissionPaidBy=split}}Buyer and Seller equally{{/if}} at closing. Each party will protect the other from any other broker's claim based on that party's own dealings.{{else}}0. BROKERS AND COMMISSION
+Each party states that it has not used a real-estate broker or agent in this transaction, and each will protect the other from any commission claim based on that party's own dealings. This promise continues after closing.{{/if}}
+
+{{#if hoa}}0. ASSOCIATION
+The Property is in an association. Seller will give Buyer the association's governing documents, current fees and any resale information the law requires, and Buyer may cancel within the period the law allows after receiving them. Association fees and assessments are adjusted as of the closing date.
+
+{{/if}}0. REPORTING TO THE IRS
+Buyer and Seller will give the settlement agent the information needed to file the report the Internal Revenue Code requires for real-estate sales (Form 1099-S). This promise continues after closing.
+
 11. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Buyer may assign this Agreement only with Seller's written consent.
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Time is of the essence. This Agreement binds the parties and their heirs, representatives and permitted assigns, and may be signed in counterparts, including electronically, which together form one agreement. Buyer may assign this Agreement only with Seller's written consent.
 
 SELLER: {{seller}}
 Signature: ______________________________   Date: ______________
