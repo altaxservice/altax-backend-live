@@ -21,6 +21,7 @@ const BUSINESS = "Business formation & ownership";
 const EMPLOYMENT = "Employment & payroll";
 const LENDING = "Lending, lease & general";
 const FAMILY = "Family & personal";
+const REAL_ESTATE = "Real estate";
 
 export const DOC_TEMPLATES: DocTemplate[] = [
   /* ─────────────── Client services ─────────────── */
@@ -1244,6 +1245,137 @@ Signature: ______________________________   Date: {{effectiveDate}}
 {{/if}}
 Notary (if required): Subscribed and sworn before me on ______________.
 Notary Public: ______________________________   Commission expires: ______________`,
+  },
+  /* ─────────────── Real estate ─────────────── */
+  {
+    key: "property_sale_residential", title: "Residential Property Sale Agreement", category: REAL_ESTATE,
+    description: "A seller and buyer agree on the sale of a home, condo or other residential property: price, deposit, financing, inspection and closing.",
+    reviewNote: "Have a real-estate attorney or title company review this before signing. Maryland sellers of most residential property must give the buyer the state's Residential Property Disclosure or Disclaimer Statement, and homes built before 1978 need the federal lead-paint disclosure — attach them.",
+    steps: [
+      { title: "Seller and buyer", questions: [text("seller", "Seller(s) — full legal name(s)", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer(s) — full legal name(s)", { required: true }), text("buyerAddress", "Buyer's address"), effective(), state()] },
+      { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), area("legalDescription", "Legal description (from the deed)"),
+        area("included", "Items that stay with the property", { default: "All fixtures and attached items, including built-in appliances, heating and cooling equipment, plumbing and lighting fixtures, window coverings and fencing." }), area("excluded", "Items the seller keeps")] },
+      { title: "Price and payment", questions: [money("price", "Purchase price", { required: true }), money("deposit", "Earnest-money deposit", { required: true }), text("depositHolder", "Deposit held by", { required: true, placeholder: "Title company or escrow agent" }),
+        pick("financing", "How will the buyer pay?", [["cash", "Cash — no financing"], ["mortgage", "A mortgage loan"], ["seller", "Financing from the seller"]], { required: true, default: "mortgage" }),
+        money("loanAmount", "Loan amount", { showIf: { id: "financing", equals: "mortgage" }, required: true }), num("loanDays", "Days for the buyer to get loan approval", { showIf: { id: "financing", equals: "mortgage" }, default: "30", required: true }),
+        text("sellerFinanceTerms", "Seller-financing terms", { showIf: { id: "financing", equals: "seller" }, required: true, placeholder: "Amount, interest rate, term, payment schedule" })] },
+      { title: "Inspection and closing", questions: [num("inspectionDays", "Days for the buyer to inspect (0 for none)", { default: "10", required: true }), yesno("appraisalContingency", "The sale depends on the property appraising at or above the price"), yesno("saleContingency", "The sale depends on the buyer selling another home"),
+        date("closingDate", "Closing date", { required: true }), date("possessionDate", "Buyer takes possession on", { required: true }), text("titleCompany", "Title company or settlement agent"),
+        pick("closingCosts", "Closing costs are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { default: "split", required: true }),
+        yesno("preYear78", "The home was built before 1978"), yesno("asIs", "The buyer accepts the property as-is after inspection", { default: false })] },
+    ],
+    body: `RESIDENTIAL PROPERTY SALE AGREEMENT
+
+This Agreement is made on {{effectiveDate}} between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
+
+1. THE PROPERTY
+Seller agrees to sell and Buyer agrees to buy the residential property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
+{{legalDescription}}{{/if}}.
+Included: {{included}}
+{{#if excluded}}Excluded: {{excluded}}
+{{/if}}
+2. PRICE AND DEPOSIT
+The purchase price is {{price}}. Buyer pays an earnest-money deposit of {{deposit}} to be held by {{depositHolder}} and credited to the price at closing. The balance is paid at closing in certified funds or by wire transfer.
+
+3. FINANCING
+{{#if financing=cash}}Buyer is paying cash. This Agreement does not depend on any loan, and Buyer will show proof of funds within 5 days of signing.{{/if}}{{#if financing=mortgage}}Buyer will apply for a mortgage loan of {{loanAmount}} and will pursue it in good faith. If Buyer cannot obtain loan approval within {{loanDays}} days after signing, despite good-faith effort, Buyer may cancel by written notice and the deposit is returned.{{/if}}{{#if financing=seller}}Seller will finance part of the price on these terms: {{sellerFinanceTerms}} The terms will be put in a promissory note and a mortgage or deed of trust signed at closing.{{/if}}
+
+4. INSPECTION AND CONDITION
+{{#if inspectionDays}}Buyer may have the Property inspected within {{inspectionDays}} days after signing. If the inspection shows a problem Buyer is not willing to accept, Buyer may cancel by written notice within that period and the deposit is returned, or the parties may agree in writing on repairs or a price change. If Buyer does not cancel in time, Buyer accepts the Property's condition.{{else}}Buyer has chosen not to inspect before closing.{{/if}} {{#if asIs}}The Property is sold as-is, without warranty as to its condition, except as stated in this Agreement and required by law.{{/if}}
+
+{{#if appraisalContingency}}5. APPRAISAL
+This Agreement depends on the Property appraising at or above the purchase price. If it appraises lower, the parties may agree on a lower price; otherwise Buyer may cancel and the deposit is returned.
+
+{{/if}}{{#if saleContingency}}6. BUYER'S OTHER HOME
+This Agreement depends on Buyer selling another property and closing on that sale by the closing date below.
+
+{{/if}}7. TITLE
+At closing Seller delivers a deed conveying good and marketable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
+
+8. CLOSING, POSSESSION AND COSTS
+Closing takes place on {{closingDate}}. Buyer takes possession on {{possessionDate}}, with the Property clean and in the condition it was in at the inspection, normal wear excepted. Closing costs are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}, except that Seller pays any transfer or recordation taxes the law places on the seller. Property taxes, water and sewer charges and any association fees are adjusted as of the closing date.
+
+9. DISCLOSURES
+Seller will give Buyer the disclosures the law requires for this sale, including the state's residential property disclosure or disclaimer statement.{{#if preYear78}} Because the home was built before 1978, Seller will give Buyer the federal lead-based paint disclosure and the opportunity to test for lead-based paint.{{/if}}
+
+10. RISK OF LOSS
+Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged before closing, Buyer may cancel and the deposit is returned.
+
+11. DEFAULT
+If Buyer defaults, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
+
+12. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above.
+
+SELLER: {{seller}}
+Signature: ______________________________   Date: ______________
+
+BUYER: {{buyer}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "property_sale_commercial", title: "Commercial Property Sale Agreement", category: REAL_ESTATE,
+    description: "A seller and buyer agree on the sale of a commercial building or land: price, due-diligence period, tenants, zoning, environmental and closing.",
+    reviewNote: "Commercial sales carry large tax, zoning, environmental and lease consequences — have a real-estate attorney review this, and a title company handle the closing.",
+    steps: [
+      { title: "Seller and buyer", questions: [text("seller", "Seller — full legal name", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer — full legal name", { required: true }), text("buyerAddress", "Buyer's address"), effective(), state()] },
+      { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), area("legalDescription", "Legal description (from the deed)"),
+        text("use", "Current use", { required: true, placeholder: "e.g. Retail store with upstairs apartment" }), text("zoning", "Zoning (if known)"),
+        area("included", "Included with the sale", { default: "The land, the building and improvements, fixtures attached to them, and the personal property listed below." }), area("personalProperty", "Equipment, inventory or other personal property included"), area("excluded", "Items the seller keeps")] },
+      { title: "Tenants", questions: [yesno("tenants", "Part of the property is leased to tenants"), area("tenantList", "Tenants, rents and lease end dates", { showIf: { id: "tenants", equals: true }, required: true, placeholder: "e.g. Unit A — Corner Deli LLC, $3,200/month, ends June 30, 2028" }), yesno("assumeLeases", "The buyer takes over the existing leases and deposits", { showIf: { id: "tenants", equals: true }, default: true })] },
+      { title: "Price and due diligence", questions: [money("price", "Purchase price", { required: true }), money("deposit", "Earnest-money deposit", { required: true }), text("depositHolder", "Deposit held by", { required: true, placeholder: "Title company or escrow agent" }),
+        pick("financing", "How will the buyer pay?", [["cash", "Cash — no financing"], ["mortgage", "A commercial loan"], ["seller", "Financing from the seller"]], { required: true, default: "mortgage" }),
+        money("loanAmount", "Loan amount", { showIf: { id: "financing", equals: "mortgage" }, required: true }), num("loanDays", "Days to get loan approval", { showIf: { id: "financing", equals: "mortgage" }, default: "45", required: true }), text("sellerFinanceTerms", "Seller-financing terms", { showIf: { id: "financing", equals: "seller" }, required: true }),
+        num("dueDiligenceDays", "Due-diligence period (days)", { default: "30", required: true }), yesno("environmental", "Buyer may order an environmental assessment", { default: true }), yesno("exchange1031", "Seller or buyer may complete the sale as part of a 1031 exchange"),
+        date("closingDate", "Closing date", { required: true }), text("titleCompany", "Title company or settlement agent"), pick("closingCosts", "Closing costs are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { default: "split", required: true })] },
+    ],
+    body: `COMMERCIAL PROPERTY SALE AGREEMENT
+
+This Agreement is made on {{effectiveDate}} between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
+
+1. THE PROPERTY
+Seller agrees to sell and Buyer agrees to buy the commercial property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
+{{legalDescription}}{{/if}}.
+Current use: {{use}}.{{#if zoning}} Zoning: {{zoning}}.{{/if}}
+Included: {{included}}
+{{#if personalProperty}}Personal property included: {{personalProperty}}
+{{/if}}{{#if excluded}}Excluded: {{excluded}}
+{{/if}}
+2. PRICE AND DEPOSIT
+The purchase price is {{price}}. Buyer pays an earnest-money deposit of {{deposit}} to be held by {{depositHolder}} and credited to the price at closing. The balance is paid at closing in certified funds or by wire transfer.
+
+3. FINANCING
+{{#if financing=cash}}Buyer is paying cash. This Agreement does not depend on financing, and Buyer will show proof of funds within 5 days of signing.{{/if}}{{#if financing=mortgage}}Buyer will apply for a commercial loan of {{loanAmount}} and pursue it in good faith. If Buyer cannot obtain loan approval within {{loanDays}} days after signing despite good-faith effort, Buyer may cancel by written notice and the deposit is returned.{{/if}}{{#if financing=seller}}Seller will finance part of the price on these terms: {{sellerFinanceTerms}} The terms will be put in a promissory note and a mortgage or deed of trust signed at closing.{{/if}}
+
+4. DUE DILIGENCE
+For {{dueDiligenceDays}} days after signing, Buyer may inspect the Property and its records, including leases, income and expense statements, permits, surveys and the title commitment. Seller will provide these on request and give Buyer reasonable access. {{#if environmental}}Buyer may order an environmental assessment at Buyer's cost. {{/if}}If Buyer is not satisfied for any reason, Buyer may cancel by written notice before the period ends and the deposit is returned. If Buyer does not cancel in time, Buyer accepts the Property's condition and the deposit becomes at risk under the Default section.
+
+{{#if tenants}}5. TENANTS AND LEASES
+The Property is leased to the following tenants: {{tenantList}} Seller states that the leases are in effect, the rents shown are correct, and no tenant is more than 30 days late except as disclosed in writing. {{#if assumeLeases}}At closing Buyer takes over the leases and the security deposits, which Seller transfers or credits to Buyer, and rents and expenses are adjusted as of the closing date.{{else}}Seller will give each tenant the notices the leases and the law require.{{/if}}
+
+{{/if}}6. TITLE AND SURVEY
+At closing Seller delivers a deed conveying good and marketable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
+
+7. SELLER'S STATEMENTS
+Seller states that, to Seller's knowledge, there are no pending lawsuits, condemnation proceedings or unpaid assessments affecting the Property, no violations of law have been received in writing that have not been fixed, and Seller has disclosed all known environmental problems.
+
+8. CLOSING AND COSTS
+Closing takes place on {{closingDate}}, and Buyer takes possession then, free of occupants other than the tenants listed. Closing costs are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}, except that Seller pays any transfer or recordation taxes the law places on the seller. Property taxes, utilities, rents and operating expenses are adjusted as of the closing date.{{#if exchange1031}} Each party will reasonably cooperate if the other wishes to complete the sale as part of a tax-deferred exchange, at no added cost or delay to the cooperating party.{{/if}}
+
+9. RISK OF LOSS
+Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged or taken before closing, Buyer may cancel and the deposit is returned.
+
+10. DEFAULT
+If Buyer defaults, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
+
+11. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Buyer may assign this Agreement only with Seller's written consent.
+
+SELLER: {{seller}}
+Signature: ______________________________   Date: ______________
+
+BUYER: {{buyer}}
+Signature: ______________________________   Date: ______________`,
   },
 ];
 
