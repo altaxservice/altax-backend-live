@@ -33,11 +33,11 @@ export function ESignPage() {
   useEffect(() => { setRows(null); load(filter); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function upload() {
-    if (!file || !clientId) return;
+    if (!file) return;
     setBusy(true); setError(null);
     try {
       const fileBase64 = await fileToBase64(file);
-      const r = await api.post<{ docId: string; pages: number }>("/doc-builder/esign/upload", { clientId, title: title.trim() || undefined, fileName: file.name, fileBase64 });
+      const r = await api.post<{ docId: string; pages: number }>("/doc-builder/esign/upload", { clientId: clientId || undefined, title: title.trim() || undefined, fileName: file.name, fileBase64 });
       toast(`Uploaded (${r.pages} page${r.pages === 1 ? "" : "s"}). Now choose who signs.`);
       setFile(null); setTitle(""); setOpen(r.docId); load(); window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) { setError(e instanceof ApiError ? e.message : "Could not upload this file."); } finally { setBusy(false); }
@@ -51,12 +51,12 @@ export function ESignPage() {
         <div className="command-panel-header"><div><h2 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><FileUp size={17} aria-hidden="true" /> Send a document for signature</h2>
           <div className="command-panel-note">Upload a PDF, add the people who need to sign (you can add yourself and sign right away), and send each their own link.</div></div></div>
         <div style={{ padding: 16, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", alignItems: "start" }}>
-          <div className="field" style={{ margin: 0 }}><label htmlFor="es-client">Client<span style={{ color: "var(--red)" }}> *</span></label>
-            <select id="es-client" value={clientId} onChange={(e) => setClientId(e.target.value)}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor="es-client">Client <span className="muted">(optional) — signers never need a portal account</span></label>
+            <select id="es-client" value={clientId} onChange={(e) => setClientId(e.target.value)}><option value="">No client — outside parties</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
           <div className="field" style={{ margin: 0 }}><label htmlFor="es-title">Document name <span className="muted">(optional)</span></label><input id="es-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Defaults to the file name" /></div>
           <div style={{ gridColumn: "1 / -1" }}><FileDropInput file={file} onChange={setFile} accept="application/pdf,.pdf" hint="PDF only, up to 8 MB. For a Word document, save it as PDF first." /></div>
           {error && <div className="tender-warn" style={{ gridColumn: "1 / -1", color: "var(--red)" }}>{error}</div>}
-          <div style={{ gridColumn: "1 / -1" }}><button type="button" className="btn btn-primary" disabled={busy || !file || !clientId} onClick={upload}>{busy ? "Uploading…" : "Upload & choose signers"}</button>
+          <div style={{ gridColumn: "1 / -1" }}><button type="button" className="btn btn-primary" disabled={busy || !file} onClick={upload}>{busy ? "Uploading…" : "Upload & choose signers"}</button>
             <span className="muted" style={{ fontSize: 12, marginLeft: 10 }}>Documents made in the <Link to="/document-builder">Document Builder</Link> appear below too.</span></div>
         </div>
       </div>
@@ -74,7 +74,7 @@ export function ESignPage() {
             <tbody>{rows.map((r) => (
               <tr key={r.docId}>
                 <td><b>{r.title}</b><div className="muted" style={{ fontSize: 12 }}>{r.uploaded ? "Uploaded PDF" : "Built in Document Builder"} · {r.createdBy}</div></td>
-                <td>{r.clientName || r.clientId}</td>
+                <td>{r.clientName || r.clientId || <span className="muted">Outside parties</span>}</td>
                 <td>{r.total ? `${r.signed} of ${r.total} signed` : "—"}</td>
                 <td style={{ color: statusColor(r), fontWeight: 700 }}>{statusLabel(r)}</td>
                 <td className="muted">{new Date(r.signedAt || r.sentAt || r.createdAt).toLocaleDateString()}</td>

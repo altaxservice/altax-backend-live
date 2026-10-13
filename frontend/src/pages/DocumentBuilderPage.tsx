@@ -119,9 +119,9 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
             <thead><tr><th scope="col">Document</th><th scope="col">Client</th><th scope="col">Status</th><th scope="col">Built</th><th scope="col"></th></tr></thead>
             <tbody>{recent.map((d) => (
               <tr key={d.docId}>
-                <td>{d.title}</td><td>{d.clientName || d.clientId}</td><td>{d.status || "—"}</td>
+                <td>{d.title}</td><td>{d.clientName || d.clientId || <span className="muted">Outside parties</span>}</td><td>{d.status || "—"}</td>
                 <td className="muted">{new Date(d.createdAt).toLocaleDateString()} · {d.createdBy}</td>
-                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm" onClick={() => { setSigning(d.docId); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Signatures</button> <button type="button" className="btn btn-sm" onClick={() => onPick(`${d.templateKey}?from=${d.docId}`)}>Use again</button> <Link className="btn btn-sm" to={`/clients/${d.clientId}?tab=Contracts`}>Open</Link></td>
+                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm" onClick={() => { setSigning(d.docId); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Signatures</button> <button type="button" className="btn btn-sm" onClick={() => onPick(`${d.templateKey}?from=${d.docId}`)}>Use again</button> {d.clientId && <Link className="btn btn-sm" to={`/clients/${d.clientId}?tab=Contracts`}>Open</Link>}</td>
               </tr>
             ))}</tbody>
           </table></div>
@@ -215,9 +215,9 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
       <div className="command-panel" style={{ maxWidth: 900 }}>
         <div className="command-panel-header"><h2 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><Check size={18} aria-hidden="true" /> Document ready</h2></div>
         <div style={{ padding: 16, display: "grid", gap: 12 }}>
-          <p style={{ margin: 0 }}><b>{tpl.title}</b> was saved to {clients.find((c) => c.client_id === clientId)?.client_name || "the client"}'s file as a draft.</p>
+          <p style={{ margin: 0 }}><b>{tpl.title}</b> was saved {clientId ? `to ${clients.find((c) => c.client_id === clientId)?.client_name || "the client"}'s file as a draft` : "as a draft with no client"}. You can find it again under E-Sign.</p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="btn" onClick={() => navigate(`/clients/${clientId}?tab=Contracts`)}>Open in the client's file</button>
+            {clientId && <button type="button" className="btn" onClick={() => navigate(`/clients/${clientId}?tab=Contracts`)}>Open in the client's file</button>}
             {lang === "en" ? (
               <>
                 <button type="button" className="btn" onClick={() => viewFile(`/contracts/${done.contractId}/pdf`)}>View PDF</button>
@@ -255,9 +255,9 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
           <div style={{ padding: 16 }}>
             {step === 0 && (
               <div className="field">
-                <label htmlFor="db-client">Which client is this for?<span style={{ color: "var(--red)" }}> *</span></label>
+                <label htmlFor="db-client">Which client is this for? <span className="muted">(optional)</span></label>
                 <select id="db-client" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-                  <option value="">Select a client…</option>
+                  <option value="">No client — outside parties</option>
                   {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
                 </select>
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>The client's name, address and contact details fill in automatically where the document asks for them. You can change anything.</div>
@@ -281,10 +281,10 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
                 {preview.missing.length > 0 ? (
                   <div className="tender-warn"><b>Still to fill in:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{preview.missing.slice(0, 8).map((m) => <li key={m}>{m}</li>)}</ul></div>
                 ) : <p style={{ margin: 0 }}><Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: "var(--green)" }} /> Everything is filled in. Read the document on the right, then create it.</p>}
-                {!clientId && <div className="tender-warn">Choose the client in step 1 to save this document to their file.</div>}
+                {!clientId && <div className="muted" style={{ fontSize: 12.5 }}>No client chosen — this document will be saved without a client (you and admins will find it under E-Sign and Recently built).</div>}
                 {err && <div className="tender-warn" style={{ color: "var(--red)" }}>{err}</div>}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button type="button" className="btn btn-primary" disabled={busy || !clientId || preview.missing.length > 0} onClick={create}><FilePlus2 size={14} aria-hidden="true" /> {busy ? "Saving…" : "Create & save to client"}</button>
+                  <button type="button" className="btn btn-primary" disabled={busy || preview.missing.length > 0} onClick={create}><FilePlus2 size={14} aria-hidden="true" /> {busy ? "Saving…" : "Create & save to client"}</button>
                   {lang === "en" ? (
                     <>
                       <button type="button" className="btn" onClick={() => draftPdf(false)}>View PDF</button>

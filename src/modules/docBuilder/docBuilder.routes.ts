@@ -10,6 +10,7 @@ import { decryptClientPii } from "../../common/encryption";
 import { generateContractPdf } from "../contracts/contractPdf";
 import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
+import { canAccessDoc } from "./access";
 import { registerSigningRoutes } from "./esign";
 import { cleanAnswers, docTitle, fmtLongDate, hasArabic, missingAnswers, parseLang, renderDocument, type Answers, type DocLang, type DocTemplate, type PrefillKey } from "./engine";
 
@@ -109,9 +110,9 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
 docBuilderRouter.post("/create", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const p = prep(req, res); if (!p) return;
   const clientId = String(req.body?.clientId || "").trim();
-  if (!clientId) return res.status(400).json({ error: "Choose the client this document is for." });
-  const client = await loadClient(req, res, clientId);
-  if (!client) return;
+  const external = !clientId; // a client is optional — with none, the document is for outside parties
+  const client = external ? null : await loadClient(req, res, clientId);
+  if (!external && !client) return;
   const missing = missingAnswers(p.t, p.answers);
   if (missing.length) return res.status(400).json({ error: `Please fill in: ${missing.slice(0, 6).join("; ")}${missing.length > 6 ? "…" : ""}`, missing });
   const body = renderDocument(p.t, p.answers, p.lang);
@@ -122,14 +123,14 @@ docBuilderRouter.post("/create", asyncHandler(async (req: AuthedRequest, res: Re
   await query(
     `INSERT INTO altax.v3_client_contracts (contract_id, client_id, service_key, title, rendered_body, effective_date, status, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,'Draft',$7)`,
-    [contractId, clientId, `doc_${p.t.key}`, title, body, effective, req.user!.email]
+    [contractId, external ? null : clientId, `doc_${p.t.key}`, title, body, effective, req.user!.email]
   );
   const docId = newId("DOC");
   await query(
     `INSERT INTO altax.v3_doc_builder_docs (doc_id, client_id, template_key, title, answers, contract_id, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [docId, clientId, p.t.key, title, JSON.stringify({ ...p.answers, _lang: p.lang }), contractId, req.user!.email]
+    [docId, external ? null : clientId, p.t.key, title, JSON.stringify({ ...p.answers, _lang: p.lang }), contractId, req.user!.email]
   );
-  await logAudit("Contracts", "DOC_BUILDER_CREATE", contractId, "template", "", p.t.key, `"${title}" built for ${client.client_name} by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Contracts", "DOC_BUILDER_CREATE", contractId, "template", "", p.t.key, `"${title}" built for ${client ? client.client_name : "an outside party (no client)"} by ${req.user!.email}.`, req.user!.email);
   res.status(201).json({ ok: true, docId, contractId });
 }));
 
@@ -140,14 +141,16 @@ docBuilderRouter.get("/history", asyncHandler(async (req: AuthedRequest, res: Re
   if (client === undefined) return;
   const rows = clientId
     ? await query<any>(`SELECT d.doc_id, d.template_key, d.title, d.contract_id, d.created_by, d.created_at, c.status FROM altax.v3_doc_builder_docs d LEFT JOIN altax.v3_client_contracts c ON c.contract_id = d.contract_id WHERE d.client_id = $1 ORDER BY d.created_at DESC LIMIT 100`, [clientId])
-    : await query<any>(`SELECT d.doc_id, d.template_key, d.title, d.contract_id, d.created_by, d.created_at, c.status, d.client_id, cl.client_name FROM altax.v3_doc_builder_docs d LEFT JOIN altax.v3_client_contracts c ON c.contract_id = d.contract_id LEFT JOIN altax.v3_clients cl ON cl.client_id = d.client_id ORDER BY d.created_at DESC LIMIT 50`);
-  res.json({ docs: rows.map((r: any) => ({ docId: r.doc_id, templateKey: r.template_key, title: r.title, contractId: r.contract_id, status: r.status || null, createdBy: r.created_by, createdAt: r.created_at, clientId: r.client_id || clientId, clientName: r.client_name || null })) });
+    : await query<any>(`SELECT d.doc_id, d.template_key, d.title, d.contract_id, d.created_by, d.created_at, c.status, d.client_id, cl.client_name FROM altax.v3_doc_builder_docs d LEFT JOIN altax.v3_client_contracts c ON c.contract_id = d.contract_id LEFT JOIN altax.v3_clients cl ON cl.client_id = d.client_id ORDER BY d.created_at DESC LIMIT 200`);
+  const visible: any[] = [];
+  if (!clientId) { const seen = new Map<string, boolean>(); for (const r of rows) { const k = `${r.client_id || ""}|${r.client_id ? "" : r.created_by}`; if (!seen.has(k)) seen.set(k, await canAccessDoc(req, r.client_id, r.created_by)); if (seen.get(k)) visible.push(r); if (visible.length >= 50) break; } }
+  res.json({ docs: (clientId ? rows : visible).map((r: any) => ({ docId: r.doc_id, templateKey: r.template_key, title: r.title, contractId: r.contract_id, status: r.status || null, createdBy: r.created_by, createdAt: r.created_at, clientId: r.client_id || clientId, clientName: r.client_name || null })) });
 }));
 
 docBuilderRouter.get("/docs/:docId", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const row = await queryOne<any>(`SELECT doc_id, client_id, template_key, title, answers, contract_id FROM altax.v3_doc_builder_docs WHERE doc_id = $1`, [req.params.docId]);
+  const row = await queryOne<any>(`SELECT doc_id, client_id, template_key, title, answers, contract_id, created_by FROM altax.v3_doc_builder_docs WHERE doc_id = $1`, [req.params.docId]);
   if (!row) return res.status(404).json({ error: "Document not found." });
-  if (!(await canAccessClient(req.user!, row.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  if (!(await canAccessDoc(req, row.client_id, row.created_by))) return res.status(403).json({ error: "You do not have access to this document." });
   res.json({ docId: row.doc_id, clientId: row.client_id, templateKey: row.template_key, title: row.title, answers: row.answers, contractId: row.contract_id, fmtDate: fmtLongDate(String(row.answers?.effectiveDate || "")) });
 }));
 

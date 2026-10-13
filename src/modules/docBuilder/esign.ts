@@ -16,6 +16,7 @@ import { getFirmProfile } from "../../common/firmProfile";
 import { generateContractPdf } from "../contracts/contractPdf";
 import { getDocTemplate } from "./templates";
 import { suggestSigners, NEEDS_NOTARY } from "./signerSpec";
+import { canAccessDoc } from "./access";
 
 /**
  * Multi-party e-signing for Document Builder documents. Each signer gets a private link (/public/sign/:token) and signs by typing
@@ -42,7 +43,7 @@ async function loadDoc(req: AuthedRequest, res: Response, docId: string) {
        FROM altax.v3_doc_builder_docs d JOIN altax.v3_client_contracts c ON c.contract_id = d.contract_id LEFT JOIN altax.v3_clients cl ON cl.client_id = d.client_id
       WHERE d.doc_id = $1`, [docId]);
   if (!doc) { res.status(404).json({ error: "Document not found." }); return null; }
-  if (!(await canAccessClient(req.user!, doc.client_id))) { res.status(403).json({ error: "You do not have access to this client." }); return null; }
+  if (!(await canAccessDoc(req, doc.client_id, doc.created_by))) { res.status(403).json({ error: "You do not have access to this document." }); return null; }
   return doc;
 }
 
@@ -99,7 +100,7 @@ export function registerSigningRoutes(router: Router) {
     res.json({
       doc: { docId: doc.doc_id, title: doc.contract_title, clientId: doc.client_id, clientName: doc.client_name, contractId: doc.contract_id, status: doc.contract_status, lang: _lang || "en", templateKey: doc.template_key, body: doc.rendered_body },
       signers: rows.map((r) => signerView(r, true, base)),
-      suggestions: rows.length ? [] : uploaded ? [{ role: "Client", name: doc.client_name || "" }] : suggestSigners(doc.template_key, answers),
+      suggestions: rows.length ? [] : uploaded ? (doc.client_name ? [{ role: "Client", name: doc.client_name }] : []) : suggestSigners(doc.template_key, answers),
       file: uploaded ? { name: answers.fileName || "document.pdf", pages: answers.pages || null } : null,
       needsNotary: NEEDS_NOTARY.has(doc.template_key), templateTitle: tpl?.title || doc.title,
       locked: rows.some((r) => r.status === "Signed" || r.status === "Declined") || doc.contract_status === "Signed" || doc.contract_status === "Void",
@@ -110,10 +111,13 @@ export function registerSigningRoutes(router: Router) {
   /** Upload a PDF to be signed (the E-Sign tab). It becomes a draft document for the chosen client, ready to add signers and send. */
   router.post("/esign/upload", asyncHandler(async (req: AuthedRequest, res: Response) => {
     const clientId = String(req.body?.clientId || "").trim();
-    if (!clientId) return res.status(400).json({ error: "Choose the client this document belongs to." });
-    if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
-    const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-    if (!client) return res.status(404).json({ error: "Client not found." });
+    const external = !clientId; // a client is optional — with none, the document is for outside parties
+    let client: any = null;
+    if (!external) {
+      if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+      client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+      if (!client) return res.status(404).json({ error: "Client not found." });
+    }
     const fileName = String(req.body?.fileName || "document.pdf").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 200);
     const b64 = String(req.body?.fileBase64 || "").replace(/^data:[^,]*,/, "");
     if (!b64) return res.status(400).json({ error: "Choose a PDF to upload." });
@@ -131,12 +135,12 @@ export function registerSigningRoutes(router: Router) {
     const docId = newId("DOC"), contractId = newId("CT");
     const blob = await writeUploadBlob(`ESIGN-${docId}`, bytes.toString("base64"));
     await query(`INSERT INTO altax.v3_client_contracts (contract_id, client_id, service_key, title, rendered_body, status, created_by) VALUES ($1,$2,'doc_upload',$3,$4,'Draft',$5)`,
-      [contractId, clientId, title, `Uploaded document: ${fileName} (${pages} page${pages === 1 ? "" : "s"}).`, req.user!.email]);
+      [contractId, external ? null : clientId, title, `Uploaded document: ${fileName} (${pages} page${pages === 1 ? "" : "s"}).`, req.user!.email]);
     await query(`INSERT INTO altax.v3_doc_builder_docs (doc_id, client_id, template_key, title, answers, contract_id, created_by) VALUES ($1,$2,'uploaded',$3,$4,$5,$6)`,
-      [docId, clientId, title, JSON.stringify({ fileName, pages, sha256: sha, _lang: "en" }), contractId, req.user!.email]);
+      [docId, external ? null : clientId, title, JSON.stringify({ fileName, pages, sha256: sha, _lang: "en" }), contractId, req.user!.email]);
     await query(`INSERT INTO altax.v3_esign_files (doc_id, file_name, size_bytes, page_count, sha256, file_data, blob_backend, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [docId, fileName, bytes.length, pages, sha, blob.fileData, blob.blobBackend, req.user!.email]);
-    await logAudit("Contracts", "ESIGN_UPLOAD", contractId, "file", "", fileName, `"${title}" (${fileName}, ${pages} pages) uploaded for e-signature for ${client.client_name} by ${req.user!.email}.`, req.user!.email);
+    await logAudit("Contracts", "ESIGN_UPLOAD", contractId, "file", "", fileName, `"${title}" (${fileName}, ${pages} pages) uploaded for e-signature for ${client ? client.client_name : "an outside party (no client)"} by ${req.user!.email}.`, req.user!.email);
     res.status(201).json({ ok: true, docId, contractId, pages });
   }));
 
@@ -164,8 +168,9 @@ export function registerSigningRoutes(router: Router) {
     const allowed = new Map<string, boolean>();
     const out: any[] = [];
     for (const r of rows) {
-      if (!allowed.has(r.client_id)) allowed.set(r.client_id, await canAccessClient(req.user!, r.client_id));
-      if (!allowed.get(r.client_id)) continue;
+      const key = `${r.client_id || ""}|${r.client_id ? "" : r.created_by}`;
+      if (!allowed.has(key)) allowed.set(key, await canAccessDoc(req, r.client_id, r.created_by));
+      if (!allowed.get(key)) continue;
       out.push({ docId: r.doc_id, title: r.title, uploaded: r.template_key === "uploaded", clientId: r.client_id, clientName: r.client_name, status: r.status, createdAt: iso(r.created_at), sentAt: iso(r.sent_at), signedAt: iso(r.signed_at), createdBy: r.created_by, total: Number(r.total), signed: Number(r.signed), declined: Number(r.declined) });
     }
     res.json({ docs: out });
