@@ -117,7 +117,7 @@ contractsRouter.get("/client/:clientId", requireAuth, asyncHandler(async (req: A
   const contracts = await query<any>(
     `SELECT contract_id, client_id, service_key, title, fee_amount, fee_description, effective_date, status,
             share_token, signer_name, signed_at, sent_at, signature_method, created_at, updated_at
-       FROM altax.v3_client_contracts WHERE client_id = $1 ORDER BY created_at DESC`,
+       FROM altax.v3_client_contracts WHERE client_id = $1 ${req.user!.role === "client" ? "AND service_key NOT LIKE 'doc\\_%'" : ""} ORDER BY created_at DESC`,
     [clientId]
   );
   res.json({ contracts });
@@ -247,11 +247,17 @@ contractsRouter.get("/:contractId", requireAuth, asyncHandler(async (req: Authed
 /** Shared by the single-contract PDF route and the combined signing-packet route below. */
 async function buildOneContractPdf(contract: any): Promise<Uint8Array> {
   const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
+  // Documents made in the Document Builder can have several signers — print every one of them, not just a single signature line.
+  const multi = String(contract.service_key || "").startsWith("doc_")
+    ? await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [contract.contract_id]).catch(() => [])
+    : [];
   return generateContractPdf({
     contractId: contract.contract_id, title: contract.title, clientName: client?.client_name || "", clientId: contract.client_id,
     renderedBody: contract.rendered_body, effectiveDate: contract.effective_date, status: contract.status,
     signerName: contract.signer_name, signerTitle: contract.signer_title, signedAt: contract.signed_at, signerIp: contract.signer_ip,
     signatureMethod: contract.signature_method, recordedBy: contract.recorded_by,
+    headerLabel: String(contract.service_key || "").startsWith("doc_") ? "DOCUMENT" : undefined,
+    signers: multi.length ? multi.map((m: any) => ({ role: m.role_label, name: m.signed_name || m.signer_name, status: m.status, signedAt: m.signed_at ? new Date(m.signed_at).toISOString() : null, ip: m.signer_ip, image: m.signature_image })) : undefined,
   });
 }
 
@@ -314,6 +320,7 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
   if (!(await canAccessClient(req.user!, contract.client_id))) return res.status(403).json({ error: "You do not have access to this contract." });
   if (contract.status === "Signed") return res.status(400).json({ error: "This contract is already signed." });
   if (contract.status === "Void") return res.status(400).json({ error: "This contract has been voided." });
+  if (String(contract.service_key || "").startsWith("doc_")) return res.status(400).json({ error: "This document was made in the Document Builder — send it for signature from Document Builder → Recently built → Signatures, where several people can sign." });
 
   const shareToken = contract.share_token || randomBytes(24).toString("hex");
   await query(

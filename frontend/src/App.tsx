@@ -20,6 +20,7 @@ import { TasksListPage } from "./pages/TasksListPage";
 import { NotesPage } from "./pages/NotesPage";
 import { DailyLogPage } from "./pages/DailyLogPage";
 import { DocumentBuilderPage } from "./pages/DocumentBuilderPage";
+import { PublicSignPage } from "./pages/PublicSignPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { DocumentsListPage } from "./pages/DocumentsListPage";
 import { DocumentDetailPage } from "./pages/DocumentDetailPage";
@@ -99,6 +100,7 @@ function App() {
           <Route path="/confirm-email-change" element={<ConfirmEmailChangePage />} />
           <Route path="/public/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/public/contract/:token" element={<PublicContractPage />} />
+          <Route path="/public/sign/:token" element={<PublicSignPage />} />
           <Route path="/public/message/:token" element={<PublicMessagePage />} />
           <Route path="/public/eftps-deposits/:token" element={<PublicEftpsDepositPage />} />
           <Route path="/public/md-filing/:token" element={<PublicMdFilingPage />} />

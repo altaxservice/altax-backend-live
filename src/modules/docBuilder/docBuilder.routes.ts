@@ -10,6 +10,7 @@ import { decryptClientPii } from "../../common/encryption";
 import { generateContractPdf } from "../contracts/contractPdf";
 import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
+import { registerSigningRoutes } from "./esign";
 import { cleanAnswers, docTitle, fmtLongDate, hasArabic, missingAnswers, parseLang, renderDocument, type Answers, type DocLang, type DocTemplate, type PrefillKey } from "./engine";
 
 /**
@@ -149,3 +150,5 @@ docBuilderRouter.get("/docs/:docId", asyncHandler(async (req: AuthedRequest, res
   if (!(await canAccessClient(req.user!, row.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   res.json({ docId: row.doc_id, clientId: row.client_id, templateKey: row.template_key, title: row.title, answers: row.answers, contractId: row.contract_id, fmtDate: fmtLongDate(String(row.answers?.effectiveDate || "")) });
 }));
+
+registerSigningRoutes(docBuilderRouter);

@@ -86,6 +86,7 @@ import { appointmentSettingsRouter } from "./modules/appointmentSettings/appoint
 import { pushSubscriptionsRouter } from "./modules/pushSubscriptions/pushSubscriptions.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
+import { publicSignRouter } from "./modules/docBuilder/esign";
 import { publicMessageRouter } from "./modules/communications/publicMessage.routes";
 import { haccpRouter } from "./modules/haccp/haccp.routes";
 import { haccpPackageRouter } from "./modules/haccp/haccpPackage";
@@ -298,7 +299,7 @@ app.get("/tools/:slug", (req, res, next) => {
 // routes for these are the singular /public/contract/:token and /public/invoice/:token —
 // deliberately different from these plural API paths — so this carve-out can't shadow them.
 app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/public/contracts/") || req.path.startsWith("/public/invoices/")) return next();
+  if (req.path.startsWith("/public/contracts/") || req.path.startsWith("/public/invoices/") || req.path.startsWith("/public/signatures/")) return next();
   // Same class of bug as those two: /documents/uploads/:id/download is a real binary
   // download with no file extension in its URL, reached by a client tapping a raw link
   // in an SMS/WhatsApp message (a genuine browser navigation, sending Accept: text/html)
@@ -408,6 +409,7 @@ app.use("/appointment-settings", appointmentSettingsRouter);
 app.use("/push", pushSubscriptionsRouter);
 app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
+app.use("/public/signatures", publicSignRouter);
 app.use("/public/messages", publicMessageRouter);
 app.use("/haccp", haccpRouter);
 app.use("/haccp", haccpPackageRouter);

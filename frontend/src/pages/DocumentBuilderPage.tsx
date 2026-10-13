@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight, Check, FilePlus2, FileText, Printer, Search } fr
 import { api, ApiError, downloadFile, printFile, printFilePost, viewFile, viewFilePost } from "../api/client";
 import type { Client } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
+import { DocSigningPanel } from "../components/DocSigningPanel";
+import { printText } from "../utils/printDocument";
 import { DateInput } from "../components/DateInput";
 import { useToast } from "../components/Toast";
 
@@ -26,22 +28,6 @@ function condMet(c: Question["showIf"], a: Answers): boolean {
   const v = a[c.id];
   if (c.equals !== undefined) return typeof c.equals === "boolean" ? Boolean(v) === c.equals : String(v ?? "") === String(c.equals);
   return Array.isArray(v) ? v.length > 0 : typeof v === "boolean" ? v : String(v ?? "").trim() !== "";
-}
-
-/** Opens the finished text in a clean printable page (the browser shapes Arabic correctly, which the server PDF cannot) and starts printing. */
-function printText(title: string, body: string) {
-  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const arabic = /[\u0600-\u06FF]/;
-  const paras = body.split(/\n\s*\n/).filter((p) => p.trim()).map((p) => `<p dir="auto" style="text-align:${arabic.test(p) ? "right" : "left"}">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
-  const w = window.open("", "_blank");
-  if (!w) return;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-    @page { margin: 0.9in; } body { font: 12pt/1.55 Georgia, 'Times New Roman', 'Geeza Pro', 'Noto Naskh Arabic', 'Arial', serif; color: #111; }
-    p { margin: 0 0 12pt; white-space: normal; }
-  </style></head><body>${paras}</body></html>`);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 300);
 }
 
 /** One input for one question; list questions repeat their fields per row. */
@@ -85,9 +71,11 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
   const [recent, setRecent] = useState<HistoryDoc[]>([]);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
+  const [signing, setSigning] = useState<string | null>(null);
+  const loadRecent = () => api.get<{ docs: HistoryDoc[] }>("/doc-builder/history").then((r) => setRecent(r.docs.slice(0, 8))).catch(() => {});
   useEffect(() => {
     api.get<NonNullable<typeof data>>("/doc-builder/templates").then(setData).catch(() => setData({ templates: [], categories: [], existingTools: [] }));
-    api.get<{ docs: HistoryDoc[] }>("/doc-builder/history").then((r) => setRecent(r.docs.slice(0, 8))).catch(() => {});
+    loadRecent();
   }, []);
   if (!data) return <div className="spinner-wrap">Loading the library…</div>;
   const needle = q.trim().toLowerCase();
@@ -123,6 +111,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
         </div>
       </div>
 
+      {signing && <DocSigningPanel docId={signing} onChanged={loadRecent} onClose={() => setSigning(null)} />}
       {recent.length > 0 && (
         <div className="command-panel">
           <div className="command-panel-header"><h2 className="command-panel-title">Recently built</h2></div>
@@ -132,7 +121,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
               <tr key={d.docId}>
                 <td>{d.title}</td><td>{d.clientName || d.clientId}</td><td>{d.status || "—"}</td>
                 <td className="muted">{new Date(d.createdAt).toLocaleDateString()} · {d.createdBy}</td>
-                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm" onClick={() => onPick(`${d.templateKey}?from=${d.docId}`)}>Use again</button> <Link className="btn btn-sm" to={`/clients/${d.clientId}?tab=Contracts`}>Open</Link></td>
+                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm" onClick={() => { setSigning(d.docId); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Signatures</button> <button type="button" className="btn btn-sm" onClick={() => onPick(`${d.templateKey}?from=${d.docId}`)}>Use again</button> <Link className="btn btn-sm" to={`/clients/${d.clientId}?tab=Contracts`}>Open</Link></td>
               </tr>
             ))}</tbody>
           </table></div>
@@ -164,7 +153,7 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
   const [preview, setPreview] = useState<{ body: string; missing: string[] }>({ body: "", missing: [] });
   const [busy, setBusy] = useState(false);
   const [lang, setLang] = useState<Lang>("en");
-  const [done, setDone] = useState<{ contractId: string; body: string } | null>(null);
+  const [done, setDone] = useState<{ contractId: string; docId: string; body: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const loadedFor = useRef("");
 
@@ -213,8 +202,8 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
   async function create() {
     setBusy(true); setErr(null);
     try {
-      const r = await api.post<{ contractId: string }>("/doc-builder/create", body);
-      setDone({ contractId: r.contractId, body: preview.body }); toast("Document saved to the client's file.");
+      const r = await api.post<{ contractId: string; docId: string }>("/doc-builder/create", body);
+      setDone({ contractId: r.contractId, docId: r.docId, body: preview.body }); toast("Document saved to the client's file.");
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not save the document."); } finally { setBusy(false); }
   }
   const draftPdf = (print: boolean) => (print ? printFilePost : viewFilePost)("/doc-builder/pdf", body).catch((e) => toast(e instanceof ApiError ? e.message : "Could not open the PDF."));
@@ -223,12 +212,12 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
 
   if (done) {
     return (
-      <div className="command-panel" style={{ maxWidth: 720 }}>
+      <div className="command-panel" style={{ maxWidth: 900 }}>
         <div className="command-panel-header"><h2 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><Check size={18} aria-hidden="true" /> Document ready</h2></div>
         <div style={{ padding: 16, display: "grid", gap: 12 }}>
           <p style={{ margin: 0 }}><b>{tpl.title}</b> was saved to {clients.find((c) => c.client_id === clientId)?.client_name || "the client"}'s file as a draft.</p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="btn btn-primary" onClick={() => navigate(`/clients/${clientId}?tab=Contracts`)}>Send for signature (client's Contracts)</button>
+            <button type="button" className="btn" onClick={() => navigate(`/clients/${clientId}?tab=Contracts`)}>Open in the client's file</button>
             {lang === "en" ? (
               <>
                 <button type="button" className="btn" onClick={() => viewFile(`/contracts/${done.contractId}/pdf`)}>View PDF</button>
@@ -239,6 +228,7 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
               <button type="button" className="btn" onClick={() => printText(tpl.title, done.body)}><Printer size={14} aria-hidden="true" /> Print / Save as PDF</button>
             )}
           </div>
+          <DocSigningPanel docId={done.docId} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid var(--line)" }}>
             <button type="button" className="btn btn-sm" onClick={() => { setDone(null); setStep(0); }}>Make a change and create another copy</button>
             <button type="button" className="btn btn-sm" onClick={onExit}>Back to the library</button>

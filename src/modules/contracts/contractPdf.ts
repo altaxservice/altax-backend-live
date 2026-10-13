@@ -49,6 +49,10 @@ export interface ContractPdfData {
   signerIp: string | null;
   signatureMethod: string;
   recordedBy: string | null;
+  /** Multi-party documents (Document Builder): every signer's mark and audit trail replaces the single-signer block. */
+  /** Heading at the top right (default "SERVICE AGREEMENT"). */
+  headerLabel?: string;
+  signers?: { role: string; name: string; status: string; signedAt: string | null; ip: string | null; image: string | null }[];
 }
 
 class Cursor {
@@ -119,7 +123,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     textL = L + logoW + 10;
   }
   c.text(textL, y, profile.firmName.toUpperCase(), { size: 16, bold: true, color: TEAL });
-  c.text(R, y, "SERVICE AGREEMENT", { size: 14, bold: true, align: "right" });
+  c.text(R, y, data.headerLabel || "SERVICE AGREEMENT", { size: 14, bold: true, align: "right" });
   y += 16;
   for (const line of [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim())) {
     c.text(textL, y, line, { size: 9, color: MUTED });
@@ -194,7 +198,42 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   c.line(L, y, R, y, INK, 1);
   y += 20;
 
-  if (data.status === "Signed" && data.signerName) {
+  if (data.signers && data.signers.length) {
+    c.text(L, y, data.signers.every((x) => x.status === "Signed") ? "ELECTRONICALLY SIGNED BY ALL PARTIES" : "SIGNATURES", { size: 10, bold: true, color: TEAL });
+    y += 20;
+    for (const sg of data.signers) {
+      if (y > PAGE_H - 120) {
+        pageNum += 1;
+        ({ page, c } = newPage(doc, font, bold));
+        y = 56;
+        drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`);
+      }
+      c.text(L, y, `${sg.role}: ${sg.name}`, { size: 10, bold: true });
+      y += 14;
+      if (sg.status === "Signed") {
+        let drew = false;
+        if (sg.image && /^data:image\/png;base64,/.test(sg.image)) {
+          try {
+            const png = await doc.embedPng(Buffer.from(sg.image.split(",")[1], "base64"));
+            const h = 34, w = Math.min(150, (png.width / png.height) * h);
+            page.drawImage(png, { x: L, y: PAGE_H - y - h + 6, width: w, height: h });
+            y += h + 2; drew = true;
+          } catch { /* fall back to the typed name below */ }
+        }
+        if (!drew) { c.text(L, y + 4, sg.name, { size: 15, color: INK }); y += 20; }
+        c.text(L, y, `Signed ${fmtDateTime(sg.signedAt)}${sg.ip ? `  ·  IP ${sg.ip}` : ""}`, { size: 8, color: MUTED });
+        y += 22;
+      } else {
+        c.text(L, y + 6, sg.status === "Declined" ? "Declined to sign" : "Signature: __________________________________", { size: 10, color: sg.status === "Declined" ? MUTED : INK });
+        c.text(R, y + 6, "Date: ______________", { size: 10, align: "right" });
+        y += 30;
+      }
+    }
+    if (data.signers.every((x) => x.status === "Signed")) {
+      if (y > PAGE_H - 50) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`); }
+      c.text(L, y, "Each signer agreed to sign electronically, typed or drew their signature, and the time and network address were recorded.", { size: 7.5, color: MUTED });
+    }
+  } else if (data.status === "Signed" && data.signerName) {
     const isInPerson = data.signatureMethod === "In-Person";
     c.text(L, y, isInPerson ? "SIGNED IN PERSON" : "ELECTRONICALLY SIGNED", { size: 10, bold: true, color: TEAL });
     y += 18;

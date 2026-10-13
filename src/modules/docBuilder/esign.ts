@@ -1,0 +1,277 @@
+import { Router, Request, Response } from "express";
+import { randomBytes, randomUUID } from "crypto";
+import { query, queryOne, withTransaction } from "../../config/db";
+import { AuthedRequest } from "../../common/requireAuth";
+import { asyncHandler } from "../../common/asyncHandler";
+import { canAccessClient } from "../../common/assignment";
+import { logAudit } from "../../common/audit";
+import { rateLimit } from "../../common/rateLimit";
+import { sendEmail, sendSms } from "../../common/notifications";
+import { wrapEmailHtml } from "../../common/emailTemplate";
+import { escapeHtml } from "../../common/html";
+import { getFirmProfile } from "../../common/firmProfile";
+import { generateContractPdf } from "../contracts/contractPdf";
+import { getDocTemplate } from "./templates";
+import { suggestSigners, NEEDS_NOTARY } from "./signerSpec";
+
+/**
+ * Multi-party e-signing for Document Builder documents. Each signer gets a private link (/public/sign/:token) and signs by typing
+ * their name (optionally drawing it too) after agreeing to sign electronically; time, network address and device are recorded.
+ * The document (a v3_client_contracts row) turns Signed only when every signer has signed.
+ */
+const newId = (p: string) => `${p}-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+const iso = (v: unknown) => (v ? new Date(v as string).toISOString() : null);
+
+async function loadDoc(req: AuthedRequest, res: Response, docId: string) {
+  const doc = await queryOne<any>(
+    `SELECT d.*, c.status AS contract_status, c.title AS contract_title, c.rendered_body, c.effective_date, c.created_by, cl.client_name
+       FROM altax.v3_doc_builder_docs d JOIN altax.v3_client_contracts c ON c.contract_id = d.contract_id LEFT JOIN altax.v3_clients cl ON cl.client_id = d.client_id
+      WHERE d.doc_id = $1`, [docId]);
+  if (!doc) { res.status(404).json({ error: "Document not found." }); return null; }
+  if (!(await canAccessClient(req.user!, doc.client_id))) { res.status(403).json({ error: "You do not have access to this client." }); return null; }
+  return doc;
+}
+
+const signerView = (r: any, withLink: boolean, base: string) => ({
+  signerId: r.signer_id, role: r.role_label, name: r.signer_name, email: r.email, phone: r.phone, delivery: r.delivery, status: r.status,
+  sentAt: iso(r.sent_at), viewedAt: iso(r.viewed_at), signedAt: iso(r.signed_at), declinedAt: iso(r.declined_at), declineReason: r.decline_reason,
+  reminders: r.reminder_count, link: withLink && r.share_token ? `${base}/public/sign/${r.share_token}` : null,
+});
+
+function emailBody(signerName: string, title: string, requestedBy: string, link: string, reminder: boolean) {
+  const button = `<p style="text-align:center; margin:24px 0;"><a href="${link}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700; font-size:15px; padding:12px 28px; border-radius:8px;">Review &amp; Sign &nbsp;·&nbsp; <bdi dir="rtl">مراجعة وتوقيع</bdi></a></p>
+    <p style="font-size:12px; color:#6b7280;">Or copy this link into your browser: <bdi dir="ltr"><a href="${link}">${link}</a></bdi></p>`;
+  return `<div dir="ltr" style="text-align:left;"><p>Hello ${escapeHtml(signerName)},</p>
+    <p>${reminder ? "This is a reminder: " : ""}${escapeHtml(requestedBy)} has asked you to review and sign <strong>${escapeHtml(title)}</strong>. Use the button below — you can read the whole document first, and sign from your phone or computer.</p></div>
+    <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
+    <div dir="rtl" style="text-align:right;"><p>مرحباً ${escapeHtml(signerName)}،</p>
+    <p>${reminder ? "تذكير: " : ""}يرجى مراجعة وتوقيع المستند: <strong>${escapeHtml(title)}</strong>. استخدموا الزر أدناه لقراءته كاملاً ثم التوقيع من هاتفكم أو حاسوبكم.</p></div>${button}`;
+}
+
+async function deliver(req: AuthedRequest | null, s: any, token: string, doc: any, base: string, requestedBy: string, reminder: boolean) {
+  const link = `${base}/public/sign/${token}`;
+  const result: { emailed: boolean; texted: boolean; error: string | null } = { emailed: false, texted: false, error: null };
+  const wantsEmail = s.delivery === "email" || s.delivery === "both";
+  const wantsSms = s.delivery === "sms" || s.delivery === "both";
+  const firm = (await getFirmProfile()).firmName;
+  if (wantsEmail && s.email) {
+    const subject = `${reminder ? "Reminder: " : ""}${doc.contract_title} — please review and sign`;
+    try {
+      await sendEmail({ to: s.email, subject, html: await wrapEmailHtml(emailBody(s.signer_name, doc.contract_title, requestedBy, link, reminder), req as any) });
+      result.emailed = true;
+    } catch (e: any) { result.error = e?.message || "Could not send the email."; }
+    await query(
+      `INSERT INTO altax.v3_communications (communication_id, client_id, client_name, related_task_id, direction, channel, subject, message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,'',$6,$7,now(),$8,'DocSign',$9)`,
+      [newId("COM"), doc.client_id, doc.client_name, subject, `${doc.contract_title} sent to ${s.signer_name} (${s.role_label}) for signature.`, s.email, requestedBy, result.emailed ? "Saved + Sent" : `Saved — ${result.error}`, s.signer_id]
+    ).catch(() => {});
+  }
+  if (wantsSms && s.phone) {
+    try { await sendSms({ to: s.phone, body: `${firm}: ${s.signer_name}, "${doc.contract_title}" is ready for your signature: ${link}` }); result.texted = true; }
+    catch (e: any) { result.error = result.error || e?.message || "Could not send the text."; }
+  }
+  return { ...result, link };
+}
+
+/** Staff-side routes, added to the Document Builder router (which already requires an admin/staff login). */
+export function registerSigningRoutes(router: Router) {
+  router.get("/docs/:docId/signing", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const doc = await loadDoc(req, res, req.params.docId); if (!doc) return;
+    const rows = await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE doc_id = $1 ORDER BY sort_order, created_at`, [doc.doc_id]);
+    const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+    const tpl = getDocTemplate(doc.template_key);
+    const { _lang, ...answers } = (doc.answers || {}) as Record<string, any>;
+    res.json({
+      doc: { docId: doc.doc_id, title: doc.contract_title, clientId: doc.client_id, clientName: doc.client_name, contractId: doc.contract_id, status: doc.contract_status, lang: _lang || "en", templateKey: doc.template_key, body: doc.rendered_body },
+      signers: rows.map((r) => signerView(r, true, base)),
+      suggestions: rows.length ? [] : suggestSigners(doc.template_key, answers),
+      needsNotary: NEEDS_NOTARY.has(doc.template_key), templateTitle: tpl?.title || doc.title,
+      locked: rows.some((r) => r.status === "Signed" || r.status === "Declined") || doc.contract_status === "Signed" || doc.contract_status === "Void",
+    });
+  }));
+
+  router.post("/docs/:docId/signing/send", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const doc = await loadDoc(req, res, req.params.docId); if (!doc) return;
+    if (doc.contract_status === "Signed") return res.status(400).json({ error: "This document is already signed by everyone." });
+    if (doc.contract_status === "Void") return res.status(400).json({ error: "This document has been voided." });
+    const existing = await query<any>(`SELECT status FROM altax.v3_doc_signers WHERE doc_id = $1`, [doc.doc_id]);
+    if (existing.some((e) => e.status === "Signed" || e.status === "Declined")) return res.status(400).json({ error: "Someone has already signed or declined, so the list of signers can no longer be changed. Cancel the request and make a new copy to change it." });
+    const raw = Array.isArray(req.body?.signers) ? req.body.signers : [];
+    if (raw.length < 1 || raw.length > 12) return res.status(400).json({ error: "Add between 1 and 12 people who need to sign." });
+    const signers = raw.map((x: any, i: number) => ({
+      role: String(x?.role || "Signer").trim().slice(0, 120) || "Signer", name: String(x?.name || "").trim().slice(0, 255), email: String(x?.email || "").trim().toLowerCase().slice(0, 255) || null,
+      phone: String(x?.phone || "").trim().slice(0, 50) || null, delivery: ["email", "sms", "both", "link"].includes(x?.delivery) ? x.delivery : "email", order: i,
+    }));
+    for (const s of signers) {
+      if (!s.name) return res.status(400).json({ error: "Every signer needs a name." });
+      if ((s.delivery === "email" || s.delivery === "both") && !/^\S+@\S+\.\S+$/.test(s.email || "")) return res.status(400).json({ error: `Enter a valid email address for ${s.name}.` });
+      if ((s.delivery === "sms" || s.delivery === "both") && !s.phone) return res.status(400).json({ error: `Enter a phone number for ${s.name}.` });
+    }
+    const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+    const inserted: any[] = [];
+    await withTransaction(async (db) => {
+      await db.query(`DELETE FROM altax.v3_doc_signers WHERE doc_id = $1`, [doc.doc_id]);
+      for (const s of signers) {
+        const id = newId("SIG"), token = randomBytes(24).toString("hex");
+        await db.query(
+          `INSERT INTO altax.v3_doc_signers (signer_id, doc_id, contract_id, sort_order, role_label, signer_name, email, phone, delivery, share_token, status, sent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Sent',now())`,
+          [id, doc.doc_id, doc.contract_id, s.order, s.role, s.name, s.email, s.phone, s.delivery, token]);
+        inserted.push({ signer_id: id, role_label: s.role, signer_name: s.name, email: s.email, phone: s.phone, delivery: s.delivery, token });
+      }
+      await db.query(`UPDATE altax.v3_client_contracts SET status = 'Sent', sent_at = now(), updated_at = now() WHERE contract_id = $1`, [doc.contract_id]);
+    });
+    const results: any[] = [];
+    for (const s of inserted) results.push({ signerId: s.signer_id, ...(await deliver(req, s, s.token, doc, base, req.user!.email, false)) });
+    await logAudit("Contracts", "DOC_SIGN_SEND", doc.contract_id, "signers", "", String(inserted.length), `"${doc.contract_title}" sent for signature to ${inserted.map((s) => s.signer_name).join(", ")} by ${req.user!.email}.`, req.user!.email);
+    res.json({ ok: true, results });
+  }));
+
+  router.post("/docs/:docId/signing/remind", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const doc = await loadDoc(req, res, req.params.docId); if (!doc) return;
+    const onlyId = String(req.body?.signerId || "").trim();
+    const rows = await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE doc_id = $1 AND status IN ('Sent','Viewed') ${onlyId ? "AND signer_id = $2" : ""}`, onlyId ? [doc.doc_id, onlyId] : [doc.doc_id]);
+    if (!rows.length) return res.status(400).json({ error: "Nobody is waiting to sign." });
+    const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+    const out: any[] = []; const skipped: string[] = [];
+    for (const r of rows) {
+      if (r.last_reminder_at && Date.now() - new Date(r.last_reminder_at).getTime() < 60 * 60 * 1000) { skipped.push(r.signer_name); continue; }
+      if (r.delivery === "link") { skipped.push(r.signer_name); continue; }
+      out.push({ signerId: r.signer_id, name: r.signer_name, ...(await deliver(req, r, r.share_token, doc, base, req.user!.email, true)) });
+      await query(`UPDATE altax.v3_doc_signers SET reminder_count = reminder_count + 1, last_reminder_at = now() WHERE signer_id = $1`, [r.signer_id]);
+    }
+    await logAudit("Contracts", "DOC_SIGN_REMIND", doc.contract_id, "signers", "", String(out.length), `Signature reminder sent for "${doc.contract_title}" by ${req.user!.email}.`, req.user!.email);
+    res.json({ ok: true, reminded: out.length, skipped });
+  }));
+
+  router.post("/docs/:docId/signing/cancel", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const doc = await loadDoc(req, res, req.params.docId); if (!doc) return;
+    if (doc.contract_status === "Signed") return res.status(400).json({ error: "Everyone has already signed this document." });
+    await query(`UPDATE altax.v3_doc_signers SET status = 'Cancelled' WHERE doc_id = $1 AND status IN ('Pending','Sent','Viewed')`, [doc.doc_id]);
+    await query(`UPDATE altax.v3_client_contracts SET status = 'Draft', updated_at = now() WHERE contract_id = $1 AND status = 'Sent'`, [doc.contract_id]);
+    await logAudit("Contracts", "DOC_SIGN_CANCEL", doc.contract_id, "status", doc.contract_status, "Draft", `Signing of "${doc.contract_title}" cancelled by ${req.user!.email}.`, req.user!.email);
+    res.json({ ok: true });
+  }));
+
+  router.get("/docs/:docId/signed-pdf", asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const doc = await loadDoc(req, res, req.params.docId); if (!doc) return;
+    const bytes = await buildSignedPdf(doc.contract_id);
+    if (!bytes) return res.status(404).json({ error: "Document not found." });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${doc.contract_id}.pdf"`);
+    res.send(Buffer.from(bytes));
+  }));
+}
+
+async function buildSignedPdf(contractId: string): Promise<Uint8Array | null> {
+  const c = await queryOne<any>(`SELECT c.*, cl.client_name FROM altax.v3_client_contracts c LEFT JOIN altax.v3_clients cl ON cl.client_id = c.client_id WHERE c.contract_id = $1`, [contractId]);
+  if (!c) return null;
+  const signers = await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [contractId]);
+  return generateContractPdf({
+    contractId: c.contract_id, title: c.title, clientName: c.client_name || "", clientId: c.client_id, renderedBody: c.rendered_body, effectiveDate: c.effective_date, status: c.status,
+    signerName: null, signerTitle: null, signedAt: c.signed_at, signerIp: null, signatureMethod: "Online", recordedBy: null, headerLabel: "DOCUMENT",
+    signers: signers.map((s) => ({ role: s.role_label, name: s.signed_name || s.signer_name, status: s.status, signedAt: iso(s.signed_at), ip: s.signer_ip, image: s.signature_image })),
+  });
+}
+
+/* ───────────── Public side: what a signer sees and does with their private link ───────────── */
+export const publicSignRouter = Router();
+const signLimiter = rateLimit({ name: "public-doc-sign", windowMs: 15 * 60 * 1000, max: 40 });
+
+async function findSigner(token: string) {
+  const s = await queryOne<any>(`SELECT * FROM altax.v3_doc_signers WHERE share_token = $1`, [token]);
+  if (!s) return null;
+  const c = await queryOne<any>(`SELECT c.*, cl.client_name FROM altax.v3_client_contracts c LEFT JOIN altax.v3_clients cl ON cl.client_id = c.client_id WHERE c.contract_id = $1`, [s.contract_id]);
+  return c ? { s, c } : null;
+}
+
+publicSignRouter.get("/:token", signLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const f = await findSigner(req.params.token);
+  if (!f) return res.status(404).json({ error: "This link is invalid or has expired." });
+  const { s, c } = f;
+  if (c.status === "Void") return res.status(410).json({ error: "This document has been voided and is no longer available for signature." });
+  if (s.status === "Cancelled") return res.status(410).json({ error: "This signing request was cancelled." });
+  if (s.status === "Sent") await query(`UPDATE altax.v3_doc_signers SET status = 'Viewed', viewed_at = now() WHERE signer_id = $1 AND status = 'Sent'`, [s.signer_id]);
+  const others = await query<any>(`SELECT signer_id, role_label, signer_name, status, signed_at FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [s.contract_id]);
+  const firm = await getFirmProfile();
+  res.json({
+    doc: { title: c.title, body: c.rendered_body, effectiveDate: c.effective_date, clientName: c.client_name || "", status: c.status, firmName: firm.firmName, completed: c.status === "Signed" },
+    signer: { name: s.signer_name, role: s.role_label, status: s.status === "Sent" ? "Viewed" : s.status, signedAt: iso(s.signed_at), signedName: s.signed_name },
+    others: others.map((o) => ({ role: o.role_label, name: o.signer_name, status: o.status, signedAt: iso(o.signed_at), isYou: o.signer_id === s.signer_id })),
+  });
+}));
+
+publicSignRouter.post("/:token/sign", signLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const f = await findSigner(req.params.token);
+  if (!f) return res.status(404).json({ error: "This link is invalid or has expired." });
+  const { s, c } = f;
+  if (c.status === "Void") return res.status(410).json({ error: "This document has been voided and can no longer be signed." });
+  if (s.status === "Signed") return res.status(400).json({ error: "You have already signed this document." });
+  if (s.status === "Cancelled" || s.status === "Declined") return res.status(410).json({ error: "This signing request is no longer open." });
+  const typed = String(req.body?.signerName || "").trim().slice(0, 255);
+  if (!typed) return res.status(400).json({ error: "Please type your full legal name to sign." });
+  if (!req.body?.agreed) return res.status(400).json({ error: "Please confirm that you have read the document and agree to sign it electronically." });
+  let image: string | null = null;
+  const rawImg = String(req.body?.signatureImage || "");
+  if (rawImg) {
+    if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(rawImg) || rawImg.length > 400_000) return res.status(400).json({ error: "The drawn signature could not be read — please clear it and draw again, or just type your name." });
+    image = rawImg;
+  }
+  const ip = String(req.ip || req.socket.remoteAddress || "").slice(0, 64) || null;
+  const ua = String(req.headers["user-agent"] || "").slice(0, 500) || null;
+  // Atomic claim: only the request that flips this signer away from Sent/Viewed wins, so a double-submit can't overwrite the first record.
+  const claimed = await query<{ signer_id: string }>(
+    `UPDATE altax.v3_doc_signers SET status = 'Signed', signed_at = now(), signed_name = $2, signature_image = $3, signer_ip = $4, signer_user_agent = $5
+      WHERE signer_id = $1 AND status IN ('Sent','Viewed','Pending') RETURNING signer_id`, [s.signer_id, typed, image, ip, ua]);
+  if (!claimed.length) return res.status(400).json({ error: "You have already signed this document." });
+
+  const all = await query<any>(`SELECT status, signer_name, email FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled'`, [s.contract_id]);
+  const completed = all.length > 0 && all.every((x) => x.status === "Signed");
+  if (completed) {
+    await query(`UPDATE altax.v3_client_contracts SET status = 'Signed', signed_at = now(), signer_name = $2, agreed = true, updated_at = now() WHERE contract_id = $1 AND status <> 'Void'`, [s.contract_id, all.map((x) => x.signer_name).join(", ").slice(0, 250)]);
+  }
+  await logAudit("Contracts", completed ? "DOC_SIGN_COMPLETE" : "DOC_SIGN", s.contract_id, "signer", "", s.role_label, `"${c.title}" signed electronically by "${typed}" (${s.role_label}) from IP ${ip || "unknown"}.${completed ? " All parties have now signed." : ""}`, typed);
+
+  // Tell the person who prepared it; when everyone has signed, send each signer their copy link. Failures here never undo the signature.
+  try {
+    const firm = await getFirmProfile();
+    const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+    const creator = String(c.created_by || "").includes("@") ? c.created_by : null;
+    if (creator) {
+      await sendEmail({ to: creator, subject: completed ? `Fully signed: ${c.title}` : `${typed} signed: ${c.title}`, html: await wrapEmailHtml(`<p>${escapeHtml(typed)} (${escapeHtml(s.role_label)}) signed <strong>${escapeHtml(c.title)}</strong>${c.client_name ? ` for ${escapeHtml(c.client_name)}` : ""}.${completed ? " Everyone has now signed — the document is complete." : ` ${all.filter((x) => x.status !== "Signed").length} signature(s) still to come.`}</p>`) });
+    }
+    if (completed) {
+      const sig = await query<any>(`SELECT signer_name, email, share_token FROM altax.v3_doc_signers WHERE contract_id = $1 AND status = 'Signed' AND email IS NOT NULL`, [s.contract_id]);
+      for (const x of sig) {
+        await sendEmail({ to: x.email, subject: `Signed copy: ${c.title}`, html: await wrapEmailHtml(`<p>Hello ${escapeHtml(x.signer_name)},</p><p>Everyone has signed <strong>${escapeHtml(c.title)}</strong>. You can view, print or save the signed copy any time here: <a href="${base}/public/sign/${x.share_token}">${base}/public/sign/${x.share_token}</a></p><p>— ${escapeHtml(firm.firmName)}</p>`) }).catch(() => {});
+      }
+    }
+  } catch { /* email isn't configured or failed — the signature stands */ }
+  res.json({ ok: true, completed });
+}));
+
+publicSignRouter.post("/:token/decline", signLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const f = await findSigner(req.params.token);
+  if (!f) return res.status(404).json({ error: "This link is invalid or has expired." });
+  const { s, c } = f;
+  if (s.status === "Signed") return res.status(400).json({ error: "You have already signed this document." });
+  const reason = String(req.body?.reason || "").trim().slice(0, 1000) || null;
+  const r = await query(`UPDATE altax.v3_doc_signers SET status = 'Declined', declined_at = now(), decline_reason = $2 WHERE signer_id = $1 AND status IN ('Sent','Viewed','Pending') RETURNING signer_id`, [s.signer_id, reason]);
+  if (!r.length) return res.status(400).json({ error: "This signing request is no longer open." });
+  await logAudit("Contracts", "DOC_SIGN_DECLINE", s.contract_id, "signer", "", s.role_label, `"${s.signer_name}" (${s.role_label}) declined to sign "${c.title}"${reason ? `: ${reason}` : ""}.`, s.signer_name);
+  try {
+    const creator = String(c.created_by || "").includes("@") ? c.created_by : null;
+    if (creator) await sendEmail({ to: creator, subject: `Declined: ${c.title}`, html: await wrapEmailHtml(`<p>${escapeHtml(s.signer_name)} (${escapeHtml(s.role_label)}) declined to sign <strong>${escapeHtml(c.title)}</strong>.${reason ? ` Reason: ${escapeHtml(reason)}` : ""}</p>`) });
+  } catch { /* ignore */ }
+  res.json({ ok: true });
+}));
+
+publicSignRouter.get("/:token/pdf", signLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const f = await findSigner(req.params.token);
+  if (!f) return res.status(404).json({ error: "This link is invalid or has expired." });
+  if (f.c.status === "Void") return res.status(410).json({ error: "This document has been voided." });
+  const bytes = await buildSignedPdf(f.s.contract_id);
+  if (!bytes) return res.status(404).json({ error: "Document not found." });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${f.s.contract_id}.pdf"`);
+  res.send(Buffer.from(bytes));
+}));
