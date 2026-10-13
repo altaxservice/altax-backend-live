@@ -19,6 +19,7 @@ import { ClientDetailPage } from "./pages/ClientDetailPage";
 import { TasksListPage } from "./pages/TasksListPage";
 import { NotesPage } from "./pages/NotesPage";
 import { DailyLogPage } from "./pages/DailyLogPage";
+import { DocumentBuilderPage } from "./pages/DocumentBuilderPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { DocumentsListPage } from "./pages/DocumentsListPage";
 import { DocumentDetailPage } from "./pages/DocumentDetailPage";
@@ -167,6 +168,7 @@ function App() {
                 <Route path="/tasks" element={<TasksListPage />} />
                 <Route path="/notes" element={<NotesPage />} />
                 <Route path="/daily-log" element={<DailyLogPage />} />
+                <Route path="/document-builder" element={<DocumentBuilderPage />} />
                 <Route path="/calendar" element={<TaskCalendarPage />} />
                 <Route path="/time-tracking" element={<TimeTrackingPage />} />
                 <Route path="/tasks/:taskId" element={<TaskDetailPage />} />

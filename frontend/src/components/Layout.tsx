@@ -5,7 +5,7 @@ import {
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, ShieldAlert, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2, TabletSmartphone,
   PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen, HandCoins,
-  ChevronDown, ChevronRight, Package,
+  ChevronDown, ChevronRight, Package, FilePlus2,
   type LucideProps,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -75,6 +75,7 @@ export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: st
   { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work", icon: Clock, keywords: ["hours", "clock in", "clock out", "timesheet", "kiosk", "punch", "wages", "pay rate"] },
   { to: "/rules", label: "Task Rules", roles: ["admin", "staff"], group: "Work", icon: Workflow, keywords: ["automation", "recurring tasks", "workflow"] },
   { to: "/haccp", label: "Health Permits", roles: ["admin", "staff"], group: "Work", icon: ClipboardCheck, keywords: ["haccp", "food safety", "inspections", "permits"] },
+  { to: "/document-builder", label: "Document Builder", roles: ["admin", "staff"], group: "Tools", icon: FilePlus2, keywords: ["contracts", "agreements", "letters", "forms", "legal documents", "templates", "nda", "lease", "operating agreement"] },
   { to: "/estimates", label: "Estimates", roles: ["admin", "staff"], group: "Tools", icon: FileText, keywords: ["quotes", "proposals"] },
   { to: "/pipeline", label: "Pipeline", roles: ["admin", "staff"], group: "Tools", icon: Kanban, keywords: ["deals", "leads", "crm", "sales"] },
   { to: "/fee-schedule", label: "Fee Schedule", roles: ["admin", "staff"], group: "Tools", icon: Receipt, keywords: ["pricing", "rates", "price list", "how much we charge"] },
@@ -132,6 +133,7 @@ const TITLES: Record<string, string> = {
   "/tasks": "Tasks",
   "/notes": "Notes",
   "/daily-log": "Daily Log",
+  "/document-builder": "Document Builder",
   "/calendar": "Calendar",
   "/time-tracking": "Time Tracking",
   "/billing": "Billing",
