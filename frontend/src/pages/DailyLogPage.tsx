@@ -100,7 +100,8 @@ export function DailyLogPage() {
   const [serviceOptions, setServiceOptions] = useState<FirmServiceOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState("");
-  const [mineOnly, setMineOnly] = useState(false);
+  const [authorFilter, setAuthorFilter] = useState("");
+  const [people, setPeople] = useState<{ email: string; name: string; role: string }[]>([]);
   const [search, setSearch] = useState("");
 
   // Undefined = closed. An empty object ({}) opens a completely blank,
@@ -112,15 +113,16 @@ export function DailyLogPage() {
   function load() {
     const params = new URLSearchParams();
     if (clientFilter) params.set("clientId", clientFilter);
-    if (mineOnly) params.set("mine", "1");
+    if (authorFilter) params.set("author", authorFilter);
     if (search.trim()) params.set("search", search.trim());
     api.get<{ logs: DailyLogEntry[] }>(`/daily-log?${params.toString()}`)
       .then((r) => setLogs(r.logs))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the daily log."));
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [clientFilter, mineOnly, search]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [clientFilter, authorFilter, search]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
+  useEffect(() => { if (isAdmin) api.get<{ people: { email: string; name: string; role: string }[] }>("/daily-log/people").then((r) => setPeople(r.people)).catch(() => {}); }, [isAdmin]);
   useEffect(() => { api.get<{ services: FirmServiceOption[] }>("/daily-log/services").then((r) => setServiceOptions(r.services)).catch(() => {}); }, []);
 
   function startEdit(l: DailyLogEntry) {
@@ -188,10 +190,10 @@ export function DailyLogPage() {
             {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
           </select>
           {isAdmin && (
-            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
-              <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-              Logged by me
-            </label>
+            <select value={authorFilter} onChange={(e) => setAuthorFilter(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} aria-label="Logged by">
+              <option value="">Everyone's entries</option>
+              {people.map((p) => <option key={p.email} value={p.email.toLowerCase()}>{p.email.toLowerCase() === (user?.email || "").toLowerCase() ? `Me (${p.name})` : `${p.name}${p.role === "staff" ? " · staff" : ""}`}</option>)}
+            </select>
           )}
           <input placeholder="Search entries…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} />
           <button type="button" className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={exportAll}>Export CSV</button>

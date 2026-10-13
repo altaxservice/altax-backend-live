@@ -72,6 +72,9 @@ dailyLogRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   if (taskId) { params.push(taskId); where += ` AND l.task_id = $${params.length}`; }
   if (service) { params.push(service); where += ` AND l.services @> ARRAY[$${params.length}]::text[]`; }
   if (mineOnly) { params.push(req.user!.email); where += ` AND l.author_email = $${params.length}`; }
+  // Admin only: narrow to one person's entries (non-admins are already limited to their own below).
+  const authorFilter = String(req.query.author || "").trim().toLowerCase();
+  if (isAdmin && authorFilter) { params.push(authorFilter); where += ` AND lower(l.author_email) = $${params.length}`; }
   // Daily Log entries are private to their author by default (real owner
   // request, 2026-09-14: staff shouldn't see each other's or admin's
   // entries) — admin still sees every entry firm-wide.
@@ -132,6 +135,8 @@ function friendlyFor(module: string, action: string): string {
 }
 const humanizeAction = (a: string) => { const t = a.toLowerCase().replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
 
+const ACTIVE_GAP_MIN = 20, BREAK_CREDIT_MIN = 2, LAST_ACTION_MIN = 3;
+
 async function buildAutoDraft(emailRaw: string, date: string) {
   const email = emailRaw.toLowerCase();
   const range = `>= ($2::date)::timestamp AT TIME ZONE 'America/New_York' AND %COL% < (($2::date + 1)::timestamp AT TIME ZONE 'America/New_York')`;
@@ -178,9 +183,16 @@ async function buildAutoDraft(emailRaw: string, date: string) {
     const counts = new Map<string, number>();
     for (const e of events) counts.set(e.label, (counts.get(e.label) || 0) + 1);
     const lines = Array.from(counts, ([label, n]) => (n > 1 ? `${label} × ${n}` : label));
-    const spanMin = Math.round((events[events.length - 1].at - events[0].at) / 60000);
-    // A rough "time on this client" from the first to the last action, capped, in 5-minute steps — editable before saving.
-    const suggestedMinutes = Math.max(5, Math.min(180, Math.round(spanMin / 5) * 5));
+    // Estimated time = the stretches you were actively working on this client. Actions close together (≤ 20 min apart) count
+    // as continuous work; a longer gap is treated as a break — you were elsewhere — and only adds a couple of minutes for
+    // picking the work back up. The last action gets a few minutes to finish. Rounded to 5, between 5 min and 3 h; editable before saving.
+    let activeMin = 0;
+    for (let i = 1; i < events.length; i++) {
+      const gap = (events[i].at - events[i - 1].at) / 60000;
+      activeMin += gap <= ACTIVE_GAP_MIN ? gap : BREAK_CREDIT_MIN;
+    }
+    activeMin += LAST_ACTION_MIN;
+    const suggestedMinutes = Math.max(5, Math.min(180, Math.round(activeMin / 5) * 5));
     return {
       clientId, clientName: names.get(clientId) || clientId, count: events.length, lines,
       firstAt: new Date(events[0].at).toISOString(), lastAt: new Date(events[events.length - 1].at).toISOString(), suggestedMinutes,
@@ -201,6 +213,12 @@ dailyLogRouter.get("/auto-draft", requireAuth, requireRole("admin", "staff"), as
  * Admin-only "who did what today": for each staff member (and admin) the entries they've saved for the day, the work the app
  * has recorded for them that isn't saved yet, and when they last did anything. Same drafting logic as /auto-draft, one person at a time.
  */
+/** Admin only: everyone who can keep a Daily Log, for the "Logged by" filter. */
+dailyLogRouter.get("/people", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const people = await query<any>(`SELECT email, name, role FROM altax.v3_users WHERE lower(role) IN ('staff','admin') AND COALESCE(active, true) = true ORDER BY name, email`);
+  res.json({ people: people.map((u: any) => ({ email: u.email, name: u.name || u.email, role: String(u.role).toLowerCase() })) });
+}));
+
 dailyLogRouter.get("/team", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const dateRaw = String(req.query.date || "").trim();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
