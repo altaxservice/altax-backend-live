@@ -115,7 +115,9 @@ function evalNodes(nodes: Node[], scope: Scope): string {
       out += q ? formatValue(q, scope.answers[node.id], scope.lang) : "";
     } else if (node.t === "if") {
       const v = scope.answers[node.id];
-      let ok = node.equals !== undefined ? String(v ?? "") === node.equals : isFilled(v);
+      const qd = scope.questions.find((x) => x.id === node.id);
+      const isZero = (qd?.type === "number" || qd?.type === "money") && String(v ?? "").trim() !== "" && Number(String(v).replace(/[$,\s]/g, "")) === 0;
+      let ok = node.equals !== undefined ? String(v ?? "") === node.equals : isFilled(v) && !isZero;
       if (node.negate) ok = !ok;
       out += evalNodes(ok ? node.yes : node.no, scope);
     } else if (node.t === "list") {

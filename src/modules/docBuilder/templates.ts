@@ -28,6 +28,7 @@ export const DOC_TEMPLATES: DocTemplate[] = [
   {
     key: "fee_agreement", title: "Fee Agreement", category: CLIENT_SERVICE,
     description: "Spells out what the firm will do, what it costs and when it is paid.",
+    reviewNote: "A tax practitioner must return a client's records on request even if a fee is unpaid (31 CFR §10.28), so this agreement says so. Keep late charges within what Maryland law allows. Have an attorney review before use.",
     steps: [
       { title: "Parties", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), text("clientAddress", "Client address", { prefill: "clientAddress" }), text("firmName", "Firm name", { prefill: "firmName", required: true }), effective()] },
       { title: "Services", questions: [area("services", "Services covered", { required: true, placeholder: "e.g. Monthly bookkeeping, sales tax filings and payroll filings" }), text("period", "Period or tax year covered", { placeholder: "e.g. Calendar year 2026" })] },
@@ -37,8 +38,8 @@ export const DOC_TEMPLATES: DocTemplate[] = [
         num("dueDays", "Invoices are due within (days)", { default: "15", required: true }),
         yesno("retainer", "Is a retainer or deposit required up front?"),
         money("retainerAmount", "Retainer amount", { showIf: { id: "retainer", equals: true }, required: true }),
-        yesno("lateFee", "Charge a late fee on overdue invoices?"),
-        num("lateFeePercent", "Late fee (% per month)", { showIf: { id: "lateFee", equals: true }, default: "1.5", required: true }),
+        yesno("lateFee", "Charge interest on overdue invoices?"),
+        num("lateFeePercent", "Interest on overdue invoices (% per month)", { showIf: { id: "lateFee", equals: true }, default: "1.5", required: true }),
         state(),
       ] },
     ],
@@ -52,30 +53,34 @@ The Firm will provide the following services{{#if period}} for {{period}}{{/if}}
 Services not listed above are outside this agreement and will be quoted separately.
 
 2. FEES
-{{#if feeType=flat}}The Client will pay a flat fee of {{amount}} for the services above.{{/if}}{{#if feeType=monthly}}The Client will pay a fee of {{amount}} per month for the services above.{{/if}}{{#if feeType=hourly}}The Client will pay {{amount}} per hour for time spent on the services above, billed as the work is done.{{/if}}
-{{#if retainer}}A retainer of {{retainerAmount}} is due before work begins and will be applied to the Firm's invoices.{{/if}}
+{{#if feeType=flat}}The Client will pay a flat fee of {{amount}} for the services above.{{/if}}{{#if feeType=monthly}}The Client will pay a fee of {{amount}} per month for the services above. This agreement continues month to month until it is ended under Section 5, and a change in the monthly fee needs 30 days' written notice.{{/if}}{{#if feeType=hourly}}The Client will pay {{amount}} per hour for time spent on the services above, billed as the work is done.{{/if}}
+{{#if retainer}}A retainer of {{retainerAmount}} is due before work begins and will be applied to the Firm's invoices. Any part not used when the work ends will be refunded to the Client.{{/if}}
+Government filing fees, penalties and interest, and out-of-pocket costs are not included in the fee and are paid by the Client. The Firm does not guarantee any result, refund or outcome with any tax authority.{{#if feeType=flat}} A flat fee is invoiced when the work is delivered unless the Firm states otherwise in writing.{{/if}}
 
 3. PAYMENT
-Invoices are due within {{dueDays}} days of the invoice date.{{#if lateFee}} Balances unpaid after the due date may be charged a late fee of {{lateFeePercent}}% per month.{{/if}} The Firm may pause work while an invoice is overdue.
+Invoices are due within {{dueDays}} days of the invoice date.{{#if lateFee}} Balances unpaid after the due date bear simple (non-compounded) interest at {{lateFeePercent}}% per month, but never more than the maximum rate the law allows.{{/if}} The Firm may pause new work while an invoice is overdue, but will tell the Client in writing which filing deadlines are affected and will still return the Client's records on request.
 
 4. CLIENT RESPONSIBILITIES
 The Client will provide complete and accurate records and information promptly, and is responsible for the accuracy of what the Client supplies.
 
-5. TERMINATION
-Either party may end this agreement by written notice. The Client remains responsible for fees for work already performed.
+5. TERMINATION AND RECORDS
+Either party may end this agreement by ten (10) days' written notice. The Client remains responsible for fees and costs for work performed up to the end date. The Firm will return the Client's own records on request, whether or not an invoice is unpaid. If the Firm pauses or ends work, it will tell the Client in writing which filing deadlines are affected, and the Firm is not responsible for penalties or interest that result.
 
-6. GOVERNING LAW
-This agreement is governed by the laws of the State of {{state}}.
+6. GENERAL AND GOVERNING LAW
+This is the entire agreement about these services and may be changed only in writing signed by both parties. If any part is held invalid, the rest stays in effect. The Firm will keep the Client's information confidential and will disclose it only as the Client authorizes in writing or the law requires. This agreement is governed by the laws of the State of {{state}}.
 
 Client: {{clientName}}
+Printed name and title: ______________________________
 Signature: ______________________________   Date: ______________
 
 For {{firmName}}
+Printed name and title: ______________________________
 Signature: ______________________________   Date: ______________`,
   },
   {
     key: "engagement_letter", title: "Engagement Letter", category: CLIENT_SERVICE,
     description: "A custom-scope letter confirming what the firm will and will not do for a client.",
+    reviewNote: "Representation before the IRS or the Comptroller of Maryland needs the official forms (IRS 2848; Maryland 548) — this letter says so. Have an attorney review before use.",
     steps: [
       { title: "Engagement", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), text("firmName", "Firm name", { prefill: "firmName", required: true }), effective(),
         area("scope", "What the firm will do", { required: true }), area("exclusions", "What is not included", { placeholder: "e.g. Audit or review services, legal advice, representation before the IRS unless separately authorized" }),
@@ -83,7 +88,7 @@ Signature: ______________________________   Date: ______________`,
       { title: "Terms", questions: [
         pick("term", "How long does this engagement last?", [["completion", "Until the work is finished"], ["ongoing", "Ongoing until either side ends it"], ["fixed", "Until a set date"]], { required: true, default: "completion" }),
         date("endDate", "End date", { showIf: { id: "term", equals: "fixed" }, required: true }),
-        text("feeSummary", "Fees (as agreed)", { placeholder: "e.g. $450 flat fee, billed on completion" }),
+        text("feeSummary", "Fees (as agreed)", { required: true, placeholder: "e.g. $450 flat fee, billed on completion" }),
         text("contact", "Firm contact for this engagement"),
         state(),
       ] },
@@ -101,17 +106,20 @@ Thank you for choosing {{firmName}}. This letter confirms the work we will do fo
 WHAT WE WILL DO
 {{scope}}
 
-{{#if exclusions}}WHAT IS NOT INCLUDED
-{{exclusions}}
+WHAT IS NOT INCLUDED
+{{#if exclusions}}{{exclusions}} {{/if}}Work not described above is not included.
 
-{{/if}}YOUR RESPONSIBILITIES
-You agree to give us complete, accurate and timely information and records, to review the work we prepare before it is filed or relied on, and to tell us promptly about changes that affect it. We rely on the information you provide and do not audit or independently verify it.
+YOUR RESPONSIBILITIES
+You agree to give us complete, accurate and timely information and records, to review the work we prepare before it is filed or relied on, and to tell us promptly about changes that affect it. We rely on the information you provide and do not audit or independently verify it. You are responsible for the final content of anything filed in your name and for any tax, penalty or interest. We cannot guarantee any refund or result, and we do not give legal advice. Representation before the IRS or the Comptroller of Maryland is not included unless we agree in writing and you sign the official form (IRS Form 2848 / Maryland Form 548). We keep your information confidential and release it only with your written consent or as the law requires.
 
 FEES
-{{#if feeSummary}}{{feeSummary}}{{else}}Our fees will be as quoted to you separately.{{/if}}
+{{feeSummary}} Invoices are due within 15 days unless we agree otherwise in writing.
 
 DURATION
 {{#if term=completion}}This engagement ends when the work described above is finished.{{/if}}{{#if term=ongoing}}This engagement continues until either of us ends it by written notice.{{/if}}{{#if term=fixed}}This engagement ends on {{endDate}} unless we agree in writing to extend it.{{/if}}
+
+ENDING THE ENGAGEMENT
+Either of us may end this engagement by written notice. When it ends, or when the work is finished, we have no duty to update our work or to monitor deadlines, law changes or filings unless we agree in writing. We will return your records on request, whether or not our invoices are paid.
 
 GOVERNING LAW
 This engagement is governed by the laws of the State of {{state}}.
@@ -120,24 +128,28 @@ If this correctly states our agreement, please sign and return a copy.{{#if cont
 
 Sincerely,
 {{firmName}}
+By: ______________________________   Name and title: ______________________________
 
 Agreed and accepted:
 {{clientName}}
+Printed name and title (if signing for a business): ______________________________
 Signature: ______________________________   Date: ______________`,
   },
   {
     key: "authorization_release", title: "Authorization to Release Information", category: CLIENT_SERVICE,
     description: "Lets the firm share specific client records with a named person or company. (For IRS or Maryland tax representation use the 2848 / 8821 / 548 tools.)",
-    reviewNote: "This is not the IRS Form 2848/8821 or Maryland Form 548 — those must be on the official forms.",
+    reviewNote: "For tax-return information this works as a consent under IRC §7216 (26 CFR §301.7216-3): it must name the preparer, taxpayer, purpose, recipient and information, and be signed and dated BEFORE anything is released. For individual (Form 1040) filers the IRS also prescribes specific consent wording (Rev. Proc. 2013-14) — have an attorney or the IRS text confirm it. It is not an IRS 2848/8821 or Maryland Form 548.",
     steps: [
       { title: "Who and what", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), text("firmName", "Firm name", { prefill: "firmName", required: true }), effective(),
         text("recipient", "Share information with (person or company)", { required: true }), text("recipientAddress", "Their address or email"),
         area("information", "Information that may be shared", { required: true, placeholder: "e.g. Tax returns and financial statements for 2024 and 2025" }),
         area("purpose", "Purpose", { required: true, placeholder: "e.g. Loan application with First Bank" }),
         pick("duration", "How long does this authorization last?", [["date", "Until a date"], ["onetime", "One time only"], ["revoked", "Until I cancel it in writing"]], { required: true, default: "date" }),
-        date("expires", "Expires on", { showIf: { id: "duration", equals: "date" }, required: true })] },
+        date("expires", "Expires on (must be after the date I sign)", { showIf: { id: "duration", equals: "date" }, required: true })] },
     ],
     body: `AUTHORIZATION TO RELEASE INFORMATION
+
+Prepared: {{effectiveDate}}
 
 I, {{clientName}}, authorize {{firmName}} to release the information described below to:
 
@@ -151,21 +163,24 @@ PURPOSE
 {{purpose}}
 
 DURATION
-{{#if duration=date}}This authorization is effective {{effectiveDate}} and expires on {{expires}}.{{/if}}{{#if duration=onetime}}This authorization is effective {{effectiveDate}} and covers a single release of the information above.{{/if}}{{#if duration=revoked}}This authorization is effective {{effectiveDate}} and stays in force until I cancel it by written notice to {{firmName}}.{{/if}}
+{{#if duration=date}}This authorization takes effect on the date I sign it below and expires on {{expires}}.{{/if}}{{#if duration=onetime}}This authorization takes effect on the date I sign it below and covers a single release of the information above, made within 90 days of the date I sign.{{/if}}{{#if duration=revoked}}This authorization takes effect on the date I sign it below and stays in force until I cancel it by written notice to {{firmName}}.{{/if}}
 
-I understand that I may cancel this authorization at any time by written notice, except for information already released. {{firmName}} is not responsible for how the recipient uses the information after it is released. This authorization does not allow {{firmName}} to act on my behalf before any tax authority.
+I understand that I may cancel this authorization at any time by written notice to {{firmName}}, except for information already released. I am not required to sign this authorization, and {{firmName}} will not refuse to prepare my tax return because I decline. If no end date is stated, this consent is valid for one year from the date I sign. I will receive a copy. If I believe my tax return information has been disclosed or used improperly, I may contact the Treasury Inspector General for Tax Administration (TIGTA) at 1-800-366-4484. This authorization covers only the information listed above and does not include my Social Security number or EIN unless listed. The recipient should not pass the information on without my permission. {{firmName}} is not responsible for how the recipient uses the information after it is released. This authorization does not allow {{firmName}} to act on my behalf before any tax authority.
 
 {{clientName}}
-Signature: ______________________________   Date: ______________`,
+Printed name and title (if signing for a business): ______________________________
+Signature: ______________________________   Date: ______________
+Spouse (joint return only): Signature: ______________________________   Date: ______________`,
   },
   {
     key: "termination_of_services", title: "Termination of Services Letter", category: CLIENT_SERVICE,
     description: "Formally ends the working relationship with a client and sets out what happens to records and balances.",
+    reviewNote: "Keep the reason empty unless your attorney advises otherwise. A tax practitioner must return client records on request even if a balance is unpaid (31 CFR §10.28). Withdrawing from an IRS 2848, a Maryland Form 548 or other authorizations is stated in the letter — also do it with each office.",
     steps: [
       { title: "Details", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), text("firmName", "Firm name", { prefill: "firmName", required: true }), effective(),
         pick("endedBy", "Who is ending the relationship?", [["firm", "The firm"], ["client", "The client"]], { required: true, default: "firm" }),
         date("lastDay", "Last day of service", { required: true }),
-        text("reason", "Reason (optional)"),
+        text("reason", "Reason (optional — leave empty unless your attorney advises)"),
         yesno("balance", "Is there an unpaid balance?"), money("balanceAmount", "Balance owed", { showIf: { id: "balance", equals: true }, required: true }),
         yesno("records", "Are the client's records being returned with this letter?", { default: true }),
         area("pending", "Work still open or deadlines the client should know about", { placeholder: "e.g. The Q3 sales tax return is due October 20; the client must file it or engage another preparer." })] },
@@ -178,23 +193,31 @@ Re: Ending of services
 
 Dear {{clientName}},
 
-{{#if endedBy=firm}}{{firmName}} is ending its professional services for you effective {{lastDay}}.{{else}}This confirms that {{clientName}} has ended its engagement with {{firmName}} effective {{lastDay}}.{{/if}}{{#if reason}} {{reason}}{{/if}}
+{{#if endedBy=firm}}{{firmName}} is ending its professional services for you effective {{lastDay}}.{{else}}This confirms that you have ended your engagement with {{firmName}} effective {{lastDay}}.{{/if}}{{#if reason}} {{reason}}{{/if}}
 
 After {{lastDay}} we will no longer prepare, file or monitor anything on your behalf, including tax filings, payroll filings, reports or payments.
 
+AUTHORIZATIONS
+Effective {{lastDay}} we withdraw as your representative on every power of attorney and account access we hold for you (including IRS Form 2848/8821, Maryland Comptroller Form 548 and Maryland unemployment insurance access). Until you file new authorizations and update your contact details with each agency, notices may still be sent to us.
+
 {{#if pending}}OPEN ITEMS AND DEADLINES
 {{pending}}
+Missing these dates may cause penalties; please consider engaging another preparer now.
 
 {{/if}}{{#if balance}}OUTSTANDING BALANCE
 Our records show an unpaid balance of {{balanceAmount}}, which remains due.
 
 {{/if}}RECORDS
-{{#if records}}Your records are returned with this letter. Please keep them; you are responsible for retaining copies as required by law.{{else}}Please contact us to arrange the return of your records.{{/if}}
+{{#if records}}Your records are returned with this letter. Please keep them; you are responsible for retaining copies as required by law.{{else}}Please contact us to arrange the return of your records.{{/if}} Your records belong to you, and we will return them on request whether or not any balance is paid.
 
 We appreciate the opportunity to have served you.
 
 Sincerely,
-{{firmName}}`,
+
+______________________________
+{{firmName}}
+Name and title: ______________________________
+Sent by: ☐ hand delivery   ☐ certified mail   ☐ email on ______________`,
   },
   {
     key: "document_request_letter", title: "Document Request Letter", category: CLIENT_SERVICE,
@@ -203,7 +226,8 @@ Sincerely,
       { title: "Request", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), text("firmName", "Firm name", { prefill: "firmName", required: true }), effective(),
         text("purpose", "What the documents are needed for", { required: true, placeholder: "e.g. your 2025 tax return" }), date("dueDate", "Please send by", { required: true }),
         list("items", "Documents needed", [text("doc", "Document", { required: true }), text("note", "Note (optional)")], { required: true, addLabel: "Add a document" }),
-        text("how", "How to send them", { default: "Upload them to your client portal under Documents, or email them to us." })] },
+        text("how", "How to send them", { default: "Please upload them to your secure client portal under Documents. Please do not email Social Security numbers, bank account numbers or full tax forms; if you cannot use the portal, call us and we will arrange another secure way." }),
+        text("contact", "Firm contact (phone or email)")] },
     ],
     body: `{{effectiveDate}}
 
@@ -219,10 +243,13 @@ To complete {{purpose}}, we need the following from you by {{dueDate}}:
 {{/list}}
 {{how}}
 
-If any item does not apply, or you are not sure what we mean, please tell us and we will help. Delays in sending these may delay your filing and could result in penalties or interest.
+If any item does not apply, or you are not sure what we mean, please tell us and we will help. If we do not receive these by {{dueDate}}, we may not be able to file on time. We will then prepare only from what we have, or file an extension where possible, and you remain responsible for any penalty or interest.
 
 Thank you,
-{{firmName}}`,
+
+Signature: ______________________________
+{{firmName}}{{#if contact}}
+Contact: {{contact}}{{/if}}`,
   },
 
   /* ─────────────── Business formation & ownership ─────────────── */
@@ -422,14 +449,15 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "offer_letter", title: "Offer of Employment Letter", category: EMPLOYMENT,
     description: "Offers a position with pay, schedule and start date, and states that employment is at will.",
+    reviewNote: "Maryland requires written notice at hiring of the rate of pay, regular paydays and leave benefits (Labor & Employment §3-504). Pay at least every two weeks or twice a month; monthly pay is lawful only for administrative, executive or professional employees (§3-502). Never set pay below the Maryland minimum wage. Have an attorney review before use.",
     steps: [
       { title: "Position", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employee", "Employee name", { required: true }), text("employeeAddress", "Employee address"), effective(),
         text("position", "Job title", { required: true }), text("supervisor", "Reports to"), date("startDate", "Start date", { required: true }), text("location", "Work location", { prefill: "clientAddress" })] },
       { title: "Pay and schedule", questions: [
         pick("payType", "Pay is", [["hourly", "Hourly"], ["salary", "Salary"]], { required: true, default: "hourly" }),
-        money("rate", "Hourly rate or annual salary", { required: true }),
+        money("rate", "Hourly rate or annual salary", { required: true, help: "Must not be below the Maryland minimum wage." }),
         text("schedule", "Expected schedule", { placeholder: "e.g. 40 hours per week, Monday–Friday" }),
-        pick("payFrequency", "Paid", [["weekly", "Weekly"], ["biweekly", "Every two weeks"], ["semimonthly", "Twice a month"], ["monthly", "Monthly"]], { default: "biweekly" }),
+        pick("payFrequency", "Paid", [["weekly", "Weekly"], ["biweekly", "Every two weeks"], ["semimonthly", "Twice a month"], ["monthly", "Monthly"]], { default: "biweekly", required: true }),
         area("benefits", "Benefits or other terms (optional)"),
         date("replyBy", "Please reply by", { required: true }),
         state(),
@@ -445,21 +473,25 @@ Dear {{employee}},
 {{employer}} is pleased to offer you the position of {{position}}{{#if supervisor}}, reporting to {{supervisor}}{{/if}}, starting {{startDate}}{{#if location}} at {{location}}{{/if}}.
 
 PAY
-You will be paid {{#if payType=hourly}}{{rate}} per hour{{else}}a salary of {{rate}} per year{{/if}}, {{payFrequency}}, less required tax withholding and any deductions you authorize in writing.{{#if schedule}} Your expected schedule is {{schedule}}.{{/if}}
+You will be paid {{#if payType=hourly}}{{rate}} per hour{{else}}a salary of {{rate}} per year{{/if}}, {{#if payFrequency=weekly}}every week{{/if}}{{#if payFrequency=biweekly}}every two weeks{{/if}}{{#if payFrequency=semimonthly}}twice each month{{/if}}{{#if payFrequency=monthly}}once a month{{/if}}, on {{employer}}'s regular paydays, less required tax withholding and any deductions you authorize in writing. {{employer}} will give you at least one pay period's notice before it changes your payday or lowers your rate of pay.{{#if schedule}} Your expected schedule is {{schedule}}.{{/if}} {{#if payType=hourly}}Hours over 40 in a workweek are paid at overtime rates as the law requires.{{else}}A salary alone does not make a position exempt from overtime. Unless {{employer}} tells you in writing that your position is exempt, you will be paid overtime for hours over 40 in a workweek as the law requires.{{/if}}
 {{#if benefits}}
 BENEFITS AND OTHER TERMS
 {{benefits}}
 {{/if}}
+LEAVE
+You will earn paid sick and safe leave as Maryland law requires, and {{employer}} will give you the State's written notice about it. Any vacation or other paid leave, and whether unused leave is paid when employment ends, is stated above or in {{employer}}'s written leave policy.
+
 AT-WILL EMPLOYMENT
-Your employment is at will. Either you or {{employer}} may end it at any time, with or without cause or notice. This letter is not a contract for any fixed period.
+Your employment is at will. Either you or {{employer}} may end it at any time, with or without cause or notice. This letter is not a contract for any fixed period. No one other than the owner can change this at-will relationship, and only in a signed writing. This letter replaces any earlier oral statements about your job.
 
 BEFORE YOU START
-You must complete Form W-4 and Form I-9 and give us documents showing your identity and authorization to work in the United States. This offer depends on completing those items.
+By your first day you must complete Form W-4 and Section 1 of Form I-9. Within three business days after you start, you must show {{employer}} original documents of your own choice, from the Form I-9 lists of acceptable documents, proving your identity and your authorization to work in the United States. This offer depends on completing these items.
 
-This letter is governed by the laws of the State of {{state}}. To accept, sign below and return it by {{replyBy}}.
+This letter is governed by the laws of the State of {{state}}. To accept, sign below and return it by {{replyBy}}; this offer ends if it is not accepted by then.
 
 Sincerely,
 {{employer}}
+Signature: ______________________________   Date: ______________
 
 I accept this offer:
 {{employee}}
@@ -468,14 +500,21 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "contractor_agreement", title: "Independent Contractor Agreement", category: EMPLOYMENT,
     description: "Sets out services, pay and the independent-contractor relationship (not an employee).",
-    reviewNote: "How the person actually works matters more than the label — confirm they meet the independent-contractor tests before relying on this.",
+    reviewNote: "Calling someone a contractor does not make them one. Under Maryland's unemployment-insurance test (Labor & Employment §8-205) and the IRS test, a person who works your shifts, at your store, under your direction is an employee. If that describes the person, use the Employment Agreement instead. Tick only the independence facts that are TRUE. Have an attorney review before use.",
     steps: [
       { title: "Parties", questions: [text("company", "Company", { prefill: "clientName", required: true }), text("companyAddress", "Company address", { prefill: "clientAddress" }), text("contractor", "Contractor name", { required: true }), text("contractorAddress", "Contractor address"), effective(), state()] },
+      { title: "Independence check", description: "These facts decide whether the person is really a contractor. Tick only what is true. If most are not ticked, this person is probably an employee.", questions: [
+        yesno("indBusiness", "Contractor runs their own business and has, or is free to take, other customers"),
+        yesno("indSchedule", "Contractor decides their own schedule and methods; the Company controls only the result"),
+        yesno("indTools", "Contractor uses their own tools and may use helpers at their own cost"),
+        yesno("indAway", "The work is done away from the Company's premises, or is not part of the Company's usual day-to-day business"),
+        yesno("indInsurance", "Contractor carries their own insurance and workers' compensation coverage where the law requires"),
+      ] },
       { title: "Work and pay", questions: [
         area("services", "Services to be performed", { required: true }),
         date("startDate", "Start date", { required: true }), yesno("hasEnd", "The work has an end date"), date("endDate", "End date", { showIf: { id: "hasEnd", equals: true }, required: true }),
         pick("feeType", "Contractor is paid", [["fixed", "A fixed fee for the project"], ["hourly", "By the hour"]], { required: true, default: "fixed" }),
-        money("fee", "Fee or hourly rate", { required: true }), num("payDays", "Invoices paid within (days)", { default: "30", required: true }),
+        money("fee", "Fixed fee, or hourly rate", { required: true }), num("payDays", "Invoices paid within (days)", { default: "30", required: true }),
         yesno("confidential", "Contractor keeps the company's information confidential", { default: true }),
         yesno("ownsWork", "The company owns the work the contractor produces", { default: true }),
       ] },
@@ -488,25 +527,25 @@ This Agreement is made on {{effectiveDate}} between {{company}}{{#if companyAddr
 Contractor will perform the following services: {{services}}
 
 2. TERM
-Work begins on {{startDate}}{{#if hasEnd}} and ends on {{endDate}}, unless ended earlier under this Agreement{{else}} and continues until either party ends it by written notice{{/if}}.
+Work begins on {{startDate}}{{#if hasEnd}} and ends on {{endDate}}, unless ended earlier under this Agreement{{else}} and continues until either party ends it as described in this Agreement{{/if}}.
 
 3. PAYMENT
-Company will pay Contractor {{#if feeType=fixed}}a fixed fee of {{fee}} for the services{{else}}{{fee}} per hour for time worked{{/if}}. Contractor will send invoices and Company will pay each within {{payDays}} days of receiving it.
+Company will pay Contractor {{#if feeType=fixed}}a fixed fee of {{fee}} for the services{{else}}{{fee}} per hour for time worked{{/if}}. Contractor will send invoices{{#if feeType=hourly}} listing the dates and hours worked{{/if}} and Company will pay each within {{payDays}} days of receiving it.
 
 4. INDEPENDENT CONTRACTOR
-Contractor is an independent contractor, not an employee. Contractor controls how and when the work is done, supplies their own tools, and may work for others. Company will not withhold taxes or provide benefits. Contractor is responsible for their own taxes, insurance and licenses, and will provide a completed Form W-9; Company will report payments on Form 1099-NEC where required.
+Contractor is an independent contractor, not an employee. {{#if indBusiness}}Contractor runs their own business and has other customers or is free to take them. {{/if}}{{#if indSchedule}}Contractor sets their own schedule and methods; Company controls the result of the work, not the means. {{/if}}{{#if indTools}}Contractor supplies their own tools and may use helpers at their own cost. {{/if}}{{#if indAway}}The work is done away from Company's premises or outside Company's usual day-to-day business. {{/if}}{{#if indInsurance}}Contractor carries any insurance and workers' compensation coverage the law requires for Contractor and Contractor's helpers. {{/if}}Contractor has no authority to bind Company. Company will not withhold taxes or provide benefits. Contractor is responsible for their own taxes, insurance and licenses, and will provide a completed Form W-9; Company will report payments on Form 1099-NEC where required.
 
 {{#if confidential}}5. CONFIDENTIALITY
-Contractor will keep Company's non-public business, client and financial information confidential and use it only for this work, during and after this Agreement.
+Contractor will keep Company's non-public business, client and financial information confidential and use it only for this work, during and after this Agreement. Nothing in this Agreement stops Contractor from reporting a possible violation of law to a government agency. Under 18 U.S.C. § 1833(b), an individual is not liable under any trade-secret law for disclosing a trade secret in confidence to a government official or an attorney solely to report or investigate a suspected violation of law, or in a sealed court filing.
 
 {{/if}}{{#if ownsWork}}6. OWNERSHIP OF WORK
-Work Contractor creates for Company under this Agreement belongs to Company once Company has paid for it.
+Contractor assigns to Company all rights in the work Contractor creates specifically for Company under this Agreement, effective when Company has paid for it. Contractor keeps rights in Contractor's own pre-existing tools and materials and gives Company a license to use any of them built into the work.
 
 {{/if}}7. ENDING THE AGREEMENT
-Either party may end this Agreement on 14 days' written notice. Company pays for work performed up to the end date.
+Either party may end this Agreement on 14 days' written notice, or immediately if the other party materially breaks it. Company pays for work completed up to the end date; for a fixed fee, the part of the fee that matches the work completed.
 
 8. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. If any part of it cannot be enforced, the rest stays in force.
 
 COMPANY: {{company}}
 Signature: ______________________________   Date: ______________
@@ -517,11 +556,12 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "employment_termination_letter", title: "Employment Separation Letter", category: EMPLOYMENT,
     description: "Confirms the end of employment, final pay and the return of company property.",
+    reviewNote: "Maryland requires final wages to be paid no later than the regular payday that would have applied had employment continued (Labor & Employment §3-505). Earned vacation counts as wages unless a written policy given at hiring says otherwise. Keep any reason short and neutral. A layoff of many employees can trigger Maryland's notice rules — check first. Have an attorney review before using this for a firing.",
     steps: [
       { title: "Separation", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employee", "Employee name", { required: true }), effective(),
-        pick("type", "Type of separation", [["resignation", "Employee resigned"], ["termination", "Employer ended employment"], ["layoff", "Layoff"]], { required: true, default: "resignation" }),
-        date("lastDay", "Last day of work", { required: true }), text("reason", "Reason (optional — keep it factual)"),
-        date("finalPayDate", "Final paycheck will be paid on", { required: true }),
+        pick("type", "Type of separation", [["resignation", "Employee resigned"], ["termination", "Employer ended employment"], ["layoff", "Layoff"]], { required: true }),
+        date("lastDay", "Last day of work", { required: true }), text("reason", "Reason (optional)", { help: "Leave empty unless needed; one neutral fact only. It is not printed for a termination." }),
+        date("finalPayDate", "Final paycheck will be paid on", { required: true, help: "No later than the employee's next regular payday." }),
         yesno("accruedPay", "Final pay includes unused paid time off", { default: false }),
         yesno("property", "Employee must return company property", { default: true }), text("propertyList", "Property to return", { showIf: { id: "property", equals: true }, placeholder: "e.g. Keys, uniform, laptop" }),
         text("contact", "Contact for questions or records")] },
@@ -534,45 +574,56 @@ Re: End of employment
 
 Dear {{employee}},
 
-{{#if type=resignation}}This letter confirms that {{employer}} has accepted your resignation. Your last day of work is {{lastDay}}.{{/if}}{{#if type=termination}}This letter confirms that your employment with {{employer}} ends on {{lastDay}}.{{/if}}{{#if type=layoff}}This letter confirms that your position with {{employer}} is being eliminated and your last day of work is {{lastDay}}.{{/if}}{{#if reason}} {{reason}}{{/if}}
+{{#if type=resignation}}This letter confirms that {{employer}} has accepted your resignation. Your last day of work is {{lastDay}}.{{/if}}{{#if type=termination}}This letter confirms that your employment with {{employer}} ends on {{lastDay}}.{{/if}}{{#if type=layoff}}This letter confirms that your position with {{employer}} is being eliminated and your last day of work is {{lastDay}}.{{/if}}{{#if reason}}{{#if !type=termination}} {{reason}}{{/if}}{{/if}}
 
 FINAL PAY
-Your final paycheck, covering all wages earned through {{lastDay}}{{#if accruedPay}} and unused paid time off{{/if}}, less required withholdings, will be paid on {{finalPayDate}}.
+Your final paycheck, covering all wages earned through {{lastDay}}{{#if accruedPay}} and unused paid time off{{/if}}, less required withholdings, will be paid on or before {{finalPayDate}}, which is no later than the regular payday that would have applied had your employment continued.{{#if !accruedPay}} Unused vacation or paid time off is paid only as stated in {{employer}}'s written leave policy.{{/if}}
 
 {{#if property}}COMPANY PROPERTY
 Please return the following on or before your last day: {{#if propertyList}}{{propertyList}}{{else}}all company property in your possession{{/if}}.
 
-{{/if}}TAX FORMS AND RECORDS
+{{/if}}UNEMPLOYMENT INSURANCE
+You may be able to apply for unemployment insurance benefits with the Maryland Department of Labor. The State decides eligibility.
+
+TAX FORMS AND RECORDS
 Your Form W-2 will be sent to the address we have on file, so please keep it up to date with us.{{#if contact}} Questions can be sent to {{contact}}.{{/if}}
 
 Sincerely,
-{{employer}}`,
+{{employer}}
+By: ______________________________   Date: ______________
+
+Received by employee (receipt only, not agreement):
+{{employee}}
+Signature: ______________________________   Date: ______________`,
   },
   {
     key: "employment_verification_letter", title: "Employment Verification Letter", category: EMPLOYMENT,
     description: "Confirms that a person works (or worked) for the business — for a landlord, lender or agency.",
+    reviewNote: "Release employment or pay information only with the employee's written request or permission. State facts only — never the reason for leaving, discipline, medical or immigration information.",
     steps: [
       { title: "Details", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employerAddress", "Employer address", { prefill: "clientAddress" }), text("employee", "Employee name", { required: true }), effective(),
+        pick("authorized", "The employee asked for or allowed this letter in writing", [["yes", "Yes — I have their written request"], ["no", "No"]], { required: true }),
         text("position", "Job title", { required: true }), date("startDate", "Employed since", { required: true }),
         yesno("current", "Still employed", { default: true }), date("endDate", "Employment ended", { showIf: { id: "current", equals: false }, required: true }),
-        pick("status", "Status", [["fulltime", "Full-time"], ["parttime", "Part-time"], ["seasonal", "Seasonal"]], { default: "fulltime" }),
+        pick("status", "Status", [["fulltime", "Full-time"], ["parttime", "Part-time"], ["seasonal", "Seasonal"]], { default: "fulltime", required: true }),
         yesno("includePay", "Include pay information", { default: false }), money("pay", "Pay amount", { showIf: { id: "includePay", equals: true }, required: true }),
         pick("payPer", "Per", [["hour", "Hour"], ["week", "Week"], ["month", "Month"], ["year", "Year"]], { showIf: { id: "includePay", equals: true }, default: "year" }),
-        text("signer", "Signed by (name and title)", { required: true }), text("phone", "Phone for verification", { prefill: "clientPhone" })] },
+        text("signerName", "Signed by (name)", { required: true }), text("signerTitle", "Their title", { required: true }), text("phone", "Phone for verification", { prefill: "clientPhone", required: true })] },
     ],
     body: `{{effectiveDate}}
 
 To whom it may concern:
 
-This letter confirms that {{employee}} {{#if current}}is employed{{else}}was employed{{/if}} by {{employer}} as a {{status}} {{position}}, {{#if current}}since {{startDate}}{{else}}from {{startDate}} to {{endDate}}{{/if}}.
+This letter confirms that {{employee}} {{#if current}}is employed{{else}}was employed{{/if}} by {{employer}} as a {{#if status=fulltime}}full-time{{/if}}{{#if status=parttime}}part-time{{/if}}{{#if status=seasonal}}seasonal{{/if}} {{position}}, {{#if current}}since {{startDate}}{{else}}from {{startDate}} to {{endDate}}{{/if}}.
 
-{{#if includePay}}{{employee}}'s pay is {{pay}} per {{payPer}}.
+{{#if includePay}}{{employee}}'s pay {{#if current}}is{{else}}was{{/if}} {{pay}} per {{#if payPer=hour}}hour{{/if}}{{#if payPer=week}}week{{/if}}{{#if payPer=month}}month{{/if}}{{#if payPer=year}}year{{/if}}.
 
-{{/if}}This information is provided at the employee's request. {{#if phone}}To verify, please call {{phone}}.{{/if}}
+{{/if}}{{#if authorized=yes}}This letter is based on {{employer}}'s records as of the date above and is provided at the employee's written request. It states only the facts listed above.{{else}}[DO NOT SEND — there is no written request or permission from the employee.]{{/if}} To verify, please call {{phone}}.
 
 Sincerely,
 
-{{signer}}
+Signature: ______________________________
+{{signerName}}, {{signerTitle}}
 {{employer}}{{#if employerAddress}}
 {{employerAddress}}{{/if}}`,
   },
@@ -899,11 +950,11 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "employment_contract", title: "Employment Agreement", category: EMPLOYMENT,
     description: "A fuller written agreement than an offer letter: duties, pay, hours, confidentiality and how employment can end.",
-    reviewNote: "Have an attorney review before using, especially any non-compete wording — Maryland limits non-competes for lower-wage workers.",
+    reviewNote: "Maryland requires written notice at hiring of pay rate, regular paydays and leave (Labor & Employment §3-504), final pay by the next regular payday (§3-505), and pay at least every two weeks or twice a month (§3-502). This agreement has no non-compete; Maryland voids non-competes for lower-wage workers (§3-716) — use the separate Non-Competition agreement only after checking. Have an attorney review before use.",
     steps: [
       { title: "Parties and role", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employerAddress", "Employer address", { prefill: "clientAddress" }), text("employee", "Employee", { required: true }), text("employeeAddress", "Employee address"), effective(), text("position", "Position", { required: true }), area("duties", "Main duties", { required: true }), date("startDate", "Start date", { required: true }), state()] },
-      { title: "Pay and terms", questions: [pick("payType", "Pay", [["hourly", "Hourly"], ["salary", "Salary"]], { required: true, default: "hourly" }), money("rate", "Hourly rate or annual salary", { required: true }), pick("payFrequency", "Paid", [["weekly", "Weekly"], ["biweekly", "Every two weeks"], ["semimonthly", "Twice a month"], ["monthly", "Monthly"]], { default: "biweekly" }),
-        text("hours", "Expected hours", { placeholder: "e.g. 40 hours a week" }), num("probation", "Introductory period (days, 0 for none)", { default: "90" }), num("noticeDays", "Notice to resign (days)", { default: "14", required: true }),
+      { title: "Pay and terms", questions: [pick("payType", "Pay", [["hourly", "Hourly"], ["salary", "Salary"]], { required: true, default: "hourly" }), money("rate", "Hourly rate or annual salary", { required: true, help: "Must not be below the Maryland minimum wage." }), pick("payFrequency", "Paid", [["weekly", "Weekly"], ["biweekly", "Every two weeks"], ["semimonthly", "Twice a month"], ["monthly", "Monthly"]], { default: "biweekly", required: true }),
+        text("hours", "Expected hours", { placeholder: "e.g. 40 hours a week" }), yesno("hasProbation", "Include an introductory period", { default: true }), num("probation", "Introductory period (days)", { default: "90", showIf: { id: "hasProbation", equals: true }, required: true }), num("noticeDays", "Notice to resign (days)", { default: "14", required: true }),
         yesno("confidential", "Employee keeps business information confidential", { default: true }), area("benefits", "Benefits, vacation or other terms")] },
     ],
     body: `EMPLOYMENT AGREEMENT
@@ -911,25 +962,25 @@ Signature: ______________________________   Date: ______________`,
 This Agreement is made on {{effectiveDate}} between {{employer}}{{#if employerAddress}}, {{employerAddress}}{{/if}} ("Employer") and {{employee}}{{#if employeeAddress}}, {{employeeAddress}}{{/if}} ("Employee").
 
 1. POSITION AND DUTIES
-Employer employs Employee as {{position}} beginning {{startDate}}. Duties include: {{duties}} Employee will also perform other reasonable duties Employer assigns.
+Employer employs Employee as {{position}} beginning {{startDate}}. Duties include: {{duties}} Employee will also perform other reasonable duties Employer assigns. Employment depends on Employee completing Form W-4 and Form I-9 as the law requires.
 
 2. PAY
-Employee is paid {{#if payType=hourly}}{{rate}} per hour{{else}}a salary of {{rate}} per year{{/if}}, {{payFrequency}}, less required tax withholding and authorized deductions.{{#if hours}} Expected hours: {{hours}}.{{/if}} Hours over 40 in a workweek are paid at overtime rates where the law requires.
+Employee is paid {{#if payType=hourly}}{{rate}} per hour{{else}}a salary of {{rate}} per year{{/if}}, {{#if payFrequency=weekly}}every week{{/if}}{{#if payFrequency=biweekly}}every two weeks{{/if}}{{#if payFrequency=semimonthly}}twice each month{{/if}}{{#if payFrequency=monthly}}once a month{{/if}}, on Employer's regular paydays, less required tax withholding and deductions Employee authorizes in writing.{{#if hours}} Expected hours: {{hours}}.{{/if}} Employer will give Employee at least one pay period's notice before changing the payday or lowering the rate of pay. {{#if payType=hourly}}Hours over 40 in a workweek are paid at overtime rates as the law requires.{{else}}A salary alone does not make a position exempt from overtime; unless Employer states in writing that the position is exempt, hours over 40 in a workweek are paid at overtime rates as the law requires.{{/if}}
 
-{{#if probation}}3. INTRODUCTORY PERIOD
-The first {{probation}} days are an introductory period for both sides to decide whether the job is a good fit.
+{{#if hasProbation}}3. INTRODUCTORY PERIOD
+The first {{probation}} days are an introductory period for both sides to decide whether the job is a good fit. Finishing this period does not change the at-will nature of employment described in this Agreement.
 
-{{/if}}4. {{#if benefits}}BENEFITS AND OTHER TERMS{{else}}BENEFITS{{/if}}
-{{#if benefits}}{{benefits}}{{else}}Employee receives the benefits Employer offers to its employees under its policies, which Employer may change.{{/if}}
+{{/if}}4. {{#if benefits}}BENEFITS, LEAVE AND OTHER TERMS{{else}}BENEFITS AND LEAVE{{/if}}
+{{#if benefits}}{{benefits}}{{else}}Employee receives the benefits Employer offers to its employees under its policies, which Employer may change.{{/if}} Employee earns paid sick and safe leave as Maryland law requires. Whether unused vacation or other paid leave is paid when employment ends is stated in Employer's written leave policy.
 
 {{#if confidential}}5. CONFIDENTIALITY
-Employee will not share or use Employer's non-public business, customer or financial information except for Employer's business, during or after employment.
+Employee will not share or use Employer's non-public business, customer or financial information except for Employer's business, during or after employment. Nothing in this Agreement stops Employee from discussing wages or working conditions with coworkers or others where the law protects that, or from reporting a possible violation of law to a government agency. Under 18 U.S.C. § 1833(b), an individual is not liable under any trade-secret law for disclosing a trade secret in confidence to a government official or an attorney solely to report or investigate a suspected violation of law, or in a sealed court filing.
 
 {{/if}}6. AT-WILL EMPLOYMENT AND NOTICE
-Employment is at will: either party may end it at any time. Employee agrees to give {{noticeDays}} days' notice of resignation where possible. On leaving, Employee returns all Employer property and is paid all wages earned.
+Employment is at will: either party may end it at any time. Employee agrees to give {{noticeDays}} days' notice of resignation where possible; Employer may accept an earlier last day, and Employee is paid only for hours actually worked. On leaving, Employee returns all Employer property, and Employer pays all wages earned through the last day worked no later than the regular payday that would have applied had employment continued.
 
 7. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+Employer carries workers' compensation insurance as Maryland law requires. Work Employee creates for Employer in the job belongs to Employer. This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. If any part of it cannot be enforced, the rest stays in force.
 
 EMPLOYER: {{employer}}
 Signature: ______________________________   Date: ______________
@@ -940,11 +991,12 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "employee_warning_letter", title: "Employee Warning Letter", category: EMPLOYMENT,
     description: "A written warning that records what happened, what is expected, and the consequence of it happening again.",
+    reviewNote: "Keep to dates and facts. Do not mention medical conditions, leave, pay complaints, injury reports, talking with coworkers about pay, religion, nationality or other protected activity — discipline that follows such things can be treated as retaliation. Have an attorney review before using it for a final warning.",
     steps: [
       { title: "Details", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employee", "Employee", { required: true }), effective(), pick("level", "Warning level", [["verbal", "Written record of a verbal warning"], ["first", "First written warning"], ["final", "Final written warning"]], { required: true, default: "first" }),
-        date("incidentDate", "Date of the issue", { required: true }), area("issue", "What happened (facts only)", { required: true }), area("expectation", "What is expected from now on", { required: true }),
+        date("incidentDate", "Date of the issue", { required: true }), area("issue", "What happened (dates and facts only)", { required: true, help: "No medical, leave, pay-complaint or other protected matters." }), area("expectation", "What is expected from now on", { required: true }),
         yesno("priorWarnings", "There were earlier warnings about this"), text("priorDates", "Dates of earlier warnings", { showIf: { id: "priorWarnings", equals: true } }),
-        text("manager", "Issued by (name and title)", { required: true })] },
+        text("managerName", "Issued by (name)", { required: true }), text("managerTitle", "Their title", { required: true })] },
     ],
     body: `{{effectiveDate}}
 
@@ -963,21 +1015,23 @@ This letter {{#if level=verbal}}records a verbal warning given to you{{else}}is 
 {{/if}}WHAT IS EXPECTED
 {{expectation}}
 
-{{#if level=final}}This is a final written warning. Further problems of this kind may lead to ending your employment.{{else}}If this issue continues or happens again, further disciplinary action may follow, up to and including ending your employment.{{/if}}
+{{#if level=final}}This is a final written warning. Further problems of this kind may lead to ending your employment.{{else}}If this issue continues or happens again, further disciplinary action may follow, up to and including ending your employment.{{/if}} This letter does not change the at-will nature of your employment: {{employer}} may end employment at any time, with or without prior warnings.
 
-If you disagree with anything in this letter, you may add your comments in writing. Signing below shows you received this letter; it does not mean you agree with it.
+If you disagree with anything in this letter, you may add your comments in writing. Signing below shows you received this letter; it does not mean you agree with it. This letter was explained to me in a language I understand.
 
-{{manager}}
+Issued by: {{managerName}}, {{managerTitle}}
 {{employer}}
+Signature: ______________________________   Date: ______________
 
 Employee: {{employee}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If the employee declined to sign: declined on ______________ in the presence of ______________________`,
   },
   {
     key: "resignation_letter", title: "Resignation Letter", category: EMPLOYMENT,
     description: "A person gives notice that they are leaving their job.",
     steps: [
-      { title: "Details", questions: [text("employee", "Employee name", { required: true }), text("employer", "Employer", { prefill: "clientName", required: true }), text("addressee", "Addressed to (name and title)"), effective(), text("position", "Position"), date("lastDay", "Last day of work", { required: true }), text("reason", "Reason (optional)"), yesno("transition", "Offer to help with the handover", { default: true })] },
+      { title: "Details", questions: [text("employee", "Employee name", { required: true }), text("employer", "Employer", { prefill: "clientName", required: true }), text("addressee", "Addressed to (name and title)"), effective(), text("position", "Position"), date("lastDay", "Last day of work", { required: true }), text("reason", "Reason (optional)", { help: "Keep it neutral and short." }), yesno("transition", "Offer to help with the handover", { default: true })] },
     ],
     body: `{{effectiveDate}}
 
@@ -990,13 +1044,13 @@ Dear {{#if addressee}}{{addressee}}{{else}}Sir or Madam{{/if}},
 
 I am resigning from my position{{#if position}} as {{position}}{{/if}} with {{employer}}. My last day of work will be {{lastDay}}.{{#if reason}} {{reason}}{{/if}}
 
-{{#if transition}}I will gladly help make the handover smooth and train a replacement before I leave. {{/if}}Please send my final pay and my tax forms to my address on file.
+{{#if transition}}I will gladly help make the handover smooth and train a replacement before I leave. {{/if}}I understand my final pay is due by the regular payday after my last day; please tell me how unused leave is treated under your policy. Please send my final pay and my tax forms to my address on file.
 
 Thank you for the opportunity.
 
 Sincerely,
 {{employee}}
-Signature: ______________________________`,
+Signature: ______________________________   Date: ______________`,
   },
   {
     key: "service_agreement", title: "Service Agreement", category: LENDING,
@@ -1143,11 +1197,12 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "workplace_incident_report", title: "Workplace Incident Report", category: EMPLOYMENT,
     description: "A record of an accident or incident at work — who, what, when, and what was done afterwards.",
-    reviewNote: "Serious injuries may need to be reported to Maryland OSHA or the workers' compensation carrier within set deadlines.",
+    reviewNote: "Report a death to Maryland OSHA (MOSH) within 8 hours, and an in-patient hospitalization, amputation or loss of an eye within 24 hours. If an employee loses more than 3 days of work from an injury, the employer's report to the Workers' Compensation Commission is due within 10 days (Labor & Employment §9-707). Tell your insurance carrier. Keep medical details out of the general personnel file.",
     steps: [
       { title: "The incident", questions: [text("business", "Business", { prefill: "clientName", required: true }), date("incidentDate", "Date of incident", { required: true }), text("incidentTime", "Time", { placeholder: "e.g. About 3:30 PM" }), text("location", "Where it happened", { required: true }),
-        text("person", "Person involved", { required: true }), text("position", "Their position"), area("description", "What happened", { required: true }), text("witnesses", "Witnesses (names)")] },
+        text("person", "Person involved", { required: true }), pick("personType", "That person is", [["employee", "An employee"], ["customer", "A customer"], ["contractor", "A contractor"], ["visitor", "A visitor"]], { default: "employee" }), text("position", "Their position"), area("description", "What happened", { required: true }), text("witnesses", "Witnesses (names)")] },
       { title: "Injury and follow-up", questions: [yesno("injury", "Someone was injured"), area("injuryDetails", "Injury and body part", { showIf: { id: "injury", equals: true }, required: true }), yesno("medical", "Medical treatment was given", { showIf: { id: "injury", equals: true } }), text("treatment", "Treatment and where", { showIf: { id: "medical", equals: true } }),
+        yesno("reportedMosh", "Reported to Maryland OSHA (MOSH)", { showIf: { id: "injury", equals: true } }), yesno("reportedCarrier", "Reported to the workers' compensation insurance carrier", { showIf: { id: "injury", equals: true } }),
         area("actions", "What was done afterwards / to prevent it happening again"), text("reportedBy", "Report completed by (name and title)", { required: true }), date("reportDate", "Date completed", { prefill: "today", required: true })] },
     ],
     body: `WORKPLACE INCIDENT REPORT
@@ -1155,7 +1210,7 @@ Signature: ______________________________   Date: ______________`,
 
 Date of incident: {{incidentDate}}{{#if incidentTime}}   Time: {{incidentTime}}{{/if}}
 Location: {{location}}
-Person involved: {{person}}{{#if position}} ({{position}}){{/if}}
+Person involved: {{person}}{{#if position}} ({{position}}){{/if}}, {{#if personType=employee}}an employee{{/if}}{{#if personType=customer}}a customer{{/if}}{{#if personType=contractor}}a contractor{{/if}}{{#if personType=visitor}}a visitor{{/if}}
 {{#if witnesses}}Witnesses: {{witnesses}}{{/if}}
 
 WHAT HAPPENED
@@ -1163,16 +1218,21 @@ WHAT HAPPENED
 
 INJURY
 {{#if injury}}Injury reported: {{injuryDetails}}
-{{#if medical}}Medical treatment: {{treatment}}{{else}}No medical treatment was given at the time.{{/if}}{{else}}No injury was reported.{{/if}}
+{{#if medical}}Medical treatment: {{treatment}}{{else}}No medical treatment was given at the time.{{/if}}
+Reported to Maryland OSHA (MOSH): {{#if reportedMosh}}Yes{{else}}No{{/if}}   Reported to the workers' compensation carrier: {{#if reportedCarrier}}Yes{{else}}No{{/if}}{{else}}No injury was reported at the time of this report.{{/if}}
 
 {{#if actions}}ACTIONS TAKEN
 {{actions}}
 
-{{/if}}Report completed by: {{reportedBy}}   Date: {{reportDate}}
+{{/if}}This report records the facts known on the date it was completed and is not an admission of fault.
+
+Report completed by: {{reportedBy}}   Date: {{reportDate}}
 Signature: ______________________________
 
 Person involved: {{person}}
-Signature: ______________________________   Date: ______________`,
+Signing shows the person has read this report, not that they agree with it.
+Signature: ______________________________   Date: ______________
+If the person declined or was unable to sign: ______________________`,
   },
   {
     key: "affidavit_general", title: "Affidavit", category: LENDING,
@@ -1824,12 +1884,15 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "non_compete", title: "Non-Competition and Non-Solicitation Agreement", category: EMPLOYMENT,
     description: "A person promises not to compete with the business or take its customers or staff, for a limited time and area.",
-    reviewNote: "Maryland does not allow non-compete promises for lower-paid workers and courts cut back terms that are too broad. Keep the time and area reasonable and have a lawyer confirm the current wage limit.",
+    reviewNote: "Maryland makes a non-compete void for an employee who earns no more than 150% of the State minimum wage (Labor & Employment §3-716) — which covers most store cashiers and stock staff — and for certain health-care and veterinary workers. Confirm the pay level before using it for an employee; keep the time and area reasonable. Have a Maryland attorney review before use.",
     steps: [
-      { title: "Parties", questions: [text("company", "Company", { prefill: "clientName", required: true }), text("person", "Person making the promise", { required: true }), text("personAddress", "Their address"), pick("relation", "That person is", [["employee", "An employee"], ["contractor", "An independent contractor"], ["seller", "The seller of the business"]], { required: true, default: "employee" }), effective(), state()] },
+      { title: "Parties", questions: [text("company", "Company", { prefill: "clientName", required: true }), text("person", "Person making the promise", { required: true }), text("personAddress", "Their address"), pick("relation", "That person is", [["employee", "An employee"], ["contractor", "An independent contractor"], ["seller", "The seller of the business"]], { required: true, default: "employee" }),
+        pick("aboveLimit", "Does the employee earn MORE than 150% of the Maryland minimum wage?", [["yes", "Yes — I have checked the current limit"], ["no", "No, or not sure"]], { showIf: { id: "relation", equals: "employee" }, required: true, help: "At the $15 minimum wage, 150% is $22.50 an hour (about $46,800 a year). Confirm the current figure." }),
+        effective(), state()] },
       { title: "The promise", questions: [
-        area("activity", "The competing activity", { required: true, placeholder: "e.g. Owning or working for a convenience store or smoke shop" }),
-        num("months", "For how many months after the relationship ends", { required: true, default: "12" }), num("miles", "Within how many miles of the company's location", { required: true, default: "5" }),
+        text("locationAddress", "Company location the area is measured from", { required: true, placeholder: "e.g. 1241 N Decker Ave, Baltimore MD 21213" }),
+        area("activity", "The competing activity", { required: true, placeholder: "e.g. Owning or running a convenience store or smoke shop" }),
+        num("months", "For how many months after the relationship ends", { required: true, default: "12" }), num("miles", "Within how many miles", { required: true, default: "5" }),
         yesno("customers", "Not to take the company's customers or suppliers", { default: true }),
         yesno("staff", "Not to hire or recruit the company's staff", { default: true }),
         yesno("confidential", "Keep the company's business information confidential", { default: true }),
@@ -1839,25 +1902,25 @@ Signature: ______________________________   Date: ______________`,
 
 Date: {{effectiveDate}}
 
-This agreement is between {{company}} ("Company") and {{person}}{{#if personAddress}} of {{personAddress}}{{/if}} ("{{#if relation=employee}}Employee{{/if}}{{#if relation=contractor}}Contractor{{/if}}{{#if relation=seller}}Seller{{/if}}"), who is called "the Person" below.
+This agreement is between {{company}} ("Company") and {{person}}{{#if personAddress}} of {{personAddress}}{{/if}} (the "Person"). In exchange for {{#if relation=seller}}the purchase price Company paid for the business{{else}}employment or engagement by Company, pay, and access to its confidential information{{/if}}, the Person agrees as follows.
 
 1. NON-COMPETITION
-For {{months}} months after {{#if relation=seller}}the sale of the business{{else}}the Person's work for the Company ends, for any reason,{{/if}} the Person will not, within {{miles}} miles of the Company's location, own, run, or work for a business engaged in: {{activity}}.
+{{#if aboveLimit=no}}This section does not apply to the Person: Maryland law (Md. Code, Lab. & Empl. § 3-716) does not allow a promise not to compete for a worker at this pay level. The sections below stay in force.{{else}}For {{months}} months after {{#if relation=seller}}the sale of the business{{else}}the Person's work for the Company ends for any reason{{/if}}, the Person will not, within {{miles}} miles of {{locationAddress}}, own (other than holding less than 2% of a public company), run, or work in a role similar to the Person's role for a business engaged in: {{activity}}.{{/if}}
 
 {{#if customers}}2. CUSTOMERS AND SUPPLIERS
-During the same period the Person will not seek the Company's customers or suppliers to move their business away from the Company.
+During the same period the Person will not seek customers or suppliers of the Company with whom the Person dealt, or about whom the Person learned confidential information, during the last 12 months of the relationship, to move their business away from the Company.
 
 {{/if}}{{#if staff}}3. STAFF
-During the same period the Person will not hire, or encourage to leave, anyone who works for the Company.
+During the same period the Person will not hire, or encourage to leave, anyone who worked for the Company during the last 6 months of the relationship.
 
 {{/if}}{{#if confidential}}4. CONFIDENTIAL INFORMATION
-The Person will keep the Company's private business information (customer and supplier lists, prices, costs, financial records and methods) confidential and will not use it for anyone else, during and after the relationship.
+The Person will keep the Company's private business information (customer and supplier lists, prices, costs, financial records and methods) confidential and will not use it for anyone else, during and after the relationship. Nothing in this agreement stops the Person from reporting a possible violation of law to a government agency. Under 18 U.S.C. § 1833(b), an individual is not liable under any trade-secret law for disclosing a trade secret in confidence to a government official or an attorney solely to report or investigate a suspected violation of law, or in a sealed court filing.
 
-{{/if}}5. FAIRNESS
-The Person agrees the limits above are reasonable to protect the Company's legitimate business interests. If a court finds any limit too broad, it may reduce it to what is reasonable rather than cancel it.
+{{/if}}5. FAIRNESS AND SEPARATE SECTIONS
+The Person agrees the limits above are reasonable to protect the Company's legitimate business interests. If a court finds any limit too broad, it may reduce it to what is reasonable. Each section stands on its own: if one cannot be enforced, the others stay in force.
 
 6. REMEDIES
-If the Person breaks this agreement the Company may ask a court to order them to stop, in addition to any other remedy, and the Person pays the Company's reasonable costs of enforcing it if the Company wins.
+If a party breaks this agreement the other may ask a court to order them to stop, in addition to any other remedy. The winning party recovers its reasonable costs of enforcing this agreement.
 
 7. GENERAL
 This is the whole agreement on this subject, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.

@@ -130,12 +130,13 @@ ${SIG}`,
 
   workplace_incident_report: {
     title: "تقرير حادث في مكان العمل",
+    options: { personType: { employee: "موظف", customer: "عميل", contractor: "مقاول", visitor: "زائر" } },
     body: `تقرير حادث في مكان العمل
 {{business}}
 
 تاريخ الحادث: {{incidentDate}}{{#if incidentTime}}   الوقت: {{incidentTime}}{{/if}}
 المكان: {{location}}
-الشخص المعني: {{person}}{{#if position}} ({{position}}){{/if}}
+الشخص المعني: {{person}}{{#if position}} ({{position}}){{/if}}، {{#if personType=employee}}موظف{{/if}}{{#if personType=customer}}عميل{{/if}}{{#if personType=contractor}}مقاول{{/if}}{{#if personType=visitor}}زائر{{/if}}
 {{#if witnesses}}الشهود: {{witnesses}}{{/if}}
 
 ما حدث
@@ -143,16 +144,21 @@ ${SIG}`,
 
 الإصابة
 {{#if injury}}الإصابة المبلَّغ عنها: {{injuryDetails}}
-{{#if medical}}العلاج الطبي: {{treatment}}{{else}}لم يُقدَّم علاج طبي وقت الحادث.{{/if}}{{else}}لم يُبلَّغ عن أي إصابة.{{/if}}
+{{#if medical}}العلاج الطبي: {{treatment}}{{else}}لم يُقدَّم علاج طبي وقت الحادث.{{/if}}
+أُبلغ إدارة السلامة والصحة المهنية في ماريلاند (MOSH): {{#if reportedMosh}}نعم{{else}}لا{{/if}}   أُبلغ شركة التأمين على إصابات العمل: {{#if reportedCarrier}}نعم{{else}}لا{{/if}}{{else}}لم يُبلَّغ عن أي إصابة وقت إعداد هذا التقرير.{{/if}}
 
 {{#if actions}}الإجراءات المتخذة
 {{actions}}
 
-{{/if}}أعدّ التقرير: {{reportedBy}}   التاريخ: {{reportDate}}
+{{/if}}يسجّل هذا التقرير الوقائع المعلومة في تاريخ إعداده، وليس إقرارًا بالمسؤولية.
+
+أعدّ التقرير: {{reportedBy}}   التاريخ: {{reportDate}}
 التوقيع: ______________________________
 
 الشخص المعني: {{person}}
-${SIG}`,
+يفيد التوقيع أن الموقِّع اطلع على هذا التقرير، ولا يعني موافقته عليه.
+${SIG}
+إذا امتنع الشخص أو تعذّر عليه التوقيع: ______________________`,
   },
 
   affidavit_general: {
