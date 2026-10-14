@@ -2304,9 +2304,9 @@ Signature: ______________________________   Date: ______________`,
       ] },
       { title: "Bank accounts", description: "Switch off anything the agent should not do.", questions: [
         yesno("bank", "Banking powers", { default: true }),
-        text("banks", "Which banks", { showIf: { id: "bank", equals: true }, required: true, placeholder: "e.g. Bank of America, Baltimore branch" }),
+        text("banks", "Bank name(s) to mention (optional)", { showIf: { id: "bank", equals: true }, placeholder: "e.g. Bank of America", help: "Naming a bank does not limit the power — it still covers any other bank or credit union. Leave empty to name none." }),
         yesno("openClose", "Open and close accounts", { showIf: { id: "bank", equals: true }, default: true }),
-        yesno("limitWithdraw", "Limit what the agent may withdraw or transfer in one transaction", { showIf: { id: "bank", equals: true }, default: true }),
+        yesno("limitWithdraw", "Set a dollar limit for one withdrawal or transfer (leave off for no limit)", { showIf: { id: "bank", equals: true }, default: false }),
         money("withdrawLimit", "Highest single withdrawal or transfer", { showIf: { id: "limitWithdraw", equals: true }, required: true }),
       ] },
       { title: "Operations, tax and licenses", questions: [
@@ -2336,7 +2336,7 @@ Date: {{effectiveDate}}
 {{company}}{{#if companyAddress}}, of {{companyAddress}}{{/if}}, {{#if entityType=llc}}a limited liability company{{/if}}{{#if entityType=corp}}a corporation{{/if}}{{#if entityType=partnership}}a partnership{{/if}}{{#if entityType=other}}a business entity{{/if}}{{#if formedIn}} formed in {{formedIn}}{{/if}}{{#if einLast4}} (EIN ending {{einLast4}}){{/if}} (the "Business"), acting through {{owner}}, its {{ownerTitle}}, appoints {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") as its attorney-in-fact to act for the Business and sign in its name in the matters listed below. {{owner}} confirms that this power is authorized by the Business's governing documents and, where required, by a resolution of its members or directors, and will give a copy of that resolution to any bank on request.
 
 2. POWERS GIVEN
-{{#if bank}}A. BANKING. {{#if banks}}At {{banks}}{{else}}At any bank or credit union{{/if}}, the Agent may{{#if openClose}} open and close accounts,{{/if}} deposit and withdraw money, write, sign and endorse checks, make transfers, wires and electronic payments, use and manage online banking and debit or credit cards of the Business, get statements and records, and sign the bank's forms and signature cards.{{#if limitWithdraw}} The Agent may not withdraw or transfer more than {{withdrawLimit}} in any one transaction.{{/if}}
+{{#if bank}}A. BANKING. {{#if banks}}At {{banks}} and at any other bank or credit union{{else}}At any bank or credit union{{/if}}, the Agent may{{#if openClose}} open and close accounts,{{/if}} deposit and withdraw money, write, sign and endorse checks, make transfers, wires and electronic payments, use and manage online banking and debit or credit cards of the Business, get statements and records, and sign the bank's forms and signature cards.{{#if limitWithdraw}} The Agent may not withdraw or transfer more than {{withdrawLimit}} in any one transaction.{{/if}}
 
 {{/if}}{{#if operations}}B. DAILY OPERATIONS. The Agent may run the day-to-day business: buy goods and supplies, deal with vendors and customers, set up and use point-of-sale and merchant accounts, sign ordinary contracts and orders, manage inventory and premises, and keep the books and records.
 
