@@ -1920,6 +1920,8 @@ Signature: ______________________________   Date: ______________`,
         yesno("licenses", "Apply for, renew, change and close licenses and permits", { default: true }),
         yesno("borrow", "Borrow money, sign loans or credit applications for the business", { default: false }),
         yesno("property", "Buy, sell or lease property or major equipment for the business", { default: false }),
+        yesno("ownership", "Sell the business, change who owns it, or add / remove owners", { default: false }),
+        yesno("giveAway", "Give away or donate the business's money or property", { default: false }),
         yesno("approval", "Anything above a set amount needs the owner's written approval first", { default: false }),
         money("approvalAmount", "Approval is needed above", { showIf: { id: "approval", equals: true }, required: true }),
       ] },
@@ -1947,8 +1949,12 @@ Date: {{effectiveDate}}
 
 {{/if}}{{#if property}}G. PROPERTY. The Agent may buy, sell or lease property and major equipment for the Business.
 
+{{/if}}{{#if ownership}}H. SALE AND OWNERSHIP. The Agent may sell the Business or its assets, change who owns the Business, and add or remove owners, and sign the papers needed to do so.
+
+{{/if}}{{#if giveAway}}I. GIFTS. The Agent may give away or donate the Business's money or property.
+
 {{/if}}3. LIMITS
-{{#if approval}}For any single purchase, payment, contract or commitment above {{approvalAmount}}, the Agent must first get the written approval of {{owner}} or another owner of the Business. {{/if}}The Agent may not sell the Business or change who owns it, may not add or remove owners, and may not give away the Business's money or property, unless a separate written document signed by the owners says so.
+{{#if approval}}For any single purchase, payment, contract or commitment above {{approvalAmount}}, the Agent must first get the written approval of {{owner}} or another owner of the Business. {{/if}}{{#if ownership}}{{else}}The Agent may not sell the Business or change who owns it, and may not add or remove owners. {{/if}}{{#if giveAway}}{{else}}The Agent may not give away the Business's money or property. {{/if}}No power is given beyond those listed above.
 
 4. DUTIES
 The Agent must act in the Business's best interest, keep its money separate from the Agent's own, keep records of what is done, and give the owners an account whenever they ask. The owners may inspect all accounts and records at any time.
