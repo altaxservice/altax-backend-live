@@ -8,6 +8,7 @@ import { logAudit } from "../../common/audit";
 import { getFirmProfile } from "../../common/firmProfile";
 import { decryptClientPii } from "../../common/encryption";
 import { generateContractPdf } from "../contracts/contractPdf";
+import { buildDocumentDocx } from "./docx";
 import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
 import { canAccessDoc } from "./access";
@@ -99,11 +100,22 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
   if (client === undefined) return;
   const bytes = await generateContractPdf({
     contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang),
-    effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null,
+    effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null, legal: true,
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${p.t.key}.pdf"`);
   res.send(Buffer.from(bytes));
+}));
+
+/** A Word (.docx) copy of the document as it stands, without saving anything. */
+docBuilderRouter.post("/docx", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const p = prep(req, res); if (!p) return;
+  const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
+  if (client === undefined) return;
+  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang), footerNote: "Draft" });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", `attachment; filename="${p.t.key}.docx"`);
+  res.send(buf);
 }));
 
 /** Saves the finished document as a Draft contract for the client (ready to send, sign or print) and keeps the answers. */

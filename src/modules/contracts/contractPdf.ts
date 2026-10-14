@@ -52,6 +52,8 @@ export interface ContractPdfData {
   /** Multi-party documents (Document Builder): every signer's mark and audit trail replaces the single-signer block. */
   /** Heading at the top right (default "SERVICE AGREEMENT"). */
   headerLabel?: string;
+  /** Clean legal-document layout (no firm letterhead or contract box; serif type, centered title, bold clause headings, "Page X of Y") — used for Document Builder documents. */
+  legal?: boolean;
   signers?: { role: string; name: string; status: string; signedAt: string | null; ip: string | null; image: string | null }[];
 }
 
@@ -93,10 +95,10 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   return lines.length ? lines : [""];
 }
 
-function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont): { page: PDFPage; c: Cursor } {
+function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont, legal = false): { page: PDFPage; c: Cursor } {
   const page = doc.addPage([PAGE_W, PAGE_H]);
   const c = new Cursor(page, font, bold, PAGE_H);
-  c.rect(0, 0, PAGE_W, 6, TEAL);
+  if (!legal) c.rect(0, 0, PAGE_W, 6, TEAL);
   return { page, c };
 }
 
@@ -107,15 +109,18 @@ function drawFooter(c: Cursor, firmName: string, contractId: string, pageLabel: 
 
 export async function generateContractPdf(data: ContractPdfData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const legal = Boolean(data.legal);
+  const font = await doc.embedFont(legal ? StandardFonts.TimesRoman : StandardFonts.Helvetica);
+  const bold = await doc.embedFont(legal ? StandardFonts.TimesRomanBold : StandardFonts.HelveticaBold);
   const profile: FirmProfile = await getFirmProfile();
-  const logo = await embedFirmLogo(doc, profile);
+  const logo = legal ? null : await embedFirmLogo(doc, profile);
+  const foot = (cc: Cursor, n: number) => { if (!legal) drawFooter(cc, profile.firmName, data.contractId, `Page ${n}`); };
 
-  let { page, c } = newPage(doc, font, bold);
+  let { page, c } = newPage(doc, font, bold, legal);
   const L = 48, R = PAGE_W - 48;
   let y = 48;
   let textL = L;
+  if (legal) { y = 64; } else {
   if (logo) {
     const logoH = 30;
     const logoW = (logo.width / logo.height) * logoH;
@@ -142,7 +147,9 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   c.text(R - 12, y + 50, `Status: ${data.status}`, { size: 8, bold: true, color: TEAL, align: "right" });
   y += 76;
 
-  drawFooter(c, profile.firmName, data.contractId, "Page 1");
+  }
+
+  foot(c, 1);
   let pageNum = 1;
   const maxWidth = R - L;
 
@@ -155,15 +162,16 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   // Arabic text is untouched everywhere else (the public sign page, admin
   // preview) since those render plain Unicode HTML, not a drawn PDF glyph.
   let arabicNoteShown = false;
+  let titleDone = false;
   const paragraphs = data.renderedBody.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   for (const para of paragraphs) {
     if (ARABIC_RE.test(para)) {
       if (!arabicNoteShown) {
         if (y > PAGE_H - 60) {
           pageNum += 1;
-          ({ page, c } = newPage(doc, font, bold));
+          ({ page, c } = newPage(doc, font, bold, legal));
           y = 56;
-          drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`);
+          foot(c, pageNum);
         }
         c.text(L, y, "[This agreement includes an Arabic-language translation — view it online or ask staff for a copy.]", { size: 8.5, color: MUTED });
         y += 18;
@@ -172,29 +180,43 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
       continue;
     }
     const rawLines = para.split("\n");
+    // Legal layout: a signature block stays on one page, and a clause heading is never left alone at the bottom of a page.
+    if (legal && titleDone) {
+      const needed = /_{6,}/.test(para) ? rawLines.reduce((n, l) => n + Math.max(1, wrapText(l, font, 11, maxWidth).length) * 14.5, 0) + 24 : /^\d+\.\s+[A-Z]/.test(para) ? 70 : 0;
+      if (needed && y + needed > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, legal)); y = 64; foot(c, pageNum); }
+    }
     for (const rawLine of rawLines) {
-      for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
+      // Legal layout: first line is the centered title; numbered clause headings ("1. PROMISE TO PAY") are bold.
+      const isTitle = legal && !titleDone;
+      const isHeading = legal && !isTitle && /^\d+\.\s+[A-Z][A-Z0-9 &,'\/()-]+$/.test(rawLine.trim());
+      const size = legal ? (isTitle ? 15 : 11) : 9.5;
+      const leading = legal ? (isTitle ? 22 : 14.5) : 13;
+      if (isHeading) y += 6;
+      for (const wrapped of wrapText(rawLine, isTitle || isHeading ? bold : font, size, maxWidth)) {
         if (y > PAGE_H - 60) {
           pageNum += 1;
-          ({ page, c } = newPage(doc, font, bold));
-          y = 56;
-          drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`);
+          ({ page, c } = newPage(doc, font, bold, legal));
+          y = legal ? 64 : 56;
+          foot(c, pageNum);
         }
-        c.text(L, y, wrapped, { size: 9.5 });
-        y += 13;
+        if (isTitle) c.text((L + R) / 2, y, wrapped, { size, bold: true, align: "center" });
+        else c.text(L, y, wrapped, { size, bold: isHeading });
+        y += leading;
       }
+      if (isTitle) { titleDone = true; y += 6; }
     }
-    y += 9; // paragraph gap
+    y += legal ? 7 : 9; // paragraph gap
   }
 
   // Signature block
   if (y > PAGE_H - 140) {
     pageNum += 1;
-    ({ page, c } = newPage(doc, font, bold));
+    ({ page, c } = newPage(doc, font, bold, legal));
     y = 56;
-    drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`);
+    foot(c, pageNum);
   }
   y += 10;
+  if (legal && !(data.signers && data.signers.length)) return finish();
   c.line(L, y, R, y, INK, 1);
   y += 20;
 
@@ -204,9 +226,9 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     for (const sg of data.signers) {
       if (y > PAGE_H - 120) {
         pageNum += 1;
-        ({ page, c } = newPage(doc, font, bold));
+        ({ page, c } = newPage(doc, font, bold, legal));
         y = 56;
-        drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`);
+        foot(c, pageNum);
       }
       c.text(L, y, `${sg.role}: ${sg.name}`, { size: 10, bold: true });
       y += 14;
@@ -230,7 +252,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
       }
     }
     if (data.signers.every((x) => x.status === "Signed")) {
-      if (y > PAGE_H - 50) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`); }
+      if (y > PAGE_H - 50) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, legal)); y = 56; foot(c, pageNum); }
       c.text(L, y, "Each signer agreed to sign electronically, typed or drew their signature, and the time and network address were recorded.", { size: 7.5, color: MUTED });
     }
   } else if (data.status === "Signed" && data.signerName) {
@@ -265,5 +287,16 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     c.text(L, y, "Print Name: _________________________________________", { size: 10 });
   }
 
+  return finish();
+
+  async function finish(): Promise<Uint8Array> {
+  if (legal) {
+    const pages = doc.getPages();
+    pages.forEach((pg, i) => {
+      const label = `Page ${i + 1} of ${pages.length}`;
+      pg.drawText(label, { x: PAGE_W / 2 - font.widthOfTextAtSize(label, 9) / 2, y: 30, size: 9, font, color: MUTED });
+    });
+  }
   return doc.save();
+  }
 }

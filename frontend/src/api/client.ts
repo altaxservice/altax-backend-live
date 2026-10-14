@@ -142,6 +142,19 @@ export async function downloadFile(path: string, filename: string): Promise<void
   URL.revokeObjectURL(url);
 }
 
+/** Same as downloadFile, but for a file built from a POSTed body (see fetchAuthedBlobPost) rather than a GET route. */
+export async function downloadFilePost(path: string, body: unknown, filename: string): Promise<void> {
+  const blob = await fetchAuthedBlobPost(path, body);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * Opens a file (PDF, etc.) that requires auth in a new tab for viewing/printing (pass `filename` so saving it from
  * the viewer uses that name),

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, FilePlus2, FileText, Printer, Search } from "lucide-react";
-import { api, ApiError, downloadFile, printFile, printFilePost, viewFile, viewFilePost } from "../api/client";
+import { ArrowLeft, ArrowRight, Check, Download, FilePlus2, FileText, Printer, Search } from "lucide-react";
+import { api, ApiError, downloadFile, downloadFilePost, printFile, printFilePost, viewFile, viewFilePost } from "../api/client";
 import type { Client } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
 import { DocSigningPanel } from "../components/DocSigningPanel";
@@ -221,12 +221,13 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
             {lang === "en" ? (
               <>
                 <button type="button" className="btn" onClick={() => viewFile(`/contracts/${done.contractId}/pdf`)}>View PDF</button>
-                <button type="button" className="btn" onClick={() => downloadFile(`/contracts/${done.contractId}/pdf`, `${tpl.key}.pdf`)}>Download</button>
                 <button type="button" className="btn" onClick={() => printFile(`/contracts/${done.contractId}/pdf`)}><Printer size={14} aria-hidden="true" /> Print</button>
+                <button type="button" className="btn" onClick={() => downloadFile(`/contracts/${done.contractId}/pdf`, `${tpl.title}.pdf`)}><Download size={14} aria-hidden="true" /> Download PDF</button>
               </>
             ) : (
-              <button type="button" className="btn" onClick={() => printText(tpl.title, done.body)}><Printer size={14} aria-hidden="true" /> Print / Save as PDF</button>
+              <button type="button" className="btn" onClick={() => printText(tpl.title, done.body)}><Printer size={14} aria-hidden="true" /> View / Print / Save as PDF</button>
             )}
+            <button type="button" className="btn" onClick={() => downloadFile(`/contracts/${done.contractId}/docx`, `${tpl.title}.docx`).catch((e) => toast(e instanceof ApiError ? e.message : "Could not download the Word file."))}><Download size={14} aria-hidden="true" /> Download Word</button>
           </div>
           <DocSigningPanel docId={done.docId} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid var(--line)" }}>
@@ -289,8 +290,10 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
                     <>
                       <button type="button" className="btn" onClick={() => draftPdf(false)}>View PDF</button>
                       <button type="button" className="btn" onClick={() => draftPdf(true)}><Printer size={14} aria-hidden="true" /> Print</button>
+                      <button type="button" className="btn" onClick={() => downloadFilePost("/doc-builder/pdf", body, `${tpl.title}.pdf`).catch((e) => toast(e instanceof ApiError ? e.message : "Could not download the PDF."))}><Download size={14} aria-hidden="true" /> Download PDF</button>
                     </>
-                  ) : <button type="button" className="btn" onClick={() => printText(tpl.title, preview.body)}><Printer size={14} aria-hidden="true" /> Print / Save as PDF</button>}
+                  ) : <button type="button" className="btn" onClick={() => printText(tpl.title, preview.body)}><Printer size={14} aria-hidden="true" /> View / Print / Save as PDF</button>}
+                  <button type="button" className="btn" onClick={() => downloadFilePost("/doc-builder/docx", body, `${tpl.title}.docx`).catch((e) => toast(e instanceof ApiError ? e.message : "Could not download the Word file."))}><Download size={14} aria-hidden="true" /> Download Word</button>
                 </div>
               </div>
             )}

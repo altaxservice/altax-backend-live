@@ -11,6 +11,7 @@ import { sendEmail } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { escapeHtml } from "../../common/html";
 import { substitutePlaceholders } from "../templates/templates.routes";
+import { buildDocumentDocx } from "../docBuilder/docx";
 import { generateContractPdf } from "./contractPdf";
 import {
   FIRM_SERVICES, SERVICE_LABEL, GENERAL_TERMS_KEY, GENERAL_TERMS_TITLE, GENERAL_TERMS_BODY,
@@ -257,9 +258,26 @@ async function buildOneContractPdf(contract: any): Promise<Uint8Array> {
     signerName: contract.signer_name, signerTitle: contract.signer_title, signedAt: contract.signed_at, signerIp: contract.signer_ip,
     signatureMethod: contract.signature_method, recordedBy: contract.recorded_by,
     headerLabel: String(contract.service_key || "").startsWith("doc_") ? "DOCUMENT" : undefined,
+    legal: String(contract.service_key || "").startsWith("doc_"),
     signers: multi.length ? multi.map((m: any) => ({ role: m.role_label, name: m.signed_name || m.signer_name, status: m.status, signedAt: m.signed_at ? new Date(m.signed_at).toISOString() : null, ip: m.signer_ip, image: m.signature_image })) : undefined,
   });
 }
+
+/** Word (.docx) copy of a Document Builder document, built from the same saved text and signers as the PDF. */
+contractsRouter.get("/:contractId/docx", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const contract = await loadContractForUser(req, req.params.contractId);
+  if (contract === null) return res.status(404).json({ error: "Contract not found." });
+  if (contract === "forbidden") return res.status(403).json({ error: "You do not have access to this contract." });
+  const isDoc = String(contract.service_key || "").startsWith("doc_");
+  const multi = isDoc ? await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [contract.contract_id]).catch(() => []) : [];
+  const buf = await buildDocumentDocx({
+    title: contract.title, body: contract.rendered_body, footerNote: `Document ${contract.contract_id}`,
+    signers: multi.some((m: any) => m.status === "Signed") ? multi.map((m: any) => ({ role: m.role_label, name: m.signed_name || m.signer_name, status: m.status, signedAt: m.signed_at ? new Date(m.signed_at).toISOString() : null })) : undefined,
+  });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", `attachment; filename="${contract.contract_id}.docx"`);
+  res.send(buf);
+}));
 
 contractsRouter.get("/:contractId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const contract = await loadContractForUser(req, req.params.contractId);
