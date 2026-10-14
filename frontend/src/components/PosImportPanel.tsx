@@ -57,7 +57,7 @@ export function PosImportPanel({ clientId, categories, onFill, onClose }: {
       for (const x of s.taxable) if (x.categoryId) t[x.categoryId] = String(x.amount);
       setTaxable(t); setNonTax(s.nonTaxable ? String(s.nonTaxable) : ""); setCash(s.cash ? String(s.cash) : ""); setCard(s.card ? String(s.card) : ""); setEbt(s.ebt ? String(s.ebt) : ""); setTax(s.taxCollected !== null ? String(s.taxCollected) : "");
       setNotes(s.warnings);
-    } catch (e) { setError(e instanceof ApiError ? e.message : "Could not read these PDFs."); } finally { setReading(false); }
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Could not read these files."); } finally { setReading(false); }
   }
 
   async function fill() {
@@ -87,13 +87,13 @@ export function PosImportPanel({ clientId, categories, onFill, onClose }: {
     <div className="command-panel">
       <div className="command-panel-header">
         <div><h3 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><FileUp size={16} aria-hidden="true" /> Import a POS report (Clover)</h3>
-          <div className="command-panel-note">Upload the Sales Overview and Taxes PDFs — or type the totals — and the Sales Input below is filled in for you. Nothing is saved until you press Save.</div></div>
+          <div className="command-panel-note">Upload the Sales Overview and Taxes reports (PDF or picture) — or type the totals — and the Sales Input below is filled in for you. Nothing is saved until you press Save.</div></div>
         <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
       <div style={{ padding: 16, display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gap: 8 }}>
-          <b style={{ fontSize: 13 }}>Option 1 — upload the report PDFs</b>
-          <FileDropInput files={files} onFilesChange={setFiles} accept="application/pdf,.pdf" hint="The Clover Sales Overview and the Taxes report, as exported PDFs (a photo or scan can't be read — use option 2)." />
+          <b style={{ fontSize: 13 }}>Option 1 — upload the reports (PDF, screenshot or photo)</b>
+          <FileDropInput files={files} onFilesChange={setFiles} accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hint="The Clover Sales Overview and the Taxes report — PDFs, screenshots or phone photos. Pictures are read by text recognition, so always check the green “ties out” line before saving." />
           <div><button type="button" className="btn btn-sm btn-primary" disabled={reading || files.length === 0} onClick={readPdfs}>{reading ? "Reading…" : "Read the report"}</button></div>
         </div>
 

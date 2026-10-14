@@ -8,6 +8,7 @@ import { readWorkbookSheetByName } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { extractPdfText } from "../../common/pdfBankReader";
 import { allocatePos, parseCloverText, summarizeClover } from "../../common/posSummary";
+import { isImage, normalizeOcrText, ocrImageVariants } from "../../common/ocr";
 import { parseSalesInputSheet, SALES_INPUT_SHEET_NAME, type ParsedSalesInputRow } from "./salesInputParser";
 import { createSalesInputRecord, computeCategoryLinesTax, deleteSalesInputRecord, type SalesCategoryLineInput } from "../accounting/accounting.routes";
 
@@ -349,17 +350,28 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
   const loaded = await loadClient(req, String(body.clientId || "").trim());
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const files: { fileBase64: string; name?: string }[] = Array.isArray(body.files) ? body.files.slice(0, 4) : [];
-  if (!files.length) return res.status(400).json({ error: "Add the Clover Sales Overview and/or Taxes PDF." });
+  if (!files.length) return res.status(400).json({ error: "Add the Clover Sales Overview and/or Taxes report (PDF or screenshot)." });
   const parsed = [];
+  let fromPicture = false;
   for (const f of files) {
     const decoded = decodeUpload(f.fileBase64);
     if ("error" in decoded) return res.status(400).json({ error: decoded.error });
-    if (decoded.buffer.subarray(0, 5).toString("latin1") !== "%PDF-") return res.status(400).json({ error: `${f.name || "That file"} isn't a PDF. Photos and scans can't be read — type the numbers instead.` });
-    const scan = await scanFileForMalware(decoded.buffer, f.name || "pos-report.pdf");
+    const isPdf = decoded.buffer.subarray(0, 5).toString("latin1") === "%PDF-";
+    if (!isPdf && !isImage(decoded.buffer)) return res.status(400).json({ error: `${f.name || "That file"} isn't a PDF or a picture (PNG, JPG or WebP).` });
+    const scan = await scanFileForMalware(decoded.buffer, f.name || "pos-report");
     if (scan.scanned && !scan.clean) return res.status(400).json({ error: "This file was flagged by malware scanning and was not read." });
     let text = "";
-    try { text = await extractPdfText(decoded.buffer); } catch { return res.status(400).json({ error: `${f.name || "That PDF"} could not be read.` }); }
-    if (text.replace(/\s/g, "").length < 40) return res.status(400).json({ error: `${f.name || "That PDF"} has no readable text (it may be a scan or photo). Type the numbers instead.` });
+    try {
+      if (isPdf) text = await extractPdfText(decoded.buffer);
+      else {
+        // Read the picture a few different ways and keep the reading whose numbers add up best (they are checked against the report's own totals).
+        fromPicture = true;
+        const readings = (await ocrImageVariants(decoded.buffer)).map(normalizeOcrText);
+        const score = (t: string) => { const p = parseCloverText(t); return p.checks.reduce((s, c) => s + (c.ok ? 2 : -3), 0) + (p.foundOverview ? 1 : 0) + (p.foundTaxes ? 1 : 0) + (p.from ? 1 : 0) + p.taxSections.length * 0.1; };
+        text = readings.reduce((best, t) => (score(t) > score(best) ? t : best), readings[0]);
+      }
+    } catch { return res.status(400).json({ error: `${f.name || "That file"} could not be read.` }); }
+    if (text.replace(/\s/g, "").length < 40) return res.status(400).json({ error: isPdf ? `${f.name || "That PDF"} has no readable text (it is a scan). Save or screenshot it as a picture and upload that, or type the numbers.` : `No text could be read in ${f.name || "that picture"}. Try a sharper, straighter screenshot, or type the numbers.` });
     parsed.push(parseCloverText(text));
   }
   const summary = summarizeClover(parsed);
@@ -368,7 +380,7 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
     const cat = rateMap.get(Math.round(t.rate));
     return { rate: t.rate, amount: t.amount, name: t.name, categoryId: cat?.category_id || null, categoryName: cat?.category_name || null };
   });
-  const warnings = [...summary.warnings, ...taxable.filter((t) => !t.categoryId).map((t) => `No ${loaded.client.state || ""} tax category matches ${t.rate}% ($${t.amount.toFixed(2)}) — choose one in the form.`)];
+  const warnings = [...(fromPicture ? ["Read from a picture by text recognition — compare each number with the report before saving. The check line below turns green only when everything adds up."] : []), ...summary.warnings, ...taxable.filter((t) => !t.categoryId).map((t) => `No ${loaded.client.state || ""} tax category matches ${t.rate}% ($${t.amount.toFixed(2)}) — choose one in the form.`)];
   res.json({ summary: { ...summary, taxable, warnings } });
 }));
 
