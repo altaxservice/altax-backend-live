@@ -9,7 +9,6 @@ import { scanFileForMalware } from "../../common/malwareScan";
 import { extractPdfText } from "../../common/pdfBankReader";
 import { allocatePos, mergeReadings, parseCloverText, summarizeClover } from "../../common/posSummary";
 import { extractPdfImages, isImage, normalizeOcrText, ocrImageVariants } from "../../common/ocr";
-import { isSmartReadingEnabled, isSmartReadingKeyConfigured, readReportWithClaude } from "../../common/visionReader";
 import { parseSalesInputSheet, SALES_INPUT_SHEET_NAME, type ParsedSalesInputRow } from "./salesInputParser";
 import { createSalesInputRecord, computeCategoryLinesTax, deleteSalesInputRecord, type SalesCategoryLineInput } from "../accounting/accounting.routes";
 
@@ -353,8 +352,7 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
   const files: { fileBase64: string; name?: string }[] = Array.isArray(body.files) ? body.files.slice(0, 4) : [];
   if (!files.length) return res.status(400).json({ error: "Add the Clover Sales Overview and/or Taxes report (PDF or screenshot)." });
   const parsed = [];
-  let fromPicture = false; let usedSmart = false;
-  const smart = await isSmartReadingEnabled();
+  let fromPicture = false;
   for (const f of files) {
     const decoded = decodeUpload(f.fileBase64);
     if ("error" in decoded) return res.status(400).json({ error: decoded.error });
@@ -363,7 +361,7 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
     const scan = await scanFileForMalware(decoded.buffer, f.name || "pos-report");
     if (scan.scanned && !scan.clean) return res.status(400).json({ error: "This file was flagged by malware scanning and was not read." });
     // Work out what to read: a PDF with real text is read directly; a picture, or a PDF that is really a picture (a phone photo saved as PDF),
-    // is read with Claude when Smart reading is on, otherwise with the on-server text reader.
+    // is read with the on-server text reader (no outside service involved).
     let pictures: Buffer[] = [];
     let text = "";
     if (isPdf) {
@@ -377,14 +375,6 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
     if (pictures.length) {
       fromPicture = true;
       for (const pic of pictures) {
-        if (smart) {
-          try {
-            parsed.push(await readReportWithClaude(pic));
-            usedSmart = true;
-            await logAudit("Accounting", "POS_REPORT_SMART_READ", loaded.client.client_id, "", "", f.name || "picture", `A POS report picture for ${loaded.client.client_name} was read with Claude by ${req.user!.email}.`, req.user!.email);
-            continue;
-          } catch { /* fall back to the on-server text reader */ }
-        }
         try {
           const readings = (await ocrImageVariants(pic)).map(normalizeOcrText).map(parseCloverText);
           const merged = mergeReadings(readings);
@@ -404,8 +394,8 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
     const cat = rateMap.get(Math.round(t.rate));
     return { rate: t.rate, amount: t.amount, name: t.name, categoryId: cat?.category_id || null, categoryName: cat?.category_name || null };
   });
-  const warnings = [...(fromPicture ? [(usedSmart ? "Read from the picture with Claude — compare the numbers with the report before saving. The check line below turns green only when everything adds up." : "Read from a picture by basic text recognition, which struggles with tilted or crumpled receipts — compare each number with the report before saving, or ask an admin to turn on Smart reading. The check line below turns green only when everything adds up.")] : []), ...summary.warnings, ...taxable.filter((t) => !t.categoryId).map((t) => `No ${loaded.client.state || ""} tax category matches ${t.rate}% ($${t.amount.toFixed(2)}) — choose one in the form.`)];
-  res.json({ summary: { ...summary, taxable, warnings, reader: usedSmart ? "claude" : fromPicture ? "ocr" : "pdf" } });
+  const warnings = [...(fromPicture ? ["Read from a picture by text recognition, which can miss lines on a tilted or crumpled receipt — compare each number with the report before saving. The check line below turns green only when everything adds up."] : []), ...summary.warnings, ...taxable.filter((t) => !t.categoryId).map((t) => `No ${loaded.client.state || ""} tax category matches ${t.rate}% ($${t.amount.toFixed(2)}) — choose one in the form.`)];
+  res.json({ summary: { ...summary, taxable, warnings, reader: fromPicture ? "ocr" : "pdf" } });
 }));
 
 /** Splits the POS totals into Cash / Card / SNAP blocks and works out what the tax adjustment should be so tax due equals what was really collected. */
@@ -422,17 +412,4 @@ salesInputImportRouter.post("/pos/allocate", requireAuth, requireRole("admin", "
   const computed = all.size ? await computeCategoryLinesTax(Array.from(all, ([categoryId, taxableAmount]) => ({ categoryId, taxableAmount })), loaded.client.client_id, loaded.client.state) : { totalTax: 0 };
   const computedTax = Math.round(Number(computed.totalTax) * 100) / 100;
   res.json({ ...result, computedTax, taxCollected, suggestedAdjustment: Math.round((taxCollected - computedTax) * 100) / 100 });
-}));
-
-
-/** Smart reading (Claude) status and switch. Turning it on is an admin decision: it sends report pictures to Anthropic. */
-salesInputImportRouter.get("/pos/settings", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
-  res.json({ keyConfigured: isSmartReadingKeyConfigured(), enabled: await isSmartReadingEnabled() });
-}));
-salesInputImportRouter.put("/pos/settings", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const enabled = Boolean(req.body?.enabled);
-  if (enabled && !isSmartReadingKeyConfigured()) return res.status(400).json({ error: "The server doesn't have an Anthropic API key yet (ANTHROPIC_API_KEY), so Smart reading can't be turned on." });
-  await query(`UPDATE altax.v3_firm_settings SET pos_smart_reading_enabled = $1 WHERE id = 'FIRM-1'`, [enabled]);
-  await logAudit("Settings", "POS_SMART_READING_SWITCH", "FIRM-1", "pos_smart_reading_enabled", String(!enabled), String(enabled), `Smart reading of POS report pictures turned ${enabled ? "ON" : "OFF"} by ${req.user!.email}.`, req.user!.email);
-  res.json({ ok: true, enabled });
 }));

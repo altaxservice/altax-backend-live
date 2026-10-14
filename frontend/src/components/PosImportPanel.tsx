@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { FileUp } from "lucide-react";
 import { api, ApiError } from "../api/client";
-import { useAuth } from "../auth/AuthContext";
 import { DateInput } from "./DateInput";
 import { FileDropInput } from "./FileDropInput";
 import { NON_TAXABLE_CATEGORY, stateFromBlocks, type BlocksState } from "./SalesBlocksEditor";
@@ -29,13 +28,6 @@ export function PosImportPanel({ clientId, categories, onFill, onClose }: {
   clientId: string; categories: Cat[]; onClose: () => void;
   onFill: (v: { saleDate: string; blocks: BlocksState; adjustments: string; notes: string }) => void;
 }) {
-  const { user } = useAuth();
-  const [smart, setSmart] = useState<{ keyConfigured: boolean; enabled: boolean } | null>(null);
-  useEffect(() => { api.get<{ keyConfigured: boolean; enabled: boolean }>("/sales-input-import/pos/settings").then(setSmart).catch(() => setSmart(null)); }, []);
-  async function toggleSmart(enabled: boolean) {
-    try { await api.put("/sales-input-import/pos/settings", { enabled }); setSmart((s) => (s ? { ...s, enabled } : s)); }
-    catch (e) { setError(e instanceof ApiError ? e.message : "Could not change this setting."); }
-  }
   const taxableCats = useMemo(() => categories.filter((c) => c.category_id !== NON_TAXABLE_CATEGORY), [categories]);
   const [files, setFiles] = useState<File[]>([]);
   const [reading, setReading] = useState(false);
@@ -101,15 +93,6 @@ export function PosImportPanel({ clientId, categories, onFill, onClose }: {
       <div style={{ padding: 16, display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <b style={{ fontSize: 13 }}>Option 1 — upload the reports (PDF, screenshot or photo)</b>
-          <div className="tender-warn" style={{ fontSize: 12.5, background: smart?.enabled ? "var(--green-soft, #e8f6ee)" : undefined }}>
-            {smart?.enabled ? <>🧠 <b>Smart reading is ON</b> — photos and screenshots, even tilted or crumpled ones, are read by Claude and checked against the report's own totals.</> : <>📷 Photos are read with basic text recognition, which is unreliable on tilted or crumpled receipts.{smart && !smart.keyConfigured && " Smart reading (Claude) isn't set up on the server yet — it needs an Anthropic API key added as ANTHROPIC_API_KEY."}</>}
-            {user?.role === "admin" && smart?.keyConfigured && (
-              <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 6 }}>
-                <input type="checkbox" checked={smart.enabled} onChange={(e) => toggleSmart(e.target.checked)} style={{ marginTop: 3 }} />
-                <span>Use Claude to read report photos. <span className="muted">The picture (a sales report: business name, address and totals — no SSNs or bank details) is sent to Anthropic's API only when you upload it here, and only the numbers are kept. Switch off any time.</span></span>
-              </label>
-            )}
-          </div>
           <FileDropInput files={files} onFilesChange={setFiles} accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hint="The Clover Sales Overview and the Taxes report — PDFs, screenshots or phone photos. Pictures are read by text recognition, so always check the green “ties out” line before saving." />
           <div><button type="button" className="btn btn-sm btn-primary" disabled={reading || files.length === 0} onClick={readPdfs}>{reading ? "Reading…" : "Read the report"}</button></div>
         </div>
