@@ -258,7 +258,7 @@ Contact: {{contact}}{{/if}}`,
     description: "Sets out who owns an LLC with two or more members, how it is run, how profits are shared, what happens on a death or a sale, and how an owner can leave.",
     reviewNote: "Have an attorney review an operating agreement before the members sign it. Points to confirm with an attorney or the tax preparer: (1) For a manager-managed LLC, ask whether the articles of organization on file with the State Department of Assessments and Taxation should also say that members are not agents of the company. (2) An S corporation election must be filed with the IRS on time (Form 2553) and every member must be eligible; an S corporation cannot give members different distribution or liquidation rights. (3) Partnerships and S corporations generally must use a December 31 year-end. (4) Check whether any license, lease or loan needs notice or consent when ownership changes. (5) The percentages are not checked by the software — make sure they total 100.",
     steps: [
-      { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), state({ id: "formedIn", label: "State where the LLC is formed" } as Partial<Question>), date("formationDate", "Date formed", { required: true }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
+      { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), state({ id: "formedIn", label: "State where the LLC is formed", prefill: "stateName" } as Partial<Question>), date("formationDate", "Date formed", { required: true, prefill: "formationDate" }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
       { title: "Members", questions: [list("members", "Members (owners) — percentages should total 100", [text("name", "Name (person or company)", { required: true }), text("address", "Address"), money("contribution", "Capital contributed", { required: true }), num("percent", "Ownership %", { required: true })], { required: true, minItems: 2, addLabel: "Add a member" })] },
       { title: "How it runs", questions: [
         pick("management", "Who manages the LLC?", [["members", "All members together (member-managed)"], ["manager", "A named manager (manager-managed)"]], { required: true, default: "members" }),
@@ -643,7 +643,7 @@ Signature: ______________________________   Date: ______________`,
         pick("status", "Status", [["fulltime", "Full-time"], ["parttime", "Part-time"], ["seasonal", "Seasonal"]], { default: "fulltime", required: true }),
         yesno("includePay", "Include pay information", { default: false }), money("pay", "Pay amount", { showIf: { id: "includePay", equals: true }, required: true }),
         pick("payPer", "Per", [["hour", "Hour"], ["week", "Week"], ["month", "Month"], ["year", "Year"]], { showIf: { id: "includePay", equals: true }, default: "year" }),
-        text("signerName", "Signed by (name)", { required: true }), text("signerTitle", "Their title", { required: true }), text("phone", "Phone for verification", { prefill: "clientPhone", required: true })] },
+        text("signerName", "Signed by (name)", { required: true, prefill: "ownerName" }), text("signerTitle", "Their title", { required: true, prefill: "ownerTitle" }), text("phone", "Phone for verification", { prefill: "clientPhone", required: true })] },
     ],
     body: `{{effectiveDate}}
 
@@ -836,8 +836,8 @@ Signature: ______________________________   Date: ______________
     description: "For an LLC with one owner: ownership, management, taxes, adding a second owner, and what happens if the owner dies or cannot act.",
     reviewNote: "A short agreement helps keep the LLC separate from its owner. Have an attorney review it if the LLC owns significant property or has lenders. Confirm with an attorney: (1) how the successor named in the death clause is admitted and whether the owner's will or trust should also leave the interest to that person; (2) the effect of an S corporation election on the LLC's tax treatment — talk to the tax preparer before filing one; (3) if a second owner is ever added, replace this agreement with a multi-member operating agreement.",
     steps: [
-      { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), text("formedIn", "State where the LLC is formed", { default: "Maryland", required: true }), date("formationDate", "Date formed", { required: true }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
-      { title: "The owner", questions: [text("member", "Owner (member) name", { required: true }), text("memberAddress", "Owner's address"), money("contribution", "Capital contributed", { required: true }), text("successor", "Who takes over if the owner dies or cannot act", { placeholder: "Name — leave blank to follow state law" }), state()] },
+      { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), text("formedIn", "State where the LLC is formed", { default: "Maryland", required: true, prefill: "stateName" }), date("formationDate", "Date formed", { required: true, prefill: "formationDate" }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
+      { title: "The owner", questions: [text("member", "Owner (member) name", { required: true, prefill: "ownerName" }), text("memberAddress", "Owner's address"), money("contribution", "Capital contributed", { required: true }), text("successor", "Who takes over if the owner dies or cannot act", { placeholder: "Name — leave blank to follow state law" }), state()] },
     ],
     body: `SINGLE-MEMBER LLC OPERATING AGREEMENT OF {{companyName}}
 
@@ -877,7 +877,7 @@ If the Member is a trust or a company — By: ______________________________   N
     description: "Records a decision of a corporation's directors or shareholders, or of an LLC's members or manager — opening a bank account, borrowing, signing a lease, paying a bonus.",
     reviewNote: "Banks and agencies often insist on their own resolution form and on a certificate signed by an officer. For a corporation, action without a meeting needs the written consent of every director (or, for shareholders, every shareholder unless the charter allows less) and the consent is kept with the minutes. For an LLC, check what the operating agreement requires. If a signer has a personal interest in the decision (a bonus, loan or lease with the owner), confirm with an attorney how to document it.",
     steps: [
-      { title: "The company", questions: [text("corporation", "Company or corporation name", { prefill: "clientName", required: true }), text("incorporatedIn", "State where it was formed", { default: "Maryland", required: true }), effective(),
+      { title: "The company", questions: [text("corporation", "Company or corporation name", { prefill: "clientName", required: true }), text("incorporatedIn", "State where it was formed", { default: "Maryland", required: true, prefill: "stateName" }), effective(),
         pick("actingBody", "Decision made by", [["directors", "The board of directors (corporation)"], ["shareholders", "The shareholders (corporation)"], ["members", "The members (LLC)"], ["manager", "The manager (LLC)"]], { required: true, default: "directors" }),
         pick("how", "Adopted", [["meeting", "At a meeting"], ["writing", "By written consent, without a meeting"]], { required: true, default: "writing" }),
         date("meetingDate", "Date of the meeting", { showIf: { id: "how", equals: "meeting" } }),
@@ -984,7 +984,7 @@ Signature: ______________________________   Date: ______________`,
     description: "Documents money an owner lends to their own business (or the business lends to an owner) so it is a loan, not income or equity.",
     reviewNote: "Documenting an owner loan matters for tax: without a written agreement, real repayments and a fair interest rate it can be treated as capital, pay or a distribution. Interest below the IRS applicable federal rate (AFR) can create taxable imputed interest (IRC §7872) when the loans between the owner and the business total more than $10,000 — ask the tax preparer for the AFR and keep the books and repayments consistent with this agreement. A loan from a company to its owner can be treated as a distribution or pay; for an S corporation also ask about basis. The other owners or the board should approve it. Confirm any rate above 8% and any security terms with an attorney.",
     steps: [
-      { title: "Parties", questions: [text("company", "Business", { prefill: "clientName", required: true }), text("owner", "Owner / shareholder", { required: true }), pick("direction", "Who is lending?", [["toBusiness", "The owner lends money to the business"], ["toOwner", "The business lends money to the owner"]], { required: true, default: "toBusiness" }),
+      { title: "Parties", questions: [text("company", "Business", { prefill: "clientName", required: true }), text("owner", "Owner / shareholder", { required: true, prefill: "ownerName" }), pick("direction", "Who is lending?", [["toBusiness", "The owner lends money to the business"], ["toOwner", "The business lends money to the owner"]], { required: true, default: "toBusiness" }),
         text("companySigner", "Person signing for the business", { required: true, help: "Often the same person as the owner, signing in a business role." }), text("companyTitle", "Their title", { required: true, placeholder: "e.g. Managing Member, President" }),
         text("approvedBy", "Who approved this loan for the business", { required: true, placeholder: "e.g. the other members, or the board of directors" }), effective(), state()] },
       { title: "Loan", questions: [money("principal", "Amount", { required: true }),
@@ -1113,7 +1113,7 @@ Signature: ______________________________   Date: ______________`,
       { title: "Details", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employee", "Employee", { required: true }), effective(), pick("level", "Warning level", [["verbal", "Written record of a verbal warning"], ["first", "First written warning"], ["final", "Final written warning"]], { required: true, default: "first" }),
         date("incidentDate", "Date of the issue", { required: true }), area("issue", "What happened (dates and facts only)", { required: true, help: "No medical, leave, pay-complaint or other protected matters." }), area("expectation", "What is expected from now on", { required: true }),
         yesno("priorWarnings", "There were earlier warnings about this"), text("priorDates", "Dates of earlier warnings", { showIf: { id: "priorWarnings", equals: true } }),
-        text("managerName", "Issued by (name)", { required: true }), text("managerTitle", "Their title", { required: true })] },
+        text("managerName", "Issued by (name)", { required: true, prefill: "ownerName" }), text("managerTitle", "Their title", { required: true, prefill: "ownerTitle" })] },
     ],
     body: `{{effectiveDate}}
 
@@ -1280,7 +1280,7 @@ Printed name: ______________________   Title (if a company): ______________`,
     description: "A formal request for payment of an overdue amount, with a deadline.",
     reviewNote: "Send this in the creditor's own name, signed by the creditor — not in the firm's name. Debt-collection rules (the federal FDCPA and Maryland's Consumer Debt Collection Act and Collection Agency Licensing Act) can apply to personal or household debts and to anyone collecting for someone else; confirm with an attorney before sending a letter on a client's behalf. Do not threaten anything the creditor does not intend to do. Include only interest and fees the agreement or the law allows, and attach the invoice.",
     steps: [
-      { title: "Details", questions: [text("sender", "From (your business)", { prefill: "clientName", required: true }), text("senderTitle", "Signer's title", { placeholder: "e.g. Owner" }), text("senderAddress", "Your address", { prefill: "clientAddress" }), text("senderContact", "Phone or email for replies", { required: true }), text("recipient", "To (who owes the money)", { required: true }), text("recipientAddress", "Their address"), effective(),
+      { title: "Details", questions: [text("sender", "From (your business)", { prefill: "clientName", required: true }), text("senderTitle", "Signer's title", { placeholder: "e.g. Owner", prefill: "ownerTitle" }), text("senderAddress", "Your address", { prefill: "clientAddress" }), text("senderContact", "Phone or email for replies", { required: true }), text("recipient", "To (who owes the money)", { required: true }), text("recipientAddress", "Their address"), effective(),
         text("deliveryMethod", "Sent by (optional)", { placeholder: "e.g. certified mail and email" }),
         text("reference", "Invoice or agreement it relates to", { required: true, placeholder: "e.g. Invoice 1042 dated August 3, 2026" }), date("dueDate", "Date it was originally due (optional)"), money("amount", "Amount owed", { required: true }), date("deadline", "Pay by", { required: true, help: "Allow at least 10 days from the date of the letter." }), text("howToPay", "How to pay", { placeholder: "e.g. Check payable to the business, or bank transfer" }),
         yesno("consumerDebt", "The debt is for personal, family or household purposes (not business)", { help: "Tick this for a personal or household debt. Debt-collection rules apply more strictly to these debts — send the letter in the creditor's own name, not the firm's, and have an attorney review it." }),
@@ -1368,7 +1368,7 @@ Signature: ______________________________   Date: ______________
         text("person", "Person involved", { required: true }), pick("personType", "That person is", [["employee", "An employee"], ["customer", "A customer"], ["contractor", "A contractor"], ["visitor", "A visitor"]], { default: "employee" }), text("position", "Their position"), area("description", "What happened", { required: true }), text("witnesses", "Witnesses (names)")] },
       { title: "Injury and follow-up", questions: [yesno("injury", "Someone was injured"), area("injuryDetails", "Injury and body part", { showIf: { id: "injury", equals: true }, required: true }), yesno("medical", "Medical treatment was given", { showIf: { id: "injury", equals: true } }), text("treatment", "Treatment and where", { showIf: { id: "medical", equals: true } }),
         yesno("reportedMosh", "Reported to Maryland OSHA (MOSH)", { showIf: { id: "injury", equals: true } }), yesno("reportedCarrier", "Reported to the workers' compensation insurance carrier", { showIf: { id: "injury", equals: true } }),
-        area("actions", "What was done afterwards / to prevent it happening again"), text("reportedBy", "Report completed by (name and title)", { required: true }), date("reportDate", "Date completed", { prefill: "today", required: true })] },
+        area("actions", "What was done afterwards / to prevent it happening again"), text("reportedBy", "Report completed by (name and title)", { required: true, prefill: "ownerNameTitle" }), date("reportDate", "Date completed", { prefill: "today", required: true })] },
     ],
     body: `WORKPLACE INCIDENT REPORT
 {{business}}
@@ -2293,11 +2293,11 @@ Signature: ______________________________   Date: ______________`,
       { title: "The business and the agent", questions: [
         text("company", "Business giving the authority", { prefill: "clientName", required: true }),
         text("companyAddress", "Business address", { prefill: "clientAddress" }),
-        pick("entityType", "Kind of business", [["llc", "Limited liability company (LLC)"], ["corp", "Corporation"], ["partnership", "Partnership"], ["other", "Other business entity"]], { required: true, default: "llc" }),
-        text("formedIn", "State where it is formed", { default: "Maryland" }),
-        text("einLast4", "EIN — last 4 digits only", { placeholder: "e.g. 1234" }),
-        text("owner", "Owner / officer signing for the business", { required: true }),
-        text("ownerTitle", "Their title", { required: true, placeholder: "e.g. Managing Member, President" }),
+        pick("entityType", "Kind of business", [["llc", "Limited liability company (LLC)"], ["corp", "Corporation"], ["partnership", "Partnership"], ["other", "Other business entity"]], { required: true, default: "llc", prefill: "entityType" }),
+        text("formedIn", "State where it is formed", { default: "Maryland", prefill: "stateName" }),
+        text("einLast4", "EIN — last 4 digits only", { placeholder: "e.g. 1234", prefill: "einLast4" }),
+        text("owner", "Owner / officer signing for the business", { required: true, prefill: "ownerName" }),
+        text("ownerTitle", "Their title", { required: true, placeholder: "e.g. Managing Member, President", prefill: "ownerTitle" }),
         text("agent", "Person receiving the authority (agent)", { required: true }),
         text("agentAddress", "Agent's address"),
         effective(), state(),
@@ -2394,11 +2394,11 @@ My commission expires: ______________`,
     steps: [
       { title: "The business", questions: [
         text("principal", "Business giving the authority", { prefill: "clientName", required: true }),
-        text("entityDesc", "Kind of business", { placeholder: "e.g. a Maryland limited liability company" }),
+        text("entityDesc", "Kind of business", { placeholder: "e.g. a Maryland limited liability company", prefill: "entityDesc" }),
         text("principalAddress", "Business street address", { prefill: "clientAddress", required: true }),
         text("acctRef", "Account / license numbers covered (last 4 digits only)", { placeholder: "e.g. Sales tax account ending 1234; tobacco license ending 5678" }),
-        text("signerName", "Owner / officer signing for the business", { required: true }),
-        text("signerTitle", "Their title", { required: true, default: "Owner", placeholder: "e.g. Owner, Managing Member, President" }),
+        text("signerName", "Owner / officer signing for the business", { required: true, prefill: "ownerName" }),
+        text("signerTitle", "Their title", { required: true, default: "Owner", placeholder: "e.g. Owner, Managing Member, President", prefill: "ownerTitle" }),
       ] },
       { title: "The firm (Attorney-in-Fact)", questions: [
         text("firmName", "Firm", { prefill: "firmName", required: true }), text("firmAddress", "Firm address", { prefill: "firmAddress" }), text("firmEmail", "Firm email", { default: "altax70@gmail.com" }),

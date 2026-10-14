@@ -6,7 +6,8 @@
  * Everything here is pure (no database), so the live preview and the saved document are always rendered by the same code.
  */
 export type QType = "text" | "textarea" | "date" | "money" | "number" | "select" | "yesno" | "list";
-export type PrefillKey = "clientName" | "clientAddress" | "clientEmail" | "clientPhone" | "firmName" | "firmAddress" | "today";
+export type PrefillKey = "clientName" | "clientAddress" | "clientEmail" | "clientPhone" | "firmName" | "firmAddress" | "today"
+  | "ownerName" | "ownerTitle" | "ownerNameTitle" | "ownerEmail" | "ownerPhone" | "entityType" | "entityDesc" | "stateName" | "einLast4" | "formationDate" | "dbaName";
 export interface Cond { id: string; equals?: string | boolean; notEmpty?: boolean }
 export interface Question {
   id: string; label: string; type: QType; required?: boolean; help?: string; placeholder?: string;
@@ -103,7 +104,7 @@ export function parseBody(src: string): Node[] {
   return root;
 }
 
-interface Scope { answers: Answers; questions: Question[]; n?: number; lang: "en" | "ar" }
+interface Scope { answers: Answers; questions: Question[]; n?: number; lang: "en" | "ar"; placeholders?: boolean }
 
 function evalNodes(nodes: Node[], scope: Scope): string {
   let out = "";
@@ -112,7 +113,9 @@ function evalNodes(nodes: Node[], scope: Scope): string {
     else if (node.t === "var") {
       if (node.id === "n" && scope.n !== undefined) { out += String(scope.n); continue; }
       const q = scope.questions.find((x) => x.id === node.id);
-      out += q ? formatValue(q, scope.answers[node.id], scope.lang) : "";
+      const shown = q ? formatValue(q, scope.answers[node.id], scope.lang) : "";
+      // In a draft/preview an unanswered required field shows as [Its label] instead of silently leaving a gap.
+      out += shown || (scope.placeholders && q && q.required && q.type !== "yesno" && q.type !== "list" ? `[${q.label}]` : "");
     } else if (node.t === "if") {
       const v = scope.answers[node.id];
       const qd = scope.questions.find((x) => x.id === node.id);
@@ -123,7 +126,7 @@ function evalNodes(nodes: Node[], scope: Scope): string {
     } else if (node.t === "list") {
       const q = scope.questions.find((x) => x.id === node.id);
       const rows = Array.isArray(scope.answers[node.id]) ? (scope.answers[node.id] as Answers[]) : [];
-      rows.forEach((row, i) => { out += evalNodes(node.body, { answers: row, questions: q?.fields || [], n: i + 1, lang: scope.lang }); });
+      rows.forEach((row, i) => { out += evalNodes(node.body, { answers: row, questions: q?.fields || [], n: i + 1, lang: scope.lang, placeholders: scope.placeholders }); });
     }
   }
   return out;
@@ -134,9 +137,9 @@ export function allQuestions(t: DocTemplate): Question[] { return t.steps.flatMa
 const HEADING_EN = /^\d+\.\s+[A-Z][A-Z0-9 &,'\/()-]+$/;
 const HEADING_AR = /^\d+\.\s+[؀-ۿ][؀-ۿ0-9 ،'\/()-]+$/;
 
-function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar"): string {
+function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
-  const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang });
+  const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang, placeholders });
   // Section headings ("1. PROMISE TO PAY") are renumbered in order, so a section that is switched off never leaves a gap.
   const heading = lang === "ar" ? HEADING_AR : HEADING_EN;
   let sec = 0;
@@ -144,10 +147,11 @@ function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar"): string 
 }
 
 /** Renders the document with the answers: English, Arabic, or both (English first, then its Arabic edition). */
-export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang = "en"): string {
-  if (lang === "ar" && hasArabic(t)) return renderOne(t, answers, "ar");
-  if (lang === "both" && hasArabic(t)) return `${renderOne(t, answers, "en")}\n\n\n${renderOne(t, answers, "ar")}`;
-  return renderOne(t, answers, "en");
+export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang = "en", opts: { placeholders?: boolean } = {}): string {
+  const ph = Boolean(opts.placeholders);
+  if (lang === "ar" && hasArabic(t)) return renderOne(t, answers, "ar", ph);
+  if (lang === "both" && hasArabic(t)) return `${renderOne(t, answers, "en", ph)}\n\n\n${renderOne(t, answers, "ar", ph)}`;
+  return renderOne(t, answers, "en", ph);
 }
 
 export function docTitle(t: DocTemplate, lang: DocLang): string {

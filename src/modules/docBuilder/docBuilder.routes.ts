@@ -52,16 +52,40 @@ docBuilderRouter.get("/templates/:key", asyncHandler(async (req: AuthedRequest, 
 async function loadClient(req: AuthedRequest, res: Response, clientId: string) {
   if (!clientId) return null;
   if (!(await canAccessClient(req.user!, clientId))) { res.status(403).json({ error: "You do not have access to this client." }); return undefined; }
-  const row = await queryOne<any>(`SELECT client_id, client_name, address, email, phone FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const row = await queryOne<any>(`SELECT client_id, client_name, address, email, phone, entity_type, state, ein, company_contact_name, company_contact_title, company_contact_email, company_contact_phone, date_of_formation, dba_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!row) { res.status(404).json({ error: "Client not found." }); return undefined; }
   return decryptClientPii(row);
 }
 
+const STATE_NAMES: Record<string, string> = { AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware", DC: "District of Columbia", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming" };
+
+/** The client's entity type as one of: llc, scorp, corp, partnership, sole, other ("" when unknown). */
+function entityKind(raw: unknown): string {
+  const t = String(raw || "").toLowerCase();
+  if (!t) return "";
+  if (/llc|limited liability/.test(t)) return "llc";
+  if (/s[\s-]?corp/.test(t)) return "scorp";
+  if (/corp|inc/.test(t)) return "corp";
+  if (/partner/.test(t)) return "partnership";
+  if (/sole|individual/.test(t)) return "sole";
+  return "other";
+}
+
 async function prefillValues(client: any | null): Promise<Record<PrefillKey, string>> {
   const firm = await getFirmProfile();
+  const stateName = STATE_NAMES[String(client?.state || "").toUpperCase()] || "";
+  const kind = entityKind(client?.entity_type);
+  const word = ({ llc: "limited liability company", scorp: "corporation", corp: "corporation", partnership: "partnership", sole: "sole proprietorship" } as Record<string, string>)[kind] || "";
+  const ownerName = String(client?.company_contact_name || "").trim();
+  const ownerTitle = String(client?.company_contact_title || "").trim();
+  const ein = String(client?.ein || "").replace(/\D/g, "");
+  const formed = /^\d{4}-\d{2}-\d{2}/.exec(client?.date_of_formation instanceof Date ? client.date_of_formation.toISOString() : String(client?.date_of_formation || ""))?.[0] || "";
   return {
     clientName: client?.client_name || "", clientAddress: String(client?.address || "").replace(/\s*\n\s*/g, ", "), clientEmail: client?.email || "", clientPhone: client?.phone || "",
     firmName: firm.firmName, firmAddress: [firm.addressLine1, firm.addressLine2].filter(Boolean).join(", "), today: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+    ownerName, ownerTitle, ownerNameTitle: [ownerName, ownerTitle].filter(Boolean).join(", "), ownerEmail: client?.company_contact_email || "", ownerPhone: client?.company_contact_phone || "",
+    entityType: kind, entityDesc: word ? `a ${stateName ? `${stateName} ` : ""}${word}` : "", stateName,
+    einLast4: ein.length >= 4 ? ein.slice(-4) : "", formationDate: formed, dbaName: client?.dba_name || "",
   };
 }
 
@@ -74,7 +98,9 @@ docBuilderRouter.get("/templates/:key/start", asyncHandler(async (req: AuthedReq
   const pre = await prefillValues(client);
   const answers: Answers = {};
   for (const q of t.steps.flatMap((s) => s.questions)) {
-    if (q.prefill && pre[q.prefill]) answers[q.id] = pre[q.prefill];
+    let pv = q.prefill ? pre[q.prefill] : "";
+    if (pv && q.type === "select") { const vals = (q.options || []).map((o) => o.value); if (!vals.includes(pv)) pv = pv === "scorp" && vals.includes("corp") ? "corp" : ""; }
+    if (pv) answers[q.id] = pv;
     else if (q.default !== undefined) answers[q.id] = q.default;
     else if (q.type === "yesno") answers[q.id] = false;
     else if (q.type === "list") answers[q.id] = [];
@@ -90,7 +116,7 @@ function prep(req: AuthedRequest, res: Response): { t: DocTemplate; answers: Ans
 
 docBuilderRouter.post("/preview", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const p = prep(req, res); if (!p) return;
-  res.json({ body: renderDocument(p.t, p.answers, p.lang), missing: missingAnswers(p.t, p.answers) });
+  res.json({ body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), missing: missingAnswers(p.t, p.answers) });
 }));
 
 /** A PDF of the document as it stands, without saving anything — for printing or checking. */
@@ -99,7 +125,7 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return;
   const bytes = await generateContractPdf({
-    contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang),
+    contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang, { placeholders: true }),
     effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null, legal: true,
   });
   res.setHeader("Content-Type", "application/pdf");
@@ -112,7 +138,7 @@ docBuilderRouter.post("/docx", asyncHandler(async (req: AuthedRequest, res: Resp
   const p = prep(req, res); if (!p) return;
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return;
-  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang), footerNote: "Draft" });
+  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), footerNote: "Draft" });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   res.setHeader("Content-Disposition", `attachment; filename="${p.t.key}.docx"`);
   res.send(buf);
