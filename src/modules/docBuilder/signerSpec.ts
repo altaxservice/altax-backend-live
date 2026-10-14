@@ -34,10 +34,17 @@ const SPEC: Record<string, Spec[]> = {
   lease_commercial: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Guarantor", nameId: "guarantor", onlyIf: "guarantee" }],
   property_sale_residential: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   property_sale_commercial: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
+  general_poa: [{ role: "Principal", nameId: "principal" }, { role: "Agent", nameId: "agent" }],
+  business_sale_agreement: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
+  ownership_transfer: [{ role: "Transferor", nameId: "assignor" }, { role: "Transferee", nameId: "assignee" }, { role: "Company", nameId: "companySigner" }],
+  personal_guaranty: [{ role: "Guarantor", nameId: "guarantor" }, { role: "Creditor", nameId: "creditor" }],
+  non_compete: [{ role: "Company", nameId: "company" }, { role: "Person", nameId: "person" }],
+  lease_amendment: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }],
+  gift_letter: [{ role: "Donor", nameId: "donor" }, { role: "Recipient", nameId: "recipient" }],
 };
 
 /** These need a notary's own signature and seal; an electronic signature does not replace that. */
-export const NEEDS_NOTARY = new Set(["affidavit_general", "child_travel_consent"]);
+export const NEEDS_NOTARY = new Set(["affidavit_general", "child_travel_consent", "general_poa"]);
 
 export function suggestSigners(templateKey: string, answers: Answers): { role: string; name: string }[] {
   const out: { role: string; name: string }[] = [];

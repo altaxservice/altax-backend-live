@@ -1582,6 +1582,324 @@ GUARANTOR: {{guarantor}}
 Signature: ______________________________   Date: ______________
 {{/if}}`,
   },
+  /* ─────────────── Batch 7: powers, sales and transfers ─────────────── */
+  {
+    key: "general_poa", title: "Power of Attorney", category: FAMILY,
+    description: "Lets someone you trust handle your money, tax, property or business matters for you — general or limited, with or without a start condition.",
+    reviewNote: "Maryland generally expects a power of attorney to be signed in front of a notary and two witnesses, and a bank or title company may ask for its own form. For dealing with the IRS or the Comptroller use the official forms (2848 / 8821 / MD 548) instead.",
+    steps: [
+      { title: "People", questions: [text("principal", "Person giving the power (you)", { prefill: "clientName", required: true }), text("principalAddress", "Their address", { prefill: "clientAddress" }), text("agent", "Person receiving the power (agent)", { required: true }), text("agentAddress", "Agent's address"), yesno("hasSuccessor", "Name a backup agent in case the first cannot act"), text("successor", "Backup agent", { showIf: { id: "hasSuccessor", equals: true }, required: true }), effective(), state()] },
+      { title: "What the agent may do", questions: [
+        pick("powerType", "Kind of power", [["general", "General — most financial and business matters"], ["limited", "Limited — only the matters I list"]], { required: true, default: "general" }),
+        area("limitedPowers", "The matters the agent may handle", { showIf: { id: "powerType", equals: "limited" }, required: true, placeholder: "e.g. Sign the sale papers for the property at 12 Main St, and collect the proceeds" }),
+        yesno("gifts", "The agent may make gifts from my property", { default: false }),
+        yesno("paid", "The agent may be paid a reasonable fee for the work", { default: false }),
+      ] },
+      { title: "When it starts and ends", questions: [
+        pick("startsWhen", "Starts", [["now", "As soon as I sign"], ["incapacity", "Only if a doctor confirms I cannot manage my own affairs"]], { required: true, default: "now" }),
+        yesno("durable", "It stays in effect if I become unable to manage my affairs", { default: true }),
+        date("endDate", "Ends on (leave empty for no end date)"),
+      ] },
+      { title: "Witnesses", questions: [text("witness1", "First witness (printed name)"), text("witness2", "Second witness (printed name)")] },
+    ],
+    body: `POWER OF ATTORNEY
+
+Date: {{effectiveDate}}
+
+1. APPOINTMENT
+I, {{principal}}{{#if principalAddress}} of {{principalAddress}}{{/if}} ("Principal"), appoint {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") to act for me as my attorney-in-fact.{{#if hasSuccessor}} If {{agent}} cannot or will not act, I appoint {{successor}} in their place.{{/if}}
+
+2. POWERS
+{{#if powerType=general}}The Agent may do anything I could do for myself in these matters: banking and payments; collecting and paying debts; buying, selling, renting and managing property; running my business affairs and signing contracts for it; filing and paying my taxes and dealing with tax offices (where the law accepts this document); handling insurance, benefits and legal claims; and keeping my records.{{else}}The Agent may act for me only in these matters: {{limitedPowers}}{{/if}}
+{{#if gifts}}The Agent may make gifts from my property in amounts that are reasonable for my situation.{{else}}The Agent may not make gifts from my property.{{/if}}
+
+3. WHEN IT STARTS AND HOW LONG IT LASTS
+{{#if startsWhen=now}}This power starts when I sign it.{{else}}This power starts only when a licensed doctor confirms in writing that I cannot manage my own affairs.{{/if}} {{#if durable}}It stays in effect if I later become unable to manage my affairs.{{else}}It ends if I become unable to manage my affairs.{{/if}} {{#if endDate}}It ends on {{endDate}}, or earlier if I cancel it in writing or I die.{{else}}It lasts until I cancel it in writing or I die.{{/if}}
+
+4. THE AGENT'S DUTIES
+The Agent must act in my best interest, keep my property separate from the Agent's own, keep records of everything done for me, and give me or my heirs an account when asked. {{#if paid}}The Agent may be paid a reasonable fee for the work, and repaid reasonable expenses.{{else}}The Agent will not be paid but may be repaid reasonable expenses.{{/if}}
+
+5. GENERAL
+A copy of this document is as good as the original. People who rely on it in good faith are protected until they learn it has ended. This document is governed by the laws of the State of {{state}}.
+
+PRINCIPAL: {{principal}}
+Signature: ______________________________   Date: ______________
+
+AGENT (accepting): {{agent}}
+Signature: ______________________________   Date: ______________
+
+WITNESSES (two adults who are not the Agent)
+1. {{witness1}}   Signature: ______________________________
+2. {{witness2}}   Signature: ______________________________
+
+NOTARY: signed and sworn before me on ______________  Notary signature and seal: ______________________________`,
+  },
+  {
+    key: "business_sale_agreement", title: "Sale of a Business Agreement", category: BUSINESS,
+    description: "Selling or buying a whole store or business — price, what is included, inventory, lease, licenses and what the seller must not do after the sale.",
+    reviewNote: "Before closing, ask the Maryland Comptroller for a tax clearance: a buyer can be held responsible for the seller's unpaid sales tax. Tobacco, lottery, alcohol and food licenses usually do not transfer — the buyer must apply in their own name.",
+    steps: [
+      { title: "Parties and business", questions: [text("seller", "Seller", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer", { required: true }), text("buyerAddress", "Buyer's address"), text("businessName", "Business name", { required: true }), text("businessAddress", "Business address", { required: true }), text("businessKind", "What the business does", { placeholder: "e.g. Convenience store selling groceries, tobacco and lottery" }), effective(), state()] },
+      { title: "Price and payment", questions: [
+        money("price", "Total price", { required: true }), money("deposit", "Deposit paid now", { default: "0" }),
+        pick("payment", "Payment of the rest", [["closing", "All in cash at closing"], ["financed", "Part paid later by the Buyer in installments"]], { required: true, default: "closing" }),
+        money("financedAmount", "Amount paid later", { showIf: { id: "payment", equals: "financed" }, required: true }), num("financedMonths", "Number of monthly payments", { showIf: { id: "payment", equals: "financed" }, required: true }),
+        date("closingDate", "Closing date", { required: true }),
+        pick("inventory", "Inventory (stock)", [["included", "Included in the price"], ["atcost", "Counted on closing day and paid for separately at cost"]], { required: true, default: "atcost" }),
+      ] },
+      { title: "What is included", questions: [
+        area("equipment", "Equipment, fixtures and other assets included", { placeholder: "e.g. Shelving, coolers, cash registers, signs, security cameras" }),
+        yesno("leaseTransfer", "The Buyer takes over the Seller's lease of the premises", { default: true }),
+        text("landlord", "Landlord", { showIf: { id: "leaseTransfer", equals: true } }),
+        area("licenses", "Licenses and permits to transfer or re-apply for", { placeholder: "e.g. Tobacco license, lottery agent, health permit, alcohol license" }),
+      ] },
+      { title: "After the sale", questions: [
+        yesno("nonCompete", "The Seller will not open a competing business nearby", { default: true }),
+        num("noCompeteYears", "For how many years", { showIf: { id: "nonCompete", equals: true }, default: "3", required: true }),
+        num("noCompeteMiles", "Within how many miles", { showIf: { id: "nonCompete", equals: true }, default: "3", required: true }),
+        num("helpDays", "Days the Seller will help the Buyer with the changeover", { default: "14" }),
+      ] },
+    ],
+    body: `AGREEMENT FOR THE SALE OF A BUSINESS
+
+Date: {{effectiveDate}}
+
+This agreement is between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
+
+1. THE BUSINESS
+The Seller sells and the Buyer buys the business known as {{businessName}}, located at {{businessAddress}}{{#if businessKind}} ({{businessKind}}){{/if}}, together with its name, customer goodwill, telephone numbers and records, and the assets listed here: {{#if equipment}}{{equipment}}{{else}}the equipment and fixtures at the premises on the date of this agreement{{/if}}.
+
+2. PRICE
+The total price is {{price}}. A deposit of {{deposit}} is paid now and counts toward the price. {{#if payment=closing}}The rest is paid in cash at closing.{{else}}At closing the Buyer pays the rest except {{financedAmount}}, which the Buyer pays to the Seller in {{financedMonths}} equal monthly payments after closing, under a separate signed note.{{/if}}
+
+3. INVENTORY
+{{#if inventory=included}}The stock on hand at closing is included in the price.{{else}}The stock on hand is counted by both parties on closing day and the Buyer pays the Seller for it at the Seller's cost, in addition to the price above.{{/if}}
+
+4. CLOSING
+The sale closes on {{closingDate}}. At closing the Seller hands over the keys, the assets and the records, and signs a bill of sale. The Buyer takes over the business from that time.
+
+5. DEBTS AND TAXES
+The Seller stays responsible for all debts, wages, taxes and bills of the business up to the closing date, including any sales tax and payroll tax, and will give the Buyer proof that they are paid or that a tax clearance has been obtained. The Buyer is responsible for the business after closing.
+
+6. LEASE AND LICENSES
+{{#if leaseTransfer}}The Seller will assign the lease of the premises to the Buyer{{#if landlord}} with the written consent of {{landlord}}{{/if}}, and this sale depends on that consent.{{else}}The premises are not part of this sale.{{/if}} {{#if licenses}}The following licenses and permits are handled as the law requires, and the Seller will cooperate: {{licenses}}.{{/if}}
+
+7. SELLER'S PROMISES
+The Seller states that the Seller owns the assets free of liens, that the information given to the Buyer about sales and expenses is true to the best of the Seller's knowledge, and that no lawsuit or government action is pending against the business except as told to the Buyer in writing.
+
+8. AFTER THE SALE
+{{#if helpDays}}For {{helpDays}} days after closing the Seller will help the Buyer with the changeover at no extra charge. {{/if}}{{#if nonCompete}}For {{noCompeteYears}} years after closing the Seller will not own, run or work for a similar business within {{noCompeteMiles}} miles of the premises, and will not seek the business's customers or staff for such a business.{{/if}}
+
+9. GENERAL
+This is the whole agreement. It may be changed only in writing signed by both parties, binds their heirs and successors, and is governed by the laws of the State of {{state}}. If a term cannot be enforced the rest stays in force.
+
+SELLER: {{seller}}
+Signature: ______________________________   Date: ______________
+
+BUYER: {{buyer}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "ownership_transfer", title: "Membership Interest / Share Transfer Agreement", category: BUSINESS,
+    description: "One owner transfers all or part of their ownership in an LLC or corporation to another person.",
+    reviewNote: "Check the company's own operating agreement or bylaws: other owners may have to consent or have a first right to buy. Update the company records and tell the tax preparer about the change.",
+    steps: [
+      { title: "Company and people", questions: [text("company", "Company name", { prefill: "clientName", required: true }), pick("entityType", "The company is", [["llc", "An LLC (membership interest)"], ["corp", "A corporation (shares of stock)"]], { required: true, default: "llc" }), text("assignor", "Owner transferring (Transferor)", { required: true }), text("assignee", "Person receiving (Transferee)", { required: true }), text("assigneeAddress", "Transferee's address"), text("companySigner", "Person who signs for the company", { required: true }), effective(), state()] },
+      { title: "Terms", questions: [
+        num("percent", "Ownership transferred (%)", { required: true }), money("price", "Price (0 if a gift)", { required: true, default: "0" }),
+        text("payWhen", "How and when it is paid", { placeholder: "e.g. In full by bank transfer on the date above" }),
+        yesno("othersConsent", "The other owners have agreed in writing", { default: true }),
+        yesno("steppingDown", "The Transferor also resigns as manager / officer", { default: false }),
+      ] },
+    ],
+    body: `{{#if entityType=llc}}MEMBERSHIP INTEREST TRANSFER AGREEMENT{{else}}SHARE TRANSFER AGREEMENT{{/if}}
+
+Date: {{effectiveDate}}
+
+1. THE TRANSFER
+{{assignor}} ("Transferor") transfers to {{assignee}}{{#if assigneeAddress}} of {{assigneeAddress}}{{/if}} ("Transferee") {{percent}}% of the {{#if entityType=llc}}membership interest{{else}}shares{{/if}} in {{company}} ("Company"), including the matching share of profits, losses, distributions and voting rights, from the date above.
+
+2. PRICE
+{{#if price}}The Transferee pays the Transferor {{price}}{{#if payWhen}}: {{payWhen}}{{/if}}.{{else}}This transfer is a gift and no price is paid.{{/if}}
+
+3. THE TRANSFEROR'S PROMISES
+The Transferor owns what is transferred free of any lien or claim, has the right to transfer it, and is not aware of any claim against the Company that has not been told to the Transferee.
+
+4. CONSENT
+{{#if othersConsent}}All other owners of the Company have agreed in writing to this transfer and to the Transferee becoming an owner.{{else}}This transfer is subject to any consent or first right of purchase required by the Company's own agreement, and takes effect only once it is obtained.{{/if}} The Transferee agrees to be bound by the Company's operating agreement or bylaws.
+
+5. THE COMPANY
+The Company accepts the transfer, will record it in its books and update its ownership records, and the Transferee will be treated as the owner of the percentage above from the date of this agreement. {{#if steppingDown}}The Transferor resigns as manager and officer of the Company on the same date.{{/if}}
+
+6. TAXES
+Profits and losses for the year are shared between the Transferor and the Transferee in proportion to the time each held the interest, unless the Company's tax preparer advises otherwise in writing.
+
+7. GENERAL
+This is the whole agreement on this subject, may be changed only in writing signed by all who sign below, and is governed by the laws of the State of {{state}}.
+
+TRANSFEROR: {{assignor}}
+Signature: ______________________________   Date: ______________
+
+TRANSFEREE: {{assignee}}
+Signature: ______________________________   Date: ______________
+
+COMPANY: {{company}}, by {{companySigner}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "personal_guaranty", title: "Personal Guaranty", category: LENDING,
+    description: "A person promises to pay a business debt personally if the business does not.",
+    reviewNote: "A guarantor can lose personal property if the business cannot pay. Read the loan or lease this guaranty supports before signing.",
+    steps: [
+      { title: "Parties", questions: [text("guarantor", "Guarantor (the person promising)", { required: true }), text("guarantorAddress", "Guarantor's address"), text("creditor", "Creditor (who is owed)", { required: true }), text("borrower", "Business or person whose debt is guaranteed", { prefill: "clientName", required: true }), effective(), state()] },
+      { title: "What is guaranteed", questions: [
+        area("obligation", "The debt or obligation", { required: true, placeholder: "e.g. The loan of $50,000 dated June 1, 2026, or all rent due under the lease of the store at 12 Main St" }),
+        pick("limit", "How much is guaranteed", [["all", "Everything owed under the obligation"], ["capped", "Up to a fixed amount"]], { required: true, default: "all" }),
+        money("cap", "The most the Guarantor will pay", { showIf: { id: "limit", equals: "capped" }, required: true }),
+      ] },
+    ],
+    body: `PERSONAL GUARANTY
+
+Date: {{effectiveDate}}
+
+1. THE GUARANTY
+{{guarantor}}{{#if guarantorAddress}} of {{guarantorAddress}}{{/if}} ("Guarantor") personally and unconditionally guarantees to {{creditor}} ("Creditor") the full and on-time payment of the following obligation of {{borrower}} ("Borrower"): {{obligation}}
+
+2. HOW MUCH
+{{#if limit=all}}The Guarantor is responsible for everything the Borrower owes under that obligation, including interest, fees and the Creditor's reasonable costs of collecting.{{else}}The Guarantor is responsible up to {{cap}} plus the Creditor's reasonable costs of collecting from the Guarantor.{{/if}}
+
+3. NATURE OF THE PROMISE
+This is a guaranty of payment, not only of collection: if the Borrower does not pay when due, the Creditor may demand payment from the Guarantor without first suing the Borrower or using any security. The guaranty continues until the obligation is paid in full, even if the Creditor extends time, changes the terms with the Borrower, or accepts partial payments. It also continues if the Borrower's business changes owner, name or form.
+
+4. WHAT THE GUARANTOR GIVES UP
+The Guarantor waives notice of default and demand, and the right to require the Creditor to pursue the Borrower first. If the Guarantor pays, the Guarantor takes the Creditor's place against the Borrower only after the Creditor has been paid in full.
+
+5. GENERAL
+This guaranty binds the Guarantor's heirs and estate, may be changed only in writing signed by the Guarantor and the Creditor, and is governed by the laws of the State of {{state}}. If a term cannot be enforced the rest stays in force.
+
+GUARANTOR: {{guarantor}}
+Signature: ______________________________   Date: ______________
+
+CREDITOR (accepting): {{creditor}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "non_compete", title: "Non-Competition and Non-Solicitation Agreement", category: EMPLOYMENT,
+    description: "A person promises not to compete with the business or take its customers or staff, for a limited time and area.",
+    reviewNote: "Maryland does not allow non-compete promises for lower-paid workers and courts cut back terms that are too broad. Keep the time and area reasonable and have a lawyer confirm the current wage limit.",
+    steps: [
+      { title: "Parties", questions: [text("company", "Company", { prefill: "clientName", required: true }), text("person", "Person making the promise", { required: true }), text("personAddress", "Their address"), pick("relation", "That person is", [["employee", "An employee"], ["contractor", "An independent contractor"], ["seller", "The seller of the business"]], { required: true, default: "employee" }), effective(), state()] },
+      { title: "The promise", questions: [
+        area("activity", "The competing activity", { required: true, placeholder: "e.g. Owning or working for a convenience store or smoke shop" }),
+        num("months", "For how many months after the relationship ends", { required: true, default: "12" }), num("miles", "Within how many miles of the company's location", { required: true, default: "5" }),
+        yesno("customers", "Not to take the company's customers or suppliers", { default: true }),
+        yesno("staff", "Not to hire or recruit the company's staff", { default: true }),
+        yesno("confidential", "Keep the company's business information confidential", { default: true }),
+      ] },
+    ],
+    body: `NON-COMPETITION AND NON-SOLICITATION AGREEMENT
+
+Date: {{effectiveDate}}
+
+This agreement is between {{company}} ("Company") and {{person}}{{#if personAddress}} of {{personAddress}}{{/if}} ("{{#if relation=employee}}Employee{{/if}}{{#if relation=contractor}}Contractor{{/if}}{{#if relation=seller}}Seller{{/if}}"), who is called "the Person" below.
+
+1. NON-COMPETITION
+For {{months}} months after {{#if relation=seller}}the sale of the business{{else}}the Person's work for the Company ends, for any reason,{{/if}} the Person will not, within {{miles}} miles of the Company's location, own, run, or work for a business engaged in: {{activity}}.
+
+{{#if customers}}2. CUSTOMERS AND SUPPLIERS
+During the same period the Person will not seek the Company's customers or suppliers to move their business away from the Company.
+
+{{/if}}{{#if staff}}3. STAFF
+During the same period the Person will not hire, or encourage to leave, anyone who works for the Company.
+
+{{/if}}{{#if confidential}}4. CONFIDENTIAL INFORMATION
+The Person will keep the Company's private business information (customer and supplier lists, prices, costs, financial records and methods) confidential and will not use it for anyone else, during and after the relationship.
+
+{{/if}}5. FAIRNESS
+The Person agrees the limits above are reasonable to protect the Company's legitimate business interests. If a court finds any limit too broad, it may reduce it to what is reasonable rather than cancel it.
+
+6. REMEDIES
+If the Person breaks this agreement the Company may ask a court to order them to stop, in addition to any other remedy, and the Person pays the Company's reasonable costs of enforcing it if the Company wins.
+
+7. GENERAL
+This is the whole agreement on this subject, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+
+COMPANY: {{company}}
+Signature: ______________________________   Date: ______________
+
+PERSON: {{person}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "lease_amendment", title: "Lease Amendment / Renewal", category: REAL_ESTATE,
+    description: "Extends a lease, changes the rent, or changes other terms, while everything else stays as in the original lease.",
+    steps: [
+      { title: "The lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), text("premises", "Premises address", { required: true }), date("leaseDate", "Date of the original lease", { required: true }), effective(), state()] },
+      { title: "What changes", questions: [
+        yesno("extend", "Extend the lease term", { default: true }), date("newEnd", "New ending date", { showIf: { id: "extend", equals: true }, required: true }),
+        yesno("rentChange", "Change the rent", { default: false }), money("newRent", "New monthly rent", { showIf: { id: "rentChange", equals: true }, required: true }), date("rentFrom", "New rent starts on", { showIf: { id: "rentChange", equals: true }, required: true }),
+        area("other", "Any other change", { placeholder: "e.g. Tenant may add a sign at the front of the building" }),
+      ] },
+    ],
+    body: `LEASE AMENDMENT
+
+Date: {{effectiveDate}}
+
+This amendment is between {{landlord}} ("Landlord") and {{tenant}} ("Tenant") and changes the lease dated {{leaseDate}} for the premises at {{premises}} ("the Lease").
+
+{{#if extend}}1. TERM
+The Lease term is extended and now ends on {{newEnd}}, unless ended earlier under the Lease.
+
+{{/if}}{{#if rentChange}}2. RENT
+Beginning {{rentFrom}}, the monthly rent is {{newRent}}, payable on the same dates and in the same way as before.
+
+{{/if}}{{#if other}}3. OTHER CHANGES
+{{other}}
+
+{{/if}}4. NOTHING ELSE CHANGES
+All other terms of the Lease stay in full force. If this amendment and the Lease disagree, this amendment controls. This amendment is governed by the laws of the State of {{state}} and may be signed in copies, including electronically.
+
+LANDLORD: {{landlord}}
+Signature: ______________________________   Date: ______________
+
+TENANT: {{tenant}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "gift_letter", title: "Gift Letter", category: FAMILY,
+    description: "States that money given to someone — usually for a home purchase — is a gift and does not have to be repaid.",
+    reviewNote: "A mortgage lender may require its own form, the donor's bank statement showing the funds, and proof of the transfer. Large gifts can have gift-tax filing rules; ask the tax preparer.",
+    steps: [
+      { title: "People", questions: [text("donor", "Donor (person giving the gift)", { required: true }), text("donorAddress", "Donor's address"), text("donorPhone", "Donor's phone"), text("recipient", "Recipient (person receiving it)", { prefill: "clientName", required: true }), text("relationship", "Donor's relationship to the Recipient", { required: true, placeholder: "e.g. Father, Sister, Friend" }), effective()] },
+      { title: "The gift", questions: [
+        money("amount", "Amount of the gift", { required: true }), date("giftDate", "Date given or to be given"),
+        pick("purpose", "What it is for", [["home", "A down payment or closing costs on a home"], ["other", "Another purpose"]], { required: true, default: "home" }),
+        text("property", "Address of the home being bought", { showIf: { id: "purpose", equals: "home" } }), text("lender", "Mortgage lender (if known)", { showIf: { id: "purpose", equals: "home" } }),
+        text("source", "Where the money comes from", { placeholder: "e.g. The Donor's savings account at ABC Bank" }),
+      ] },
+    ],
+    body: `GIFT LETTER
+
+Date: {{effectiveDate}}
+
+I, {{donor}}{{#if donorAddress}} of {{donorAddress}}{{/if}}{{#if donorPhone}} (telephone {{donorPhone}}){{/if}}, the Donor, state:
+
+1. I am giving {{recipient}}, my {{relationship}}, the sum of {{amount}}{{#if giftDate}} on or about {{giftDate}}{{/if}}.
+
+2. This is a gift. I do not expect it to be repaid in money, property or services, now or in the future, and no loan is involved.
+
+3. {{#if purpose=home}}The gift is to help with the down payment or closing costs for the purchase of the home at {{property}}{{#if lender}}, financed by {{lender}}{{/if}}.{{else}}The gift is for the Recipient's own use.{{/if}}
+
+4. {{#if source}}The money comes from {{source}}.{{else}}The money comes from my own funds.{{/if}} It does not come from the seller, a real estate agent, a builder, or anyone else who has an interest in the sale of the home.
+
+5. I understand that I may be asked to give my bank records to show where the money came from.
+
+DONOR: {{donor}}
+Signature: ______________________________   Date: ______________
+
+RECIPIENT (acknowledging): {{recipient}}
+Signature: ______________________________   Date: ______________`,
+  },
 ];
 
 export function getDocTemplate(key: string): DocTemplate | undefined { return DOC_TEMPLATES.find((t) => t.key === key); }

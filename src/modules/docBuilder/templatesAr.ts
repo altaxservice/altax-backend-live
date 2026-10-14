@@ -5,11 +5,12 @@ import { AR_PART3 } from "./templatesAr3";
 import { AR_PART4 } from "./templatesAr4";
 import { AR_PART5 } from "./templatesAr5";
 import { AR_PART6 } from "./templatesAr6";
+import { AR_PART7 } from "./templatesAr7";
 
 /** An Arabic edition of a template: its title, its body (same {{markup}} and question ids) and Arabic labels for choice answers. */
 export interface ArabicEdition { title: string; body: string; options?: Record<string, Record<string, string>> }
 
-const EDITIONS: Record<string, ArabicEdition> = { ...AR_PART1, ...AR_PART2, ...AR_PART3, ...AR_PART4, ...AR_PART5, ...AR_PART6 };
+const EDITIONS: Record<string, ArabicEdition> = { ...AR_PART1, ...AR_PART2, ...AR_PART3, ...AR_PART4, ...AR_PART5, ...AR_PART6, ...AR_PART7 };
 
 /** Attaches each Arabic edition to its template (done once, at load). */
 for (const t of DOC_TEMPLATES) {
