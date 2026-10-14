@@ -938,7 +938,10 @@ documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequ
   const role = req.user!.role;
   const requestIdFilter = String(req.query.requestId || "").trim();
   const purchaseDraftIdFilter = String(req.query.purchaseDraftId || "").trim();
+  // Staff/admin see many clients' files; ?clientId= narrows the list to one client (the client role is already pinned to its own business below).
+  const clientIdFilter = role === "admin" || role === "staff" ? String(req.query.clientId || "").trim() : "";
   const scoped = (rows: any[]) => rows
+    .filter((u) => !clientIdFilter || u.client_id === clientIdFilter)
     .filter((u) => !requestIdFilter || u.request_id === requestIdFilter)
     .filter((u) => !purchaseDraftIdFilter || u.purchase_draft_id === purchaseDraftIdFilter);
 
