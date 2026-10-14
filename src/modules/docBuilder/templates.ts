@@ -2016,6 +2016,104 @@ WITNESSES
 
 NOTARY: signed and sworn before me on ______________  Notary signature and seal: ______________________________`,
   },
+  {
+    key: "limited_poa_filings", title: "Limited Power of Attorney — Licenses, Permits & State Tax Filings", category: CLIENT_SERVICE,
+    description: "A business names the firm to obtain its licenses, permits and records and to file its Maryland sales/use and withholding tax — only for the matters ticked, nothing more. Based on the firm's own POA template.",
+    reviewNote: "This gives the firm authority to deal with offices for the business, but the Comptroller and the IRS still require their own authorization forms to act on tax accounts (Maryland Form 548, IRS 2848 / 8821). Some offices ask for a notarized power, so the notary block is on by default. Have a Maryland attorney review before use.",
+    steps: [
+      { title: "The business", questions: [
+        text("principal", "Business giving the authority", { prefill: "clientName", required: true }),
+        text("entityDesc", "Kind of business", { placeholder: "e.g. a Maryland limited liability company" }),
+        text("principalAddress", "Business street address", { prefill: "clientAddress", required: true }),
+        text("signerName", "Owner / officer signing for the business", { required: true }),
+        text("signerTitle", "Their title", { required: true, default: "Owner", placeholder: "e.g. Owner, Managing Member, President" }),
+      ] },
+      { title: "The firm (Attorney-in-Fact)", questions: [
+        text("firmName", "Firm", { prefill: "firmName", required: true }), text("firmAddress", "Firm address", { prefill: "firmAddress" }), text("firmEmail", "Firm email", { default: "altax70@gmail.com" }),
+        text("rep1", "First representative", { required: true, default: "MR. ABDULSAMAD ALMABARI" }), text("rep1Phone", "Their telephone", { default: "+1 (443) 825-8804" }),
+        text("rep2", "Second representative (optional)", { default: "MR. HESHAM A. ALMABARI" }), text("rep2Phone", "Their telephone", { default: "+1 (443) 835-4492" }),
+      ] },
+      { title: "What the firm may do", description: "Tick only what this client needs.", questions: [
+        yesno("pSales", "Obtain, renew, amend or close the Sales and Use Tax license", { default: true }),
+        yesno("pArticles", "Obtain copies of the Articles of Incorporation / Organization and other business records (State Department of Assessments and Taxation)", { default: true }),
+        yesno("pEbt", "Apply for or maintain the EBT / SNAP permit", { default: true }),
+        yesno("pFile", "File Maryland sales and use tax and withholding tax returns and make the payments", { default: true }),
+        yesno("pOccupancy", "Apply for and obtain a new occupancy permit", { default: true }),
+        yesno("pTobacco", "Tobacco / cigarette retail license — apply, renew or amend", { default: false }),
+        yesno("pHealth", "Health department or food service permit", { default: false }),
+        yesno("pLocal", "Local business, trader's and other county or city licenses", { default: false }),
+        yesno("pAnnual", "Annual report and personal property return with the State Department of Assessments and Taxation", { default: false }),
+        yesno("pUI", "Maryland unemployment insurance account matters", { default: false }),
+        area("other", "Anything else (one matter per line)"),
+        yesno("signDocs", "The firm may sign applications, forms and letters in the business's name, only as needed for the matters above", { default: true }),
+      ] },
+      { title: "Term and signing", questions: [
+        date("endDate", "Ends on (leave empty to continue until revoked)"),
+        yesno("notarize", "Include a notary acknowledgment", { default: true }),
+        text("county", "County where it is signed", { showIf: { id: "notarize", equals: true }, placeholder: "e.g. Baltimore City" }),
+        effective(), state(),
+      ] },
+    ],
+    body: `LIMITED POWER OF ATTORNEY
+Licenses, Permits and State Tax Filings
+
+Date: {{effectiveDate}}
+
+1. APPOINTMENT
+{{principal}}{{#if entityDesc}}, {{entityDesc}},{{/if}} with street address {{principalAddress}} (the "Principal"), acting through {{signerName}}, its {{signerTitle}}, grants a limited and specific power of attorney to {{firmName}}{{#if firmAddress}}, {{firmAddress}},{{/if}} represented by {{rep1}}{{#if rep2}} and {{rep2}}{{/if}} (each an "Attorney-in-Fact", together the "Attorneys-in-Fact"). {{signerName}} confirms having the authority to give this power on behalf of the Principal.
+
+2. POWERS GIVEN
+The Attorneys-in-Fact may act for the Principal, and deal with the offices concerned, only for these purposes:
+{{#if pSales}}• Obtain, renew, amend or close the Principal's Sales and Use Tax license.
+{{/if}}{{#if pArticles}}• Obtain copies of the Principal's Articles of Incorporation / Organization and other business records from the State Department of Assessments and Taxation.
+{{/if}}{{#if pEbt}}• Apply for or maintain the Principal's EBT / SNAP permit.
+{{/if}}{{#if pFile}}• Prepare and file the Principal's Maryland sales and use tax and withholding tax returns and make the related payments.
+{{/if}}{{#if pOccupancy}}• Apply for and obtain a new occupancy permit from the relevant authorities.
+{{/if}}{{#if pTobacco}}• Apply for, renew or amend the Principal's tobacco / cigarette retail license.
+{{/if}}{{#if pHealth}}• Apply for and maintain the Principal's health department or food service permit.
+{{/if}}{{#if pLocal}}• Apply for, renew or amend the Principal's local business, trader's and other county or city licenses.
+{{/if}}{{#if pAnnual}}• File the Principal's annual report and personal property return with the State Department of Assessments and Taxation.
+{{/if}}{{#if pUI}}• Handle the Principal's Maryland unemployment insurance account matters.
+{{/if}}{{#if other}}• {{other}}
+{{/if}}The Attorneys-in-Fact may also handle all related communications for the Principal and do the incidental acts reasonably needed to carry out these purposes.
+
+3. SIGNING
+{{#if signDocs}}The Attorneys-in-Fact may sign applications, forms, agreements and letters in the Principal's name, but only as needed for the purposes in Section 2.{{else}}The Attorneys-in-Fact may prepare and submit documents for the Principal but may not sign them in the Principal's name.{{/if}}
+
+4. LIMITS
+This power does not include the power to sell or mortgage the business or its property, borrow money, open or close bank accounts, sign checks or withdraw funds, change the ownership of the business, make gifts, or sign any contract other than those needed for the purposes in Section 2. Taxes and fees are paid only from funds the Principal provides.
+
+5. DUTIES
+The Attorneys-in-Fact accept this appointment on these terms and will act in the Principal's best interest and only within these powers, keep records of what they do, give the Principal copies of every filing, license, permit and notice, and keep the Principal's information confidential, using it only for these purposes.
+
+6. WHEN IT STARTS AND ENDS
+This power takes effect when it is signed {{#if endDate}}and ends on {{endDate}}{{else}}and stays in effect until the Principal ends it{{/if}}. The Principal may revoke it at any time by written notice to the Attorneys-in-Fact. When they receive that notice they will stop acting and promptly return all documents, funds and property belonging to the Principal. An Attorney-in-Fact may resign by written notice to the Principal.
+
+7. COPIES AND RELIANCE
+A copy of this document is as good as the original. An office or person who relies on it in good faith may keep relying on it until they receive written notice that it has ended.
+
+8. GOVERNING LAW
+This power of attorney is governed by the laws of the State of {{state}}.
+
+PRINCIPAL: {{principal}}
+By: {{signerName}}, {{signerTitle}}
+Signature: ______________________________   Date: ______________
+
+ACCEPTANCE OF APPOINTMENT
+I, {{rep1}}, the Attorney-in-Fact named above, accept this appointment in accordance with the foregoing instrument.
+{{firmName}}{{#if firmAddress}}, {{firmAddress}}{{/if}}{{#if rep1Phone}}, {{rep1Phone}}{{/if}}{{#if firmEmail}}, {{firmEmail}}{{/if}}
+Signature: ______________________________   Date: ______________
+
+{{#if rep2}}I, {{rep2}}, the Attorney-in-Fact named above, accept this appointment in accordance with the foregoing instrument.
+{{firmName}}{{#if firmAddress}}, {{firmAddress}}{{/if}}{{#if rep2Phone}}, {{rep2Phone}}{{/if}}{{#if firmEmail}}, {{firmEmail}}{{/if}}
+Signature: ______________________________   Date: ______________
+
+{{/if}}{{#if notarize}}ACKNOWLEDGMENT BEFORE A NOTARY
+State of Maryland, County of {{county}}
+On ______________, before me, the undersigned notary public, personally appeared {{signerName}}, known to me or satisfactorily proven to be the person who signed this document for {{principal}}, and acknowledged that they signed it voluntarily for the purposes stated in it, with authority to do so.
+Notary public signature and seal: ______________________________
+My commission expires: ______________{{/if}}`,
+  },
 ];
 
 export function getDocTemplate(key: string): DocTemplate | undefined { return DOC_TEMPLATES.find((t) => t.key === key); }

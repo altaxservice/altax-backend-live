@@ -35,6 +35,7 @@ const SPEC: Record<string, Spec[]> = {
   property_sale_residential: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   property_sale_commercial: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   business_poa: [{ role: "Owner (for the business)", nameId: "owner" }, { role: "Agent", nameId: "agent" }],
+  limited_poa_filings: [{ role: "Business (by its owner / officer)", nameId: "signerName" }, { role: "Attorney-in-Fact", nameId: "rep1" }, { role: "Attorney-in-Fact", nameId: "rep2", onlyIf: "rep2" }],
   general_poa: [{ role: "Principal", nameId: "principal" }, { role: "Agent", nameId: "agent" }],
   business_sale_agreement: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   ownership_transfer: [{ role: "Transferor", nameId: "assignor" }, { role: "Transferee", nameId: "assignee" }, { role: "Company", nameId: "companySigner" }],
@@ -45,7 +46,7 @@ const SPEC: Record<string, Spec[]> = {
 };
 
 /** These need a notary's own signature and seal; an electronic signature does not replace that. */
-export const NEEDS_NOTARY = new Set(["affidavit_general", "child_travel_consent", "general_poa", "business_poa"]);
+export const NEEDS_NOTARY = new Set(["affidavit_general", "child_travel_consent", "general_poa", "business_poa", "limited_poa_filings"]);
 
 export function suggestSigners(templateKey: string, answers: Answers): { role: string; name: string }[] {
   const out: { role: string; name: string }[] = [];
