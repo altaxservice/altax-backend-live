@@ -871,13 +871,10 @@ export function ClientDetailPage() {
                     id={f.apiKey} value={form[f.apiKey] ?? ""}
                     min={f.dateMin} max={f.dateMaxToday ? new Date().toISOString().slice(0, 10) : undefined}
                     onChange={(e) => {
-                      // A native date input's min/max block the picker from landing out of
-                      // range, but typing directly into the year segment can still commit an
-                      // out-of-range value — e.g. a partially-typed year ("06" before the 3rd
-                      // digit lands) briefly reads as year 6 AD, and if that fires onChange it
-                      // saves straight through. validity.valid reflects min/max even for a
-                      // typed value, so reject rather than accept an out-of-range one.
-                      if ((f.dateMin || f.dateMaxToday) && e.target.value && !e.target.validity.valid) return;
+                      // Reject a typed date outside the allowed range (the calendar already blocks it). DateInput hands back
+                      // a plain { value } object with no `validity`, so compare the ISO strings directly.
+                      const picked = e.target.value;
+                      if (picked && ((f.dateMin && picked < f.dateMin) || (f.dateMaxToday && picked > new Date().toISOString().slice(0, 10)))) return;
                       setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }));
                     }}
                   />
