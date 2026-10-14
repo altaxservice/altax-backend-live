@@ -1900,6 +1900,78 @@ Signature: ______________________________   Date: ______________
 RECIPIENT (acknowledging): {{recipient}}
 Signature: ______________________________   Date: ______________`,
   },
+  {
+    key: "business_poa", title: "Business Power of Attorney (Operations, Banking & Tax)", category: BUSINESS,
+    description: "A business gives a trusted person authority to run daily operations, handle bank accounts, and deal with tax and government matters — each power can be switched on or off.",
+    reviewNote: "Banks usually insist on their own authorization form and a company resolution as well — bring this document, the Articles / EIN letter and a corporate resolution (also in this builder). Sign in front of a notary. For dealing with the IRS or the Maryland Comptroller, the official forms (2848 / 8821 / MD 548) are still needed.",
+    steps: [
+      { title: "The business and the agent", questions: [text("company", "Business giving the authority", { prefill: "clientName", required: true }), text("companyAddress", "Business address", { prefill: "clientAddress" }), text("owner", "Owner / officer signing for the business", { required: true }), text("ownerTitle", "Their title", { required: true, placeholder: "e.g. Owner, Managing Member, President" }), text("agent", "Person receiving the authority (agent)", { required: true }), text("agentAddress", "Agent's address"), effective(), state()] },
+      { title: "Bank accounts", description: "Switch off anything the agent should not do.", questions: [
+        yesno("bank", "Banking powers", { default: true }),
+        text("banks", "Which banks", { showIf: { id: "bank", equals: true }, placeholder: "Leave empty for any bank or credit union" }),
+        yesno("openClose", "Open and close accounts", { showIf: { id: "bank", equals: true }, default: true }),
+        yesno("limitWithdraw", "Limit what the agent may withdraw or transfer in one transaction", { showIf: { id: "bank", equals: true }, default: false }),
+        money("withdrawLimit", "Highest single withdrawal or transfer", { showIf: { id: "limitWithdraw", equals: true }, required: true }),
+      ] },
+      { title: "Operations, tax and licenses", questions: [
+        yesno("operations", "Run daily operations — purchases, vendors, inventory, contracts, point-of-sale and merchant accounts", { default: true }),
+        yesno("staff", "Hire, supervise, pay and let go of employees, and run payroll", { default: true }),
+        yesno("tax", "Tax matters — prepare, sign and file sales tax, payroll tax and income tax returns, pay taxes, receive notices and deal with tax offices", { default: true }),
+        yesno("licenses", "Apply for, renew, change and close licenses and permits", { default: true }),
+        yesno("borrow", "Borrow money, sign loans or credit applications for the business", { default: false }),
+        yesno("property", "Buy, sell or lease property or major equipment for the business", { default: false }),
+        yesno("approval", "Anything above a set amount needs the owner's written approval first", { default: false }),
+        money("approvalAmount", "Approval is needed above", { showIf: { id: "approval", equals: true }, required: true }),
+      ] },
+      { title: "How long", questions: [date("endDate", "Ends on (leave empty until cancelled)"), text("witness1", "First witness (printed name)"), text("witness2", "Second witness (printed name)")] },
+    ],
+    body: `BUSINESS POWER OF ATTORNEY
+
+Date: {{effectiveDate}}
+
+1. APPOINTMENT
+{{company}}{{#if companyAddress}}, of {{companyAddress}},{{/if}} (the "Business"), acting through {{owner}}, its {{ownerTitle}}, appoints {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") as its attorney-in-fact to act for the Business and sign in its name in the matters listed below. {{owner}} confirms having the authority to give this power on behalf of the Business.
+
+2. POWERS GIVEN
+{{#if bank}}A. BANKING. {{#if banks}}At {{banks}}{{else}}At any bank or credit union{{/if}}, the Agent may{{#if openClose}} open and close accounts,{{/if}} deposit and withdraw money, write, sign and endorse checks, make transfers, wires and electronic payments, use and manage online banking and debit or credit cards of the Business, get statements and records, and sign the bank's forms and signature cards.{{#if limitWithdraw}} The Agent may not withdraw or transfer more than {{withdrawLimit}} in any one transaction.{{/if}}
+
+{{/if}}{{#if operations}}B. DAILY OPERATIONS. The Agent may run the day-to-day business: buy goods and supplies, deal with vendors and customers, set up and use point-of-sale and merchant accounts, sign ordinary contracts and orders, manage inventory and premises, and keep the books and records.
+
+{{/if}}{{#if staff}}C. STAFF AND PAYROLL. The Agent may hire, supervise, pay and end the employment of staff, and run payroll, including payroll deposits and filings.
+
+{{/if}}{{#if tax}}D. TAX AND GOVERNMENT MATTERS. The Agent may prepare, sign and file the Business's sales tax, payroll tax and income tax returns, pay taxes, receive notices and correspondence, and deal with federal, state and local tax offices on the Business's behalf, to the extent the law accepts this document for that purpose.
+
+{{/if}}{{#if licenses}}E. LICENSES AND PERMITS. The Agent may apply for, renew, change and close licenses and permits of the Business.
+
+{{/if}}{{#if borrow}}F. BORROWING. The Agent may borrow money for the Business and sign loan and credit documents in its name.
+
+{{/if}}{{#if property}}G. PROPERTY. The Agent may buy, sell or lease property and major equipment for the Business.
+
+{{/if}}3. LIMITS
+{{#if approval}}For any single purchase, payment, contract or commitment above {{approvalAmount}}, the Agent must first get the written approval of {{owner}} or another owner of the Business. {{/if}}The Agent may not sell the Business or change who owns it, may not add or remove owners, and may not give away the Business's money or property, unless a separate written document signed by the owners says so.
+
+4. DUTIES
+The Agent must act in the Business's best interest, keep its money separate from the Agent's own, keep records of what is done, and give the owners an account whenever they ask. The owners may inspect all accounts and records at any time.
+
+5. HOW LONG IT LASTS
+This power starts when signed. {{#if endDate}}It ends on {{endDate}}, or earlier if{{else}}It lasts until{{/if}} the Business cancels it in writing. Cancelling must be given in writing to the Agent and to each bank or office relying on this document. People who rely on it in good faith are protected until they receive written notice that it has ended.
+
+6. GENERAL
+A copy of this document is as good as the original. It is governed by the laws of the State of {{state}}.
+
+BUSINESS: {{company}}
+By: {{owner}}, {{ownerTitle}}
+Signature: ______________________________   Date: ______________
+
+AGENT (accepting): {{agent}}
+Signature: ______________________________   Date: ______________
+
+WITNESSES
+1. {{witness1}}   Signature: ______________________________
+2. {{witness2}}   Signature: ______________________________
+
+NOTARY: signed and sworn before me on ______________  Notary signature and seal: ______________________________`,
+  },
 ];
 
 export function getDocTemplate(key: string): DocTemplate | undefined { return DOC_TEMPLATES.find((t) => t.key === key); }
