@@ -113,7 +113,13 @@ export function parseCloverText(text: string): CloverParse {
     if (/^debit/i.test(name)) out.tenders.debit = a; else if (/^credit/i.test(name)) out.tenders.credit = a; else if (/^ebt|snap/i.test(name)) out.tenders.ebt = a; else if (/^cash$/i.test(name)) out.tenders.cash = a;
     else out.tenders.other.push({ name, amount: a });
   }
-  const t = out.tenders; const tenderSum = r2(t.debit + t.credit + t.ebt + t.cash + t.other.reduce((s, o) => s + o.amount, 0));
+  finalizeClover(out);
+  return out;
+}
+
+/** Self-checks and warnings for a parsed report — shared by the text reader and the picture (Claude) reader. */
+export function finalizeClover(out: CloverParse): CloverParse {
+  out.checks = []; const t = out.tenders; const tenderSum = r2(t.debit + t.credit + t.ebt + t.cash + t.other.reduce((s, o) => s + o.amount, 0));
   if (out.overview.collected !== null && tenderSum > 0) out.checks.push({ name: "payment types add up to the amount collected", ok: Math.abs(tenderSum - out.overview.collected) <= 0.02 });
   if (out.totalApplicable !== null && out.taxSections.length) out.checks.push({ name: "tax sections add up to the report's total", ok: Math.abs(r2(out.taxSections.reduce((s, x) => s + x.applicable, 0)) - out.totalApplicable) <= 0.02 });
   for (const sec of out.taxSections) if (sec.collected || sec.refunded || sec.net) out.checks.push({ name: `${sec.name}: collected less refunded equals net`, ok: Math.abs(r2(sec.collected + sec.refunded) - sec.net) <= 0.02 });
