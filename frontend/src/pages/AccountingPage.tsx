@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Download, ClipboardCheck } from "lucide-react";
 import { usePendingSubmissions } from "../components/ClientSubmissionsInbox";
 import { enterAsTab } from "../utils/enterAsTab";
+import { PosImportPanel } from "../components/PosImportPanel";
 import { SalesBlocksEditor, emptyBlocks, blocksToPayload, hasAmounts, stateFromBlocks, stateFromLegacyLines, type BlocksState, type BlocksPreview } from "../components/SalesBlocksEditor";
 import { CardDepositPanel } from "../components/CardDepositPanel";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -381,6 +382,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showPos, setShowPos] = useState(false);
   const [search, setSearch] = useState("");
   // Most clients tax the same handful of categories on every sale, so this
   // list reads identically on nearly every row — a "Hide"/"View" toggle on
@@ -1336,6 +1338,19 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           onImported={() => { load(); setMdFilingReloadKey((k) => k + 1); }}
         />
       )}
+      {showPos && (
+        <PosImportPanel
+          clientId={clientId}
+          categories={categories}
+          onClose={() => setShowPos(false)}
+          onFill={(v) => {
+            setForm((f) => ({ ...f, saleDate: v.saleDate, adjustments: v.adjustments, notes: v.notes }));
+            setBlocks(v.blocks);
+            setShowCreate(true); setShowImport(false);
+            idempotencyKey.current = null;
+          }}
+        />
+      )}
       {showCreate && (
       <Panel
         title="Sales Input"
@@ -1380,6 +1395,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
             <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
             {!showImport && <button type="button" className="btn btn-sm" onClick={() => { setShowImport(true); setShowCreate(false); }}>Import from Excel</button>}
+            {!showPos && <button type="button" className="btn btn-sm" onClick={() => setShowPos(true)}>Import POS report</button>}
             {!showCreate && <button type="button" className="btn btn-sm btn-primary" onClick={() => { setShowCreate(true); setShowImport(false); }}>+ Add Sale</button>}
           </div>
         }
