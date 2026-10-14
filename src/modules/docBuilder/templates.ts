@@ -1585,14 +1585,27 @@ Signature: ______________________________   Date: ______________
   /* ─────────────── Batch 7: powers, sales and transfers ─────────────── */
   {
     key: "general_poa", title: "Power of Attorney", category: FAMILY,
-    description: "Lets someone you trust handle your money, tax, property or business matters for you — general or limited, with or without a start condition.",
-    reviewNote: "Maryland generally expects a power of attorney to be signed in front of a notary and two witnesses, and a bank or title company may ask for its own form. For dealing with the IRS or the Comptroller use the official forms (2848 / 8821 / MD 548) instead.",
+    description: "Lets someone you trust handle your money, tax, property or business matters for you — general or limited, with or without a start condition. Follows the layout of Maryland's statutory financial power of attorney.",
+    reviewNote: "Maryland requires a power of attorney to be signed by the principal, acknowledged before a notary, and signed by two or more adult witnesses (the notary may be one of them) — Estates and Trusts Article §17-110. A bank, title company or the IRS may still ask for its own form; for the IRS or the Comptroller use 2848 / 8821 / MD 548. To sell or mortgage real estate, use the limited statutory form and record it in the county land records. Have a Maryland attorney review before use.",
     steps: [
-      { title: "People", questions: [text("principal", "Person giving the power (you)", { prefill: "clientName", required: true }), text("principalAddress", "Their address", { prefill: "clientAddress" }), text("agent", "Person receiving the power (agent)", { required: true }), text("agentAddress", "Agent's address"), yesno("hasSuccessor", "Name a backup agent in case the first cannot act"), text("successor", "Backup agent", { showIf: { id: "hasSuccessor", equals: true }, required: true }), effective(), state()] },
+      { title: "People", questions: [text("principal", "Person giving the power (you)", { prefill: "clientName", required: true }), text("principalAddress", "Their address", { prefill: "clientAddress" }), text("principalPhone", "Their telephone", { prefill: "clientPhone" }), text("agent", "Person receiving the power (agent)", { required: true }), text("agentAddress", "Agent's address"), yesno("hasSuccessor", "Name a backup agent in case the first cannot act"), text("successor", "Backup agent", { showIf: { id: "hasSuccessor", equals: true }, required: true }), effective(), state()] },
       { title: "What the agent may do", questions: [
-        pick("powerType", "Kind of power", [["general", "General — most financial and business matters"], ["limited", "Limited — only the matters I list"]], { required: true, default: "general" }),
+        pick("powerType", "Kind of power", [["general", "General — the subjects I tick below"], ["limited", "Limited — only the matters I list"]], { required: true, default: "general" }),
         area("limitedPowers", "The matters the agent may handle", { showIf: { id: "powerType", equals: "limited" }, required: true, placeholder: "e.g. Sign the sale papers for the property at 12 Main St, and collect the proceeds" }),
+        yesno("sReal", "Real property — buy, sell, lease, mortgage and manage", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sPersonal", "Tangible personal property — vehicles, boats, belongings", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sStocks", "Stocks, bonds and investment accounts", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sBanks", "Banks and financial institutions — accounts, deposits, withdrawals, checks, safe deposit boxes", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sInsurance", "Insurance and annuities", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sClaims", "Claims and lawsuits", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sBenefits", "Government benefits — Social Security, Medicare, Medicaid, veterans", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sRetirement", "Retirement plans", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sTaxes", "Taxes — returns, refunds, payments, notices", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sBusiness", "Business interests and operations", { showIf: { id: "powerType", equals: "general" }, default: true }),
+        yesno("sDigital", "Digital assets and online accounts", { showIf: { id: "powerType", equals: "general" }, default: true }),
         yesno("gifts", "The agent may make gifts from my property", { default: false }),
+        pick("giftLimit", "Limit on gifts", [["annual", "Up to the federal annual gift-tax exclusion for each person each year"], ["amount", "Up to a total amount I set"]], { showIf: { id: "gifts", equals: true }, required: true, default: "annual" }),
+        money("giftAmount", "Total amount of gifts allowed", { showIf: { id: "giftLimit", equals: "amount" }, required: true }),
         yesno("paid", "The agent may be paid a reasonable fee for the work", { default: false }),
       ] },
       { title: "When it starts and ends", questions: [
@@ -1600,27 +1613,41 @@ Signature: ______________________________   Date: ______________
         yesno("durable", "It stays in effect if I become unable to manage my affairs", { default: true }),
         date("endDate", "Ends on (leave empty for no end date)"),
       ] },
-      { title: "Witnesses", questions: [text("witness1", "First witness (printed name)"), text("witness2", "Second witness (printed name)")] },
+      { title: "Witnesses and notary", questions: [text("county", "County where it is signed", { placeholder: "e.g. Baltimore County" }), text("witness1", "First witness (printed name)"), text("witness1Address", "First witness's address"), text("witness2", "Second witness (printed name)"), text("witness2Address", "Second witness's address")] },
     ],
     body: `POWER OF ATTORNEY
 
 Date: {{effectiveDate}}
 
 1. APPOINTMENT
-I, {{principal}}{{#if principalAddress}} of {{principalAddress}}{{/if}} ("Principal"), appoint {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") to act for me as my attorney-in-fact.{{#if hasSuccessor}} If {{agent}} cannot or will not act, I appoint {{successor}} in their place.{{/if}}
+I, {{principal}}{{#if principalAddress}} of {{principalAddress}}{{/if}}{{#if principalPhone}}, telephone {{principalPhone}}{{/if}} ("Principal"), appoint {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") to act for me as my attorney-in-fact.{{#if hasSuccessor}} If {{agent}} dies, resigns, or cannot or will not act, I appoint {{successor}} in their place.{{/if}}
 
 2. POWERS
-{{#if powerType=general}}The Agent may do anything I could do for myself in these matters: banking and payments; collecting and paying debts; buying, selling, renting and managing property; running my business affairs and signing contracts for it; filing and paying my taxes and dealing with tax offices (where the law accepts this document); handling insurance, benefits and legal claims; and keeping my records.{{else}}The Agent may act for me only in these matters: {{limitedPowers}}{{/if}}
-{{#if gifts}}The Agent may make gifts from my property in amounts that are reasonable for my situation.{{else}}The Agent may not make gifts from my property.{{/if}}
+{{#if powerType=general}}The Agent may act for me in these matters, and in each of them may do anything I could do for myself, sign and deliver documents in my name, and deal with any person, bank or government office:
+{{#if sReal}}• Real property: buy, sell, exchange, lease, mortgage and manage real property and sign deeds and settlement papers.
+{{/if}}{{#if sPersonal}}• Tangible personal property: buy, sell, insure, store and manage vehicles, boats and belongings.
+{{/if}}{{#if sStocks}}• Stocks, bonds and investments: buy, sell, vote and manage them and the accounts that hold them.
+{{/if}}{{#if sBanks}}• Banks and financial institutions: open, close and manage accounts, deposit and withdraw money, write and endorse checks, make transfers, and use safe deposit boxes.
+{{/if}}{{#if sInsurance}}• Insurance and annuities: buy, change, borrow against and cancel policies and collect benefits.
+{{/if}}{{#if sClaims}}• Claims and lawsuits: start, defend and settle claims and hire lawyers.
+{{/if}}{{#if sBenefits}}• Government benefits: apply for and manage Social Security, Medicare, Medicaid and other public benefits.
+{{/if}}{{#if sRetirement}}• Retirement plans: contribute to, withdraw from, roll over and manage retirement accounts.
+{{/if}}{{#if sTaxes}}• Taxes: prepare, sign and file returns, pay taxes, claim refunds, receive notices and deal with tax offices, to the extent the law accepts this document for that purpose.
+{{/if}}{{#if sBusiness}}• Business interests: run, buy, sell and manage my business interests and sign contracts for them.
+{{/if}}{{#if sDigital}}• Digital assets: manage my online accounts, electronic records and digital property as the law allows.
+{{/if}}{{else}}The Agent may act for me only in these matters: {{limitedPowers}}{{/if}}
 
-3. WHEN IT STARTS AND HOW LONG IT LASTS
-{{#if startsWhen=now}}This power starts when I sign it.{{else}}This power starts only when a licensed doctor confirms in writing that I cannot manage my own affairs.{{/if}} {{#if durable}}It stays in effect if I later become unable to manage my affairs.{{else}}It ends if I become unable to manage my affairs.{{/if}} {{#if endDate}}It ends on {{endDate}}, or earlier if I cancel it in writing or I die.{{else}}It lasts until I cancel it in writing or I die.{{/if}}
+3. GIFTS AND COMPENSATION
+{{#if gifts}}The Agent may make gifts from my property, {{#if giftLimit=annual}}up to the federal annual gift-tax exclusion for each person each year{{else}}up to {{giftAmount}} in total{{/if}}.{{else}}The Agent may not make gifts from my property.{{/if}} {{#if paid}}The Agent may be paid a reasonable fee for the work, and repaid reasonable expenses.{{else}}The Agent will not be paid but may be repaid reasonable expenses.{{/if}}
 
-4. THE AGENT'S DUTIES
-The Agent must act in my best interest, keep my property separate from the Agent's own, keep records of everything done for me, and give me or my heirs an account when asked. {{#if paid}}The Agent may be paid a reasonable fee for the work, and repaid reasonable expenses.{{else}}The Agent will not be paid but may be repaid reasonable expenses.{{/if}}
+4. WHEN IT STARTS AND HOW LONG IT LASTS
+{{#if startsWhen=now}}This power starts when I sign it.{{else}}This power starts only when a licensed doctor confirms in writing that I cannot manage my own affairs.{{/if}} {{#if durable}}It is a durable power of attorney: it stays in effect if I later become disabled or unable to manage my affairs.{{else}}It ends if I become disabled or unable to manage my affairs.{{/if}} {{#if endDate}}It ends on {{endDate}}, or earlier if I revoke it in writing or I die.{{else}}It lasts until I revoke it in writing or I die.{{/if}}
 
-5. GENERAL
-A copy of this document is as good as the original. People who rely on it in good faith are protected until they learn it has ended. This document is governed by the laws of the State of {{state}}.
+5. THE AGENT'S DUTIES
+The Agent must act in good faith and only within the powers given here; act loyally for my benefit and avoid conflicts of interest; act with care, competence and diligence; keep my property separate from the Agent's own; keep records of every transaction; and give me, my guardian or my personal representative an account when asked. The Agent is not liable if the value of my property goes down without a breach of these duties.
+
+6. REVOCATION, COPIES AND RELIANCE
+I may revoke this power at any time by written notice to the Agent. A copy of this document is as good as the original. A person who relies on this document in good faith may keep relying on it until they receive written notice that it has ended. This document is governed by the laws of the State of {{state}}.
 
 PRINCIPAL: {{principal}}
 Signature: ______________________________   Date: ______________
@@ -1628,11 +1655,22 @@ Signature: ______________________________   Date: ______________
 AGENT (accepting): {{agent}}
 Signature: ______________________________   Date: ______________
 
-WITNESSES (two adults who are not the Agent)
-1. {{witness1}}   Signature: ______________________________
-2. {{witness2}}   Signature: ______________________________
+ATTESTATION OF WITNESSES
+Each of us is an adult. The Principal declared this document to be their power of attorney and signed it (or directed another to sign it for them) in our presence. The Principal appeared to be of sound mind and under no duress, fraud or undue influence. Each of us signed in the presence of the Principal and of each other.
 
-NOTARY: signed and sworn before me on ______________  Notary signature and seal: ______________________________`,
+Witness 1: {{witness1}}
+Address: {{witness1Address}}
+Signature: ______________________________   Date: ______________
+
+Witness 2: {{witness2}}
+Address: {{witness2Address}}
+Signature: ______________________________   Date: ______________
+
+ACKNOWLEDGMENT BEFORE A NOTARY
+State of Maryland, County of {{county}}
+On ______________, before me, the undersigned notary public, personally appeared {{principal}}, known to me or satisfactorily proven to be the person who signed this document, and acknowledged that they signed it voluntarily for the purposes stated in it.
+Notary public signature and seal: ______________________________
+My commission expires: ______________`,
   },
   {
     key: "business_sale_agreement", title: "Sale of a Business Agreement", category: BUSINESS,
