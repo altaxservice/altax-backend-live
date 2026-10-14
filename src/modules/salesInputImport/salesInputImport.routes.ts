@@ -7,8 +7,8 @@ import { logAudit } from "../../common/audit";
 import { readWorkbookSheetByName } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { extractPdfText } from "../../common/pdfBankReader";
-import { allocatePos, parseCloverText, summarizeClover } from "../../common/posSummary";
-import { isImage, normalizeOcrText, ocrImageVariants } from "../../common/ocr";
+import { allocatePos, mergeReadings, parseCloverText, summarizeClover } from "../../common/posSummary";
+import { extractPdfImages, isImage, normalizeOcrText, ocrImageVariants } from "../../common/ocr";
 import { isSmartReadingEnabled, isSmartReadingKeyConfigured, readReportWithClaude } from "../../common/visionReader";
 import { parseSalesInputSheet, SALES_INPUT_SHEET_NAME, type ParsedSalesInputRow } from "./salesInputParser";
 import { createSalesInputRecord, computeCategoryLinesTax, deleteSalesInputRecord, type SalesCategoryLineInput } from "../accounting/accounting.routes";
@@ -362,26 +362,37 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
     if (!isPdf && !isImage(decoded.buffer)) return res.status(400).json({ error: `${f.name || "That file"} isn't a PDF or a picture (PNG, JPG or WebP).` });
     const scan = await scanFileForMalware(decoded.buffer, f.name || "pos-report");
     if (scan.scanned && !scan.clean) return res.status(400).json({ error: "This file was flagged by malware scanning and was not read." });
+    // Work out what to read: a PDF with real text is read directly; a picture, or a PDF that is really a picture (a phone photo saved as PDF),
+    // is read with Claude when Smart reading is on, otherwise with the on-server text reader.
+    let pictures: Buffer[] = [];
     let text = "";
-    if (!isPdf && smart) {
-      try {
-        parsed.push(await readReportWithClaude(decoded.buffer));
-        usedSmart = true; fromPicture = true;
-        await logAudit("Accounting", "POS_REPORT_SMART_READ", loaded.client.client_id, "", "", f.name || "picture", `A POS report picture for ${loaded.client.client_name} was read with Claude by ${req.user!.email}.`, req.user!.email);
-        continue;
-      } catch { /* fall back to the on-server text reader below */ }
-    }
-    try {
-      if (isPdf) text = await extractPdfText(decoded.buffer);
-      else {
-        // Read the picture a few different ways and keep the reading whose numbers add up best (they are checked against the report's own totals).
-        fromPicture = true;
-        const readings = (await ocrImageVariants(decoded.buffer)).map(normalizeOcrText);
-        const score = (t: string) => { const p = parseCloverText(t); return p.checks.reduce((s, c) => s + (c.ok ? 2 : -3), 0) + (p.foundOverview ? 1 : 0) + (p.foundTaxes ? 1 : 0) + (p.from ? 1 : 0) + p.taxSections.length * 0.1; };
-        text = readings.reduce((best, t) => (score(t) > score(best) ? t : best), readings[0]);
+    if (isPdf) {
+      try { text = await extractPdfText(decoded.buffer); } catch { return res.status(400).json({ error: `${f.name || "That PDF"} could not be read.` }); }
+      if (text.replace(/\s/g, "").length < 40) {
+        pictures = await extractPdfImages(decoded.buffer).catch(() => []);
+        if (!pictures.length) return res.status(400).json({ error: `${f.name || "That PDF"} has no readable text or picture. Type the numbers instead.` });
+        text = "";
       }
-    } catch { return res.status(400).json({ error: `${f.name || "That file"} could not be read.` }); }
-    if (text.replace(/\s/g, "").length < 40) return res.status(400).json({ error: isPdf ? `${f.name || "That PDF"} has no readable text (it is a scan). Save or screenshot it as a picture and upload that, or type the numbers.` : `No text could be read in ${f.name || "that picture"}. Try a sharper, straighter screenshot, or type the numbers.` });
+    } else pictures = [decoded.buffer];
+    if (pictures.length) {
+      fromPicture = true;
+      for (const pic of pictures) {
+        if (smart) {
+          try {
+            parsed.push(await readReportWithClaude(pic));
+            usedSmart = true;
+            await logAudit("Accounting", "POS_REPORT_SMART_READ", loaded.client.client_id, "", "", f.name || "picture", `A POS report picture for ${loaded.client.client_name} was read with Claude by ${req.user!.email}.`, req.user!.email);
+            continue;
+          } catch { /* fall back to the on-server text reader */ }
+        }
+        try {
+          const readings = (await ocrImageVariants(pic)).map(normalizeOcrText).map(parseCloverText);
+          const merged = mergeReadings(readings);
+          if (merged.foundOverview || merged.foundTaxes) parsed.push(merged);
+        } catch { /* nothing readable in this picture */ }
+      }
+      continue;
+    }
     parsed.push(parseCloverText(text));
   }
   const summary = summarizeClover(parsed);

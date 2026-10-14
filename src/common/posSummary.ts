@@ -74,18 +74,30 @@ export function parseCloverText(text: string): CloverParse {
 
   // Taxes report: a heading like "Sales Tax (6%)" followed by Applicable Sales / Amount Collected / Amount Refunded / Net Amount.
   let cur: CloverTaxSection | null = null; let inTaxes = false; let totalSec: CloverTaxSection | null = null;
+  // Photos of a printed receipt often come out as a block of labels followed by a block of amounts (no label on the amount's line);
+  // those amounts are matched to the labels by order: Applicable Sales, Amount Collected, Amount Refunded, Net Amount.
+  const loose = new Map<CloverTaxSection, number[]>();
+  const flushLoose = (sec: CloverTaxSection | null) => {
+    const nums = sec ? loose.get(sec) : null;
+    if (!sec || !nums || sec.applicable || sec.collected || sec.refunded || sec.net) return;
+    if (nums.length >= 4) { [sec.applicable, sec.collected, sec.refunded, sec.net] = nums.slice(0, 4); }
+    else if (nums.length === 3) { sec.applicable = nums[0]; sec.collected = nums[1]; sec.net = nums[2]; }
+  };
   for (const l of lines) {
     const head = /^(.+?)\s*\((\d+(?:\.\d+)?)\s*%\)\s*$/.exec(l);
-    if (head && amounts(l).length === 0) { cur = { name: head[1].trim(), rate: Number(head[2]), applicable: 0, collected: 0, refunded: 0, net: 0 }; out.taxSections.push(cur); inTaxes = true; continue; }
+    if (head && amounts(l).length === 0) { flushLoose(cur); cur = { name: head[1].trim(), rate: Number(head[2]), applicable: 0, collected: 0, refunded: 0, net: 0 }; out.taxSections.push(cur); inTaxes = true; continue; }
     if (!cur) continue;
-    if (/^total\b/i.test(l) && amounts(l).length === 0) { cur = { name: "__total__", rate: -1, applicable: 0, collected: 0, refunded: 0, net: 0 }; totalSec = cur; continue; }
-    const a = amounts(l)[0];
+    if (/^total\b/i.test(l) && amounts(l).length === 0) { flushLoose(cur); cur = { name: "__total__", rate: -1, applicable: 0, collected: 0, refunded: 0, net: 0 }; totalSec = cur; continue; }
+    const as = amounts(l);
+    const a = as[0];
     if (a === undefined) continue;
     if (/^applicable sales/i.test(l)) cur.applicable = a;
     else if (/^amount collected/i.test(l)) cur.collected = a;
     else if (/^amount refunded/i.test(l)) cur.refunded = a;
     else if (/^net amount/i.test(l)) cur.net = a;
+    else if (!/[A-Za-z]{4,}/.test(l)) { if (!loose.has(cur)) loose.set(cur, []); loose.get(cur)!.push(...as); }
   }
+  flushLoose(cur);
   // The report's own "Total" block is a cross-check, not a tax rate.
   if (totalSec) { out.totalApplicable = totalSec.applicable || null; out.taxSections = out.taxSections.filter((x) => x !== totalSec); }
   out.foundTaxes = inTaxes && out.taxSections.some((s) => s.applicable !== 0);
@@ -152,3 +164,27 @@ export function summarizeClover(parsed: CloverParse[]): CloverSummary {
     collectedPerReport: parsed.map((p) => p.overview.collected).find((x) => x !== null && x !== undefined) ?? null, totalApplicable: parsed.map((p) => p.totalApplicable).find((x) => x !== null && x !== undefined) ?? null };
 }
 
+
+
+/**
+ * Several readings of the same picture (different tilt angles / layouts), each good at different parts of a curved receipt. Each tax
+ * section is taken from the reading where that section's own numbers agree (collected less refunded = net); the report's total then has
+ * to equal the chosen sections. Payment types come from the reading whose payment types add up to the amount collected.
+ */
+export function mergeReadings(parses: CloverParse[]): CloverParse {
+  const keyOf = (s: CloverTaxSection) => (s.rate === 0 ? `0:${s.name.toLowerCase().replace(/[^a-z]/g, "").slice(0, 4)}` : String(s.rate));
+  const quality = (s: CloverTaxSection) => (s.applicable > 0 ? 1 : 0) + (Math.abs(r2(s.collected + s.refunded) - s.net) <= 0.02 && (s.collected || s.net || s.rate === 0) ? 3 : 0) + (s.rate > 0 && s.collected > 0 && Math.abs(s.applicable * (s.rate / 100) - s.collected) / s.collected < 0.03 ? 2 : 0);
+  const byKey = new Map<string, { sec: CloverTaxSection; q: number; n: number }[]>();
+  for (const p of parses) for (const sec of p.taxSections) { const k = keyOf(sec); const list = byKey.get(k) || []; const same = list.find((e) => e.sec.applicable === sec.applicable && e.sec.collected === sec.collected && e.sec.net === sec.net); if (same) same.n++; else list.push({ sec, q: quality(sec), n: 1 }); byKey.set(k, list); }
+  const sections = Array.from(byKey.values()).map((list) => list.sort((a, b) => b.q - a.q || b.n - a.n)[0].sec).filter((x) => x.applicable > 0 || x.collected > 0);
+  const sumApplicable = r2(sections.reduce((t, x) => t + x.applicable, 0));
+  const totals = parses.map((p) => p.totalApplicable).filter((x): x is number => x !== null && x > 0);
+  const totalApplicable = totals.find((t) => Math.abs(t - sumApplicable) <= 0.02) ?? (sections.length ? null : totals[0] ?? null);
+  const pts = (p: CloverParse) => p.checks.reduce((t, c) => t + (c.ok ? 2 : -3), 0) + (p.foundOverview ? 2 : 0);
+  const ov = parses.reduce((b, p) => (pts(p) > pts(b) ? p : b), parses[0]);
+  const merged: CloverParse = {
+    from: parses.map((p) => p.from).find(Boolean) || null, to: parses.map((p) => p.to).find(Boolean) || null, taxSections: sections,
+    overview: ov.overview, tenders: ov.tenders, foundOverview: ov.foundOverview, foundTaxes: sections.length > 0, warnings: [], totalApplicable: totalApplicable ?? (totals[0] ?? null), checks: [],
+  };
+  return finalizeClover(merged);
+}
