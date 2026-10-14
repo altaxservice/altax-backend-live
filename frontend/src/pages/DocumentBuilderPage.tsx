@@ -83,8 +83,11 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [signing, setSigning] = useState<string | null>(null);
-  const loadRecent = () => api.get<{ docs: HistoryDoc[] }>("/doc-builder/history").then((r) => setRecent(r.docs.slice(0, 8))).catch(() => {});
-  const loadDrafts = () => api.get<{ drafts: DraftRow[] }>("/doc-builder/drafts").then((r) => setDrafts(r.drafts)).catch(() => {});
+  const loadRecent = () => api.get<{ docs: HistoryDoc[] }>("/doc-builder/history").then((r) => setRecent(r.docs.slice(0, 50))).catch(() => {});
+  const [tab, setTab] = useState<"new" | "drafts" | "saved">("new");
+  const tabTouched = useRef(false);
+  const pickTab = (t: "new" | "drafts" | "saved") => { tabTouched.current = true; setTab(t); };
+  const loadDrafts = () => api.get<{ drafts: DraftRow[] }>("/doc-builder/drafts").then((r) => { setDrafts(r.drafts); if (r.drafts.length && !tabTouched.current) setTab("drafts"); }).catch(() => {});
   async function discardDraft(d: DraftRow) {
     const ok = await confirmDialog({ title: "Delete this unfinished document?", message: `"${d.title}"${d.clientName ? ` for ${d.clientName}` : ""} will be removed. This cannot be undone.`, confirmLabel: "Delete" });
     if (!ok) return;
@@ -101,7 +104,16 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
   const shown = data.templates.filter((t) => (!cat || t.category === cat) && (!needle || `${t.title} ${t.description}`.toLowerCase().includes(needle)));
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      {drafts.length > 0 && (
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="tablist" aria-label="Document Builder sections">
+        <button type="button" role="tab" aria-selected={tab === "new"} className={`tpl-chip${tab === "new" ? " on" : ""}`} onClick={() => pickTab("new")}>New document</button>
+        <button type="button" role="tab" aria-selected={tab === "drafts"} className={`tpl-chip${tab === "drafts" ? " on" : ""}`} onClick={() => pickTab("drafts")}>Unfinished ({drafts.length})</button>
+        <button type="button" role="tab" aria-selected={tab === "saved"} className={`tpl-chip${tab === "saved" ? " on" : ""}`} onClick={() => pickTab("saved")}>Saved documents ({recent.length})</button>
+      </div>
+      {tab === "drafts" && drafts.length === 0 && (
+        <div className="command-panel"><div className="command-panel-header"><div><h2 className="command-panel-title">Unfinished documents</h2><div className="command-panel-note">Nothing unfinished right now. Any document you start is saved here automatically as you answer the questions, so you can close the page and come back to it.</div></div></div>
+          <div style={{ padding: 16 }}><button type="button" className="btn btn-primary" onClick={() => pickTab("new")}>Start a document</button></div></div>
+      )}
+      {tab === "drafts" && drafts.length > 0 && (
         <div className="command-panel">
           <div className="command-panel-header"><div><h2 className="command-panel-title">Continue where you left off</h2><div className="command-panel-note">Unfinished documents are saved automatically as you work. Open one to pick up at the step you stopped.</div></div></div>
           <div className="table-scroll"><table>
@@ -118,7 +130,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
           </table></div>
         </div>
       )}
-      <div className="command-panel">
+      {tab === "new" && <div className="command-panel">
         <div className="command-panel-header"><div><h2 className="command-panel-title">Create a document</h2><div className="command-panel-note">Pick a document, answer a few questions, and it is written for you — then save it to the client, send it to sign, or print it.</div></div></div>
         <div style={{ padding: "12px 16px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", borderBottom: "1px solid var(--line)" }}>
           <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 360 }}>
@@ -145,26 +157,30 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
           ))}
           {shown.length === 0 && <p className="muted" style={{ margin: 0 }}>No document matches that search.</p>}
         </div>
-      </div>
+      </div>}
 
-      {signing && <DocSigningPanel docId={signing} onChanged={loadRecent} onClose={() => setSigning(null)} />}
-      {recent.length > 0 && (
+      {tab === "saved" && signing && <DocSigningPanel docId={signing} onChanged={loadRecent} onClose={() => setSigning(null)} />}
+      {tab === "saved" && recent.length === 0 && (
+        <div className="command-panel"><div className="command-panel-header"><div><h2 className="command-panel-title">Saved documents</h2><div className="command-panel-note">No saved documents yet. A document is saved when you press <b>Create &amp; save to client</b> on the last step — downloading or printing from the review step does not save it. Saved documents appear here (and under E-Sign) so you can view, download, send for signature or reuse them.</div></div></div>
+          <div style={{ padding: 16 }}><button type="button" className="btn btn-primary" onClick={() => pickTab("new")}>Start a document</button></div></div>
+      )}
+      {tab === "saved" && recent.length > 0 && (
         <div className="command-panel">
-          <div className="command-panel-header"><h2 className="command-panel-title">Recently built</h2></div>
+          <div className="command-panel-header"><div><h2 className="command-panel-title">Saved documents</h2><div className="command-panel-note">Every document you created with “Create &amp; save”. Open one to view or download it, send it for signature, or use it again as a starting point.</div></div></div>
           <div className="table-scroll"><table>
             <thead><tr><th scope="col">Document</th><th scope="col">Client</th><th scope="col">Status</th><th scope="col">Built</th><th scope="col"></th></tr></thead>
             <tbody>{recent.map((d) => (
               <tr key={d.docId}>
                 <td>{d.title}</td><td>{d.clientName || d.clientId || <span className="muted">Outside parties</span>}</td><td>{d.status || "—"}</td>
                 <td className="muted">{new Date(d.createdAt).toLocaleDateString()} · {d.createdBy}</td>
-                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm" onClick={() => { setSigning(d.docId); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Signatures</button> <button type="button" className="btn btn-sm" onClick={() => onPick(`${d.templateKey}?from=${d.docId}`)}>Use again</button> {d.clientId && <Link className="btn btn-sm" to={`/clients/${d.clientId}?tab=Contracts`}>Open</Link>}</td>
+                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm" onClick={() => d.contractId && viewFile(`/contracts/${d.contractId}/html`)}>View</button> <button type="button" className="btn btn-sm" onClick={() => d.contractId && downloadFile(`/contracts/${d.contractId}/docx`, `${d.title}.docx`)}>Word</button> <button type="button" className="btn btn-sm" onClick={() => { setSigning(d.docId); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Signatures</button> <button type="button" className="btn btn-sm" onClick={() => onPick(`${d.templateKey}?from=${d.docId}`)}>Use again</button> {d.clientId && <Link className="btn btn-sm" to={`/clients/${d.clientId}?tab=Contracts`}>Open</Link>}</td>
               </tr>
             ))}</tbody>
           </table></div>
         </div>
       )}
 
-      <div className="command-panel">
+      {tab === "new" && <div className="command-panel">
         <div className="command-panel-header"><div><h2 className="command-panel-title">Already in the app</h2><div className="command-panel-note">Documents the app already creates — each one lives where it's used.</div></div></div>
         <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
           {data.existingTools.map((t) => (
@@ -173,7 +189,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
             </Link>
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
