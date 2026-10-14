@@ -147,10 +147,13 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
         <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
       {uploads.length > 0 && (
-        <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
-          <b>Reports they sent — open beside the form:</b>
-          {uploads.map((u) => <button key={u.upload_id} type="button" className={`tpl-chip${viewing?.id === u.upload_id ? " on" : ""}`} onClick={() => openUpload(u)} title={new Date(u.uploaded_at).toLocaleDateString()}>{u.file_name.length > 28 ? `${u.file_name.slice(0, 26)}…` : u.file_name}</button>)}
-          {viewing && <button type="button" className="btn btn-sm" onClick={() => setViewing(null)}>Hide</button>}
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}><span className="muted">Look at a file the client sent while you type:</span>
+            <select value={viewing?.id || ""} onChange={(e) => { const u = uploads.find((x) => x.upload_id === e.target.value); if (u) openUpload(u); else setViewing(null); }} style={{ maxWidth: 320 }}>
+              <option value="">— none —</option>
+              {uploads.map((u) => <option key={u.upload_id} value={u.upload_id}>{u.file_name} ({new Date(u.uploaded_at).toLocaleDateString()})</option>)}
+            </select></label>
+          {viewing && <button type="button" className="btn btn-sm" onClick={() => setViewing(null)}>Hide file</button>}
           {viewErr && <span style={{ color: "var(--red)" }}>{viewErr}</span>}
         </div>
       )}
