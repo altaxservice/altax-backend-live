@@ -375,6 +375,9 @@ salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "sta
     parsed.push(parseCloverText(text));
   }
   const summary = summarizeClover(parsed);
+  if (fromPicture && !summary.foundOverview && !summary.foundTaxes) {
+    return res.status(422).json({ error: "This picture couldn't be read — it's probably too small, tilted, curved or dark. For the best result use the report's PDF from Clover, or take a flat, close, well-lit photo of just the report (your phone's \"Scan document\" does this well), then upload that. Or type the numbers." });
+  }
   const rateMap = await loadCategoryRateMap(loaded.client.state);
   const taxable = summary.taxable.map((t) => {
     const cat = rateMap.get(Math.round(t.rate));
