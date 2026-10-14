@@ -13,6 +13,8 @@ import { renderDocumentHtml } from "./htmlDoc";
 import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
 import { canAccessDoc } from "./access";
+import { appendStandardAttachments, attachmentStatuses, inspectPdf, specFor } from "./standardAttachments";
+import { scanFileForMalware } from "../../common/malwareScan";
 import { registerSigningRoutes } from "./esign";
 import { cleanAnswers, docTitle, fmtLongDate, hasArabic, missingAnswers, parseLang, renderDocument, type Answers, type DocLang, type DocTemplate, type PrefillKey } from "./engine";
 
@@ -120,6 +122,37 @@ docBuilderRouter.post("/preview", asyncHandler(async (req: AuthedRequest, res: R
   res.json({ body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), missing: missingAnswers(p.t, p.answers) });
 }));
 
+/** Official PDFs kept once and appended to the PDF of certain documents (e.g. the Maryland Tenants' Bill of Rights on a lease). Anyone on staff can see them; only an admin replaces one. */
+docBuilderRouter.get("/attachments", asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json({ attachments: await attachmentStatuses() });
+}));
+
+docBuilderRouter.post("/attachments/:key", requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const spec = specFor(req.params.key);
+  if (!spec) return res.status(404).json({ error: "Unknown attachment." });
+  const base64 = String(req.body?.fileBase64 || "").replace(/^data:[^,]*,/, "");
+  const fileName = String(req.body?.fileName || "").replace(/[\\/"\r\n]/g, "").trim().slice(0, 200) || `${spec.key}.pdf`;
+  const editionLabel = String(req.body?.editionLabel || "").trim().slice(0, 100);
+  const validFrom = String(req.body?.validFrom || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || Number.isNaN(new Date(`${validFrom}T00:00:00Z`).getTime())) return res.status(400).json({ error: "Enter the date this edition took effect (for the Bill of Rights, October 1 of the year)." });
+  if (!base64) return res.status(400).json({ error: "Choose the PDF to upload." });
+  const bytes = Buffer.from(base64, "base64");
+  let info: { pages: number; sha256: string };
+  try { info = await inspectPdf(bytes); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+  const scan = await scanFileForMalware(bytes, "standard-attachment");
+  if (scan.scanned && !scan.clean) return res.status(400).json({ error: `This file was flagged by malware scanning${scan.foundViruses?.length ? ` (${scan.foundViruses.join(", ")})` : ""} and was not uploaded.` });
+  const before = await queryOne<any>(`SELECT edition_label FROM altax.v3_standard_attachments WHERE attach_key = $1`, [spec.key]);
+  await query(
+    `INSERT INTO altax.v3_standard_attachments (attach_key, file_name, edition_label, valid_from, content, sha256, page_count, uploaded_by, uploaded_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+     ON CONFLICT (attach_key) DO UPDATE SET file_name = EXCLUDED.file_name, edition_label = EXCLUDED.edition_label, valid_from = EXCLUDED.valid_from,
+       content = EXCLUDED.content, sha256 = EXCLUDED.sha256, page_count = EXCLUDED.page_count, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`,
+    [spec.key, fileName, editionLabel, validFrom, bytes, info.sha256, info.pages, req.user!.email]
+  );
+  await logAudit("Contracts", "STANDARD_ATTACHMENT_SET", spec.key, "edition", before?.edition_label || "", editionLabel || validFrom, `${spec.title} replaced by ${req.user!.email}: "${fileName}", ${info.pages} pages, effective ${validFrom}.`, req.user!.email);
+  res.json({ ok: true, attachments: await attachmentStatuses() });
+}));
+
 /** A PDF of the document as it stands, without saving anything — for printing or checking. */
 docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const p = prep(req, res); if (!p) return;
@@ -131,7 +164,7 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${p.t.key}.pdf"`);
-  res.send(Buffer.from(bytes));
+  res.send(Buffer.from(await appendStandardAttachments(bytes, p.t.key)));
 }));
 
 /** A printable page (HTML, same layout as the PDF/Word file) of the document as it stands — Arabic and bilingual documents print through the browser. */

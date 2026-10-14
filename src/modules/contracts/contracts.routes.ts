@@ -14,6 +14,7 @@ import { substitutePlaceholders } from "../templates/templates.routes";
 import { buildDocumentDocx } from "../docBuilder/docx";
 import { renderDocumentHtml } from "../docBuilder/htmlDoc";
 import { generateContractPdf } from "./contractPdf";
+import { appendStandardAttachments, templateKeyOfService } from "../docBuilder/standardAttachments";
 import {
   FIRM_SERVICES, SERVICE_LABEL, GENERAL_TERMS_KEY, GENERAL_TERMS_TITLE, GENERAL_TERMS_BODY,
   BUILT_IN_CONTRACT_TEMPLATES, POA_RELEASE_SERVICE_KEY, buildAuthorizedFilingsList,
@@ -253,7 +254,7 @@ async function buildOneContractPdf(contract: any): Promise<Uint8Array> {
   const multi = String(contract.service_key || "").startsWith("doc_")
     ? await query<any>(`SELECT * FROM altax.v3_doc_signers WHERE contract_id = $1 AND status <> 'Cancelled' ORDER BY sort_order, created_at`, [contract.contract_id]).catch(() => [])
     : [];
-  return generateContractPdf({
+  const pdf = await generateContractPdf({
     contractId: contract.contract_id, title: contract.title, clientName: client?.client_name || "", clientId: contract.client_id,
     renderedBody: contract.rendered_body, effectiveDate: contract.effective_date, status: contract.status,
     signerName: contract.signer_name, signerTitle: contract.signer_title, signedAt: contract.signed_at, signerIp: contract.signer_ip,
@@ -262,6 +263,8 @@ async function buildOneContractPdf(contract: any): Promise<Uint8Array> {
     legal: String(contract.service_key || "").startsWith("doc_"),
     signers: multi.length ? multi.map((m: any) => ({ role: m.role_label, name: m.signed_name || m.signer_name, status: m.status, signedAt: m.signed_at ? new Date(m.signed_at).toISOString() : null, ip: m.signer_ip, image: m.signature_image })) : undefined,
   });
+  // Official attachments that belong to this kind of document (e.g. the Maryland Tenants' Bill of Rights on a lease) follow the last page.
+  return appendStandardAttachments(pdf, templateKeyOfService(contract.service_key));
 }
 
 /** Word (.docx) copy of a Document Builder document, built from the same saved text and signers as the PDF. */

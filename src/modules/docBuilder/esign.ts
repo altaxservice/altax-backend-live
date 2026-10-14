@@ -14,6 +14,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { escapeHtml } from "../../common/html";
 import { getFirmProfile } from "../../common/firmProfile";
 import { generateContractPdf } from "../contracts/contractPdf";
+import { appendStandardAttachments, templateKeyOfService } from "./standardAttachments";
 import { getDocTemplate } from "./templates";
 import { suggestSigners, NEEDS_NOTARY } from "./signerSpec";
 import { canAccessDoc } from "./access";
@@ -261,7 +262,7 @@ async function buildSignedPdf(contractId: string): Promise<Uint8Array | null> {
     signerName: null, signerTitle: null, signedAt: c.signed_at, signerIp: null, signatureMethod: "Online", recordedBy: null, headerLabel: "DOCUMENT",
     signers: signers.map((s) => ({ role: s.role_label, name: s.signed_name || s.signer_name, status: s.status, signedAt: iso(s.signed_at), ip: s.signer_ip, image: s.signature_image })),
   });
-  if (!original) return cert;
+  if (!original) return appendStandardAttachments(cert, templateKeyOfService(c.service_key));
   const merged = await PDFDocument.create();
   const src = await PDFDocument.load(original.bytes);
   (await merged.copyPages(src, src.getPageIndices())).forEach((p) => merged.addPage(p));

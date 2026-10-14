@@ -8,6 +8,8 @@ import { DocSigningPanel } from "../components/DocSigningPanel";
 import { DateInput } from "../components/DateInput";
 import { useToast } from "../components/Toast";
 import { useConfirm } from "../components/ConfirmProvider";
+import { useAuth } from "../auth/AuthContext";
+import { fileToBase64 } from "../utils/file";
 
 interface Option { value: string; label: string }
 interface Question {
@@ -73,6 +75,78 @@ function Field({ q, value, onChange, answers }: { q: Question; value: any; onCha
     }
     default: return <div className="field">{label}<input id={id} type="text" value={value ?? ""} placeholder={q.placeholder} onChange={(e) => onChange(e.target.value)} />{help}</div>;
   }
+}
+
+interface AttachmentInfo {
+  key: string; title: string; why: string; sourceUrl: string; templates: string[]; uploaded: boolean; fileName: string | null; editionLabel: string | null;
+  validFrom: string | null; expiresOn: string | null; pages: number | null; uploadedBy: string | null; uploadedAt: string | null; expired: boolean;
+}
+const longDate = (iso: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "");
+
+/** Official PDFs the app adds to the end of a document's PDF automatically (today: the Maryland Tenants' Bill of Rights on a residential lease). */
+function AttachmentsPanel() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const isAdmin = String(user?.role || "").toLowerCase() === "admin";
+  const [items, setItems] = useState<AttachmentInfo[]>([]);
+  const [replacing, setReplacing] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [edition, setEdition] = useState("");
+  const [validFrom, setValidFrom] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const load = () => api.get<{ attachments: AttachmentInfo[] }>("/doc-builder/attachments").then((r) => setItems(r.attachments)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  if (!items.length) return null;
+  function open(a: AttachmentInfo) { setReplacing(a.key); setFile(null); setErr(""); setEdition(""); setValidFrom(""); }
+  async function save(a: AttachmentInfo) {
+    if (!file) { setErr("Choose the PDF first."); return; }
+    setBusy(true); setErr("");
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const r = await api.post<{ attachments: AttachmentInfo[] }>(`/doc-builder/attachments/${a.key}`, { fileBase64, fileName: file.name, editionLabel: edition, validFrom });
+      setItems(r.attachments); setReplacing(null); toast(`${a.title} saved. It is now added to every new PDF.`);
+    } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not save the file."); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="command-panel">
+      <div className="command-panel-header"><div><h2 className="command-panel-title">Standard attachments</h2><div className="command-panel-note">Official PDFs the app adds to the end of a document's PDF for you.</div></div></div>
+      <div style={{ padding: 16, display: "grid", gap: 12 }}>
+        {items.map((a) => (
+          <div key={a.key} className="card" style={{ padding: "12px 14px", display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+              <b>{a.title}</b>
+              <span className="muted" style={{ fontSize: 12.5 }}>Added to: Residential Lease Agreement</span>
+            </div>
+            <span className="muted" style={{ fontSize: 12.5 }}>{a.why}</span>
+            {!a.uploaded && <div className="tender-warn">No file uploaded yet, so lease PDFs go out without it. {isAdmin ? "Upload the current edition below." : "Ask an admin to upload the current edition."}</div>}
+            {a.uploaded && a.expired && <div className="tender-warn"><b>This edition is out of date.</b> The state publishes a new edition on its yearly date ({longDate(a.expiresOn)}). Download the newest one and replace this file.</div>}
+            {a.uploaded && <div style={{ fontSize: 13 }}>
+              <Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: a.expired ? "var(--amber, #b7791f)" : "var(--green)" }} /> {a.editionLabel || a.fileName} · {a.pages} pages · in effect from {longDate(a.validFrom)}
+              <span className="muted"> · uploaded {a.uploadedAt ? ago(a.uploadedAt) : ""}{a.uploadedBy ? ` by ${a.uploadedBy}` : ""}</span>
+            </div>}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <a className="btn" href={a.sourceUrl} target="_blank" rel="noreferrer">Open the state's page</a>
+              {isAdmin && replacing !== a.key && <button type="button" className="btn btn-primary" onClick={() => open(a)}>{a.uploaded ? "Replace with a newer edition" : "Upload the PDF"}</button>}
+            </div>
+            {isAdmin && replacing === a.key && (
+              <div style={{ display: "grid", gap: 8, maxWidth: 460 }}>
+                <div className="field"><label htmlFor="att-file">PDF file</label><input id="att-file" type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} /></div>
+                <div className="field"><label htmlFor="att-ed">Edition name (optional)</label><input id="att-ed" value={edition} onChange={(e) => setEdition(e.target.value)} placeholder="Updated 10/01/2026" /></div>
+                <div className="field"><label htmlFor="att-from">Date this edition took effect</label><DateInput id="att-from" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></div>
+                {err && <div className="tender-warn">{err}</div>}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="btn btn-primary" disabled={busy || !validFrom} onClick={() => save(a)}>{busy ? "Saving…" : "Save"}</button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => setReplacing(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Library({ onPick }: { onPick: (key: string) => void }) {
@@ -190,6 +264,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
           ))}
         </div>
       </div>}
+      {tab === "new" && <AttachmentsPanel />}
     </div>
   );
 }
@@ -203,6 +278,8 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
   const [answers, setAnswers] = useState<Answers>({});
   const [step, setStep] = useState(0);
   const [preview, setPreview] = useState<{ body: string; missing: string[] }>({ body: "", missing: [] });
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
+  useEffect(() => { api.get<{ attachments: AttachmentInfo[] }>("/doc-builder/attachments").then((r) => setAttachments(r.attachments)).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false);
   const [lang, setLang] = useState<Lang>("en");
   const [done, setDone] = useState<{ contractId: string; docId: string; body: string } | null>(null);
@@ -396,6 +473,9 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
             {step === last && (
               <div style={{ display: "grid", gap: 10 }}>
                 {tpl.reviewNote && <div className="tender-warn">{tpl.reviewNote}</div>}
+                {attachments.filter((a) => a.templates.includes(tpl.key)).map((a) => a.uploaded && !a.expired
+                  ? <div key={a.key} className="muted" style={{ fontSize: 12.5 }}><Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: "var(--green)" }} /> The {a.title} ({a.editionLabel || a.fileName}, {a.pages} pages) is added to the end of the PDF automatically. The Word file and the browser print page do not include it — attach it by hand there.</div>
+                  : <div key={a.key} className="tender-warn"><b>{a.uploaded ? `The ${a.title} on file is out of date.` : `The ${a.title} is not on file.`}</b> It must be attached to every residential lease in Maryland, and this PDF will go out {a.uploaded ? "with the old edition" : "without it"}. Go back to the Document Builder home page → Standard attachments to {a.uploaded ? "replace it with the newest edition" : "upload it"}.</div>)}
                 {preview.missing.length > 0 ? (
                   <div className="tender-warn"><b>Still to fill in:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{preview.missing.slice(0, 8).map((m) => <li key={m}>{m}</li>)}</ul></div>
                 ) : <p style={{ margin: 0 }}><Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: "var(--green)" }} /> Everything is filled in. Read the document on the right, then create it.</p>}
