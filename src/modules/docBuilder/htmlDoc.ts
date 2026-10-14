@@ -19,11 +19,12 @@ function itemsHtml(items: FormItem[], rtl: boolean): string {
 }
 
 function blocksHtml(blocks: Block[]): string {
-  const out: string[] = []; let forms = 0; let first = true;
+  const out: string[] = []; let forms = 0; let first = true; let lastTitle = "";
   for (const b of blocks) {
     switch (b.t) {
       case "break": out.push('<div class="pb"></div>'); forms = 0; break;
-      case "title": out.push(`<h1${dir(b.rtl)}>${esc(b.text)}</h1>`); first = false; break;
+      case "title": lastTitle = b.text; out.push(`<h1${dir(b.rtl)}>${esc(b.text)}</h1>`); first = false; break;
+      case "subtitle": out.push(`<p class="subtitle"${dir(b.rtl)}>${esc(b.text)}</p>`); break;
       case "heading": out.push(`<h2${dir(b.rtl)}>${esc(b.text)}</h2>`); break;
       case "subheading": out.push(`<h3${dir(b.rtl)}>${esc(b.text)}</h3>`); break;
       case "bullet": out.push(`<p class="bullet"${dir(b.rtl)}>${richText(b.text)}</p>`); break;
@@ -35,7 +36,7 @@ function blocksHtml(blocks: Block[]): string {
           const rows = b.items.filter((i) => i.k === "row");
           out.push(`<section class="notary"${dir(b.rtl)}>${itemsHtml(text, b.rtl)}<div class="nrow"><div class="nfields">${itemsHtml(rows, b.rtl)}</div><div class="seal">${b.rtl ? "الختم" : "Seal"}</div></div></section>`);
         } else {
-          if (forms === 1) out.push(`<div class="siglabel">${b.rtl ? "التوقيعات" : "SIGNATURES"}</div>`);
+          if (forms === 1) out.push(`<div class="siglabel">${b.rtl ? "التوقيعات" : "SIGNATURES"}</div>${lastTitle ? `<div class="sigsub"${dir(b.rtl)}>${b.rtl ? "صفحة التوقيع —" : "Signature page —"} ${esc(lastTitle)}</div>` : ""}`);
           out.push(`<section class="sign"${dir(b.rtl)}>${itemsHtml(b.items, b.rtl)}</section>`);
         }
         break;
@@ -53,6 +54,8 @@ export function renderDocumentHtml(opts: { title: string; body: string; autoPrin
 body { margin: 0; color: #171717; font: 11.5pt/1.55 "Times New Roman", Georgia, "Geeza Pro", "Noto Naskh Arabic", "Arial", serif; background: #fff; }
 .page { max-width: 6.5in; margin: 0 auto; padding: 0.5in 0.25in; }
 h1 { font-size: 16pt; text-align: center; margin: 0 0 22pt; padding-bottom: 10pt; border-bottom: 1px solid #999; }
+h1:has(+ .subtitle) { border-bottom: 0; margin-bottom: 4pt; padding-bottom: 0; }
+.subtitle { text-align: center; color: #555; font-size: 11.5pt; margin: 0 0 22pt; padding-bottom: 10pt; border-bottom: 1px solid #999; }
 h2 { font-size: 11.5pt; margin: 18pt 0 5pt; break-after: avoid; }
 h3 { font-size: 10.5pt; margin: 16pt 0 5pt; break-after: avoid; }
 p { margin: 0 0 7pt; text-align: justify; }
@@ -60,6 +63,7 @@ p.bullet { padding-inline-start: 22pt; text-indent: -12pt; }
 p.bullet::before { content: "• "; }
 .blank { display: inline-block; min-width: 1.3in; border-bottom: 1px solid #333; margin: 0 3pt; height: 0.9em; }
 .siglabel { text-align: center; font-weight: 700; font-size: 10.5pt; margin: 26pt 0 4pt; padding-bottom: 4pt; border-bottom: 1px solid #999; break-after: avoid; }
+.sigsub { text-align: center; font-size: 8.5pt; color: #666; margin: 3pt 0 0; }
 section.sign { margin: 14pt 0 6pt; break-inside: avoid; }
 section.sign p.role, section.notary p.role { font-weight: 700; margin: 0 0 2pt; text-align: start; }
 p.line { margin: 0 0 3pt; text-align: start; }

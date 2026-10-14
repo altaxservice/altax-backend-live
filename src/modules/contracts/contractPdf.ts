@@ -299,7 +299,11 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     const pages = doc.getPages();
     pages.forEach((pg, i) => {
       const label = `Page ${i + 1} of ${pages.length}`;
-      pg.drawText(label, { x: PAGE_W / 2 - font.widthOfTextAtSize(label, 9) / 2, y: 40, size: 9, font, color: MUTED });
+      pg.drawText(label, { x: PAGE_W - 72 - font.widthOfTextAtSize(label, 9), y: 40, size: 9, font, color: MUTED });
+      let short = pdfSafeText(data.title || ""); while (short.length > 8 && font.widthOfTextAtSize(short, 9) > PAGE_W - 144 - 90) short = short.slice(0, -2);
+      if (short !== pdfSafeText(data.title || "")) short = `${short.trimEnd()}…`;
+      if (short) pg.drawText(short, { x: 72, y: 40, size: 9, font, color: MUTED });
+      pg.drawLine({ start: { x: 72, y: 54 }, end: { x: PAGE_W - 72, y: 54 }, thickness: 0.4, color: LINE });
     });
   }
   return doc.save();

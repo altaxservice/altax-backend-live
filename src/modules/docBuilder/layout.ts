@@ -11,6 +11,7 @@ export type FormItem =
   | { k: "row"; fields: FormField[]; caption?: string; note?: string };
 export type Block =
   | { t: "title"; text: string; rtl: boolean }
+  | { t: "subtitle"; text: string; rtl: boolean }
   | { t: "heading"; text: string; rtl: boolean }
   | { t: "subheading"; text: string; rtl: boolean }
   | { t: "para"; text: string; rtl: boolean }
@@ -34,7 +35,9 @@ function parseRow(line: string): FormItem | null {
   if (parts.length === 2 && !parts[0].trim()) return { k: "row", fields: [{ label: "" }], note: trailing || undefined };
   for (let i = 0; i < parts.length - 1; i++) {
     const pieces = parts[i].split(/\s{3,}/).map((x) => x.trim()).filter(Boolean);
-    const labelRaw = (pieces.pop() || "").replace(/:\s*$/, "").trim();
+    let labelRaw = (pieces.pop() || "").replace(/:\s*$/, "").trim();
+    // "If this member is a company — By" → caption "If this member is a company", label "By"
+    const dash = labelRaw.split(/\s[—–-]\s/); if (dash.length > 1) { labelRaw = dash.pop()!.trim(); pieces.push(dash.join(" — ").trim()); }
     if (labelRaw.length > 62 || (labelRaw && !/:\s*$/.test(parts[i].trimEnd()) && labelRaw.length > 30)) return null;
     captions.push(...pieces);
     fields.push({ label: labelRaw });
@@ -75,6 +78,7 @@ export function parseBlocks(body: string): Block[] {
     if (!line.trim()) { flush(); blankRun += 1; continue; }
     const rtl = ARABIC_RE.test(line);
     if (first) { blocks.push({ t: "title", text: line, rtl }); first = false; blankRun = 0; continue; }
+    if (!cur.length && blocks.length === 1 && blocks[0].t === "title" && /^\(.{3,120}\)$/.test(line)) { blocks.push({ t: "subtitle", text: line.slice(1, -1), rtl }); blankRun = 0; continue; }
     if (blankRun >= 2 && rtl && !cur.length) { blocks.push({ t: "break" }); blocks.push({ t: "title", text: line, rtl }); blankRun = 0; continue; }
     // A heading line and the sentence under it are separate lines of the same paragraph; forms keep all their lines together.
     cur.push(line); blankRun = 0;

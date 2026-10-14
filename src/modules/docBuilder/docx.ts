@@ -90,11 +90,13 @@ function notaryBox(items: FormItem[], rtl: boolean): Table {
 
 function blockChildren(blocks: Block[]): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = [];
-  let forms = 0;
-  for (const b of blocks) {
+  let forms = 0; let lastTitle = "";
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const b = blocks[bi]; const hasSub = blocks[bi + 1]?.t === "subtitle";
     switch (b.t) {
       case "break": forms = 0; break; // the next title carries the page break
-      case "title": out.push(new Paragraph({ pageBreakBefore: out.length > 0, bidirectional: b.rtl, alignment: AlignmentType.CENTER, keepNext: true, spacing: { after: 280 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 8 } }, children: [run(b.text, { bold: true, size: 32, rtl: b.rtl })] })); break;
+      case "title": lastTitle = b.text; out.push(new Paragraph({ pageBreakBefore: out.length > 0, bidirectional: b.rtl, alignment: AlignmentType.CENTER, keepNext: true, spacing: { after: hasSub ? 60 : 280 }, border: hasSub ? undefined : { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 8 } }, children: [run(b.text, { bold: true, size: 32, rtl: b.rtl })] })); break;
+      case "subtitle": out.push(new Paragraph({ bidirectional: b.rtl, alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: -120, after: 280 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 8 } }, children: [run(b.text, { size: 23, rtl: b.rtl, color: "555555" })] })); break;
       case "heading": out.push(para(b.text, { bold: true, rtl: b.rtl, before: 280, after: 100, keepNext: true })); break;
       case "subheading": out.push(para(b.text, { bold: true, size: 22, rtl: b.rtl, before: 240, after: 100, keepNext: true })); break;
       case "bullet": out.push(para(`•\t${b.text}`, { rtl: b.rtl, align: AlignmentType.JUSTIFIED, indent: { left: 540, hanging: 300 }, after: 80 })); break;
@@ -102,6 +104,7 @@ function blockChildren(blocks: Block[]): (Paragraph | Table)[] {
       case "form":
         forms += 1;
         if (forms === 1 && !b.notary) out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 360, after: 160 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } }, children: [run(b.rtl ? "التوقيعات" : "SIGNATURES", { bold: true, size: 22, rtl: b.rtl })] }));
+        if (forms === 1 && !b.notary && lastTitle) out.push(new Paragraph({ bidirectional: b.rtl, alignment: AlignmentType.CENTER, keepNext: true, spacing: { after: 60 }, children: [run(`${b.rtl ? "صفحة التوقيع —" : "Signature page —"} ${lastTitle}`, { size: 17, color: "666666", rtl: b.rtl })] }));
         if (b.notary) { out.push(new Paragraph({ spacing: { before: 240 }, children: [] })); out.push(notaryBox(b.items, b.rtl)); out.push(new Paragraph({ spacing: { after: 120 }, children: [] })); }
         else { out.push(new Paragraph({ spacing: { before: 160 }, keepNext: true, children: [] })); out.push(...formChildren(b.items, FULL, b.rtl)); }
         break;
@@ -133,6 +136,7 @@ export async function buildDocumentDocx(input: DocxInput): Promise<Buffer> {
         default: new Footer({
           children: [
             new Paragraph({ alignment: AlignmentType.CENTER, children: [small("Page "), new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: 18, color: "555555" }), small(" of "), new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: 18, color: "555555" })] }),
+            new Paragraph({ alignment: AlignmentType.CENTER, children: [small(input.title.length > 90 ? `${input.title.slice(0, 88)}…` : input.title, 15)] }),
             ...(input.footerNote ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [small(input.footerNote, 15)] })] : []),
           ],
         }),

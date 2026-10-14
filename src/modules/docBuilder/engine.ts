@@ -112,6 +112,9 @@ function evalNodes(nodes: Node[], scope: Scope): string {
     if (node.t === "text") out += node.s;
     else if (node.t === "var") {
       if (node.id === "n" && scope.n !== undefined) { out += String(scope.n); continue; }
+      // {{noticeDays|day}} prints "1 day" / "60 days" (English plural of the unit after the number).
+      const [vid, unit] = node.id.split("|").map((x) => x.trim());
+      if (unit) { const raw = String(scope.answers[vid] ?? "").trim(); const num = Number(raw); out += raw === "" ? "" : `${raw} ${Number.isFinite(num) && num === 1 ? unit : `${unit}s`}`; continue; }
       const q = scope.questions.find((x) => x.id === node.id);
       const shown = q ? formatValue(q, scope.answers[node.id], scope.lang) : "";
       // In a draft/preview an unanswered required field shows as [Its label] instead of silently leaving a gap.
