@@ -43,7 +43,7 @@ const SPEC: Record<string, Spec[]> = {
   limited_poa_filings: [{ role: "Business (by its owner / officer)", nameId: "signerName" }, { role: "Attorney-in-Fact", nameId: "rep1" }, { role: "Attorney-in-Fact", nameId: "rep2", onlyIf: "rep2" }],
   general_poa: [{ role: "Principal", nameId: "principal" }, { role: "Agent", nameId: "agent" }],
   business_sale_agreement: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
-  ownership_transfer: [{ role: "Transferor", nameId: "assignor" }, { role: "Transferee", nameId: "assignee" }, { role: "Company", nameId: "companySigner" }],
+  ownership_transfer: [{ role: "Transferor", nameId: "assignor" }, { role: "Transferee", nameId: "assignee" }, { role: "Company", nameId: "companySigner" }, { role: "Consenting owner", listId: "consenters", listNameId: "name" }],
   personal_guaranty: [{ role: "Guarantor", nameId: "guarantor" }, { role: "Creditor", nameId: "creditor" }],
   non_compete: [{ role: "Company", nameId: "company" }, { role: "Person", nameId: "person" }],
   lease_amendment: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }],

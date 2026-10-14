@@ -255,25 +255,28 @@ Contact: {{contact}}{{/if}}`,
   /* ─────────────── Business formation & ownership ─────────────── */
   {
     key: "llc_operating_agreement", title: "LLC Operating Agreement", category: BUSINESS,
-    description: "Sets out who owns an LLC, how it is run, how profits are shared and how an owner can leave.",
-    reviewNote: "Have an attorney review an operating agreement before the members sign it, especially for multi-member LLCs.",
+    description: "Sets out who owns an LLC with two or more members, how it is run, how profits are shared, what happens on a death or a sale, and how an owner can leave.",
+    reviewNote: "Have an attorney review an operating agreement before the members sign it. Points to confirm with an attorney or the tax preparer: (1) For a manager-managed LLC, ask whether the articles of organization on file with the State Department of Assessments and Taxation should also say that members are not agents of the company. (2) An S corporation election must be filed with the IRS on time (Form 2553) and every member must be eligible; an S corporation cannot give members different distribution or liquidation rights. (3) Partnerships and S corporations generally must use a December 31 year-end. (4) Check whether any license, lease or loan needs notice or consent when ownership changes. (5) The percentages are not checked by the software — make sure they total 100.",
     steps: [
       { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), state({ id: "formedIn", label: "State where the LLC is formed" } as Partial<Question>), date("formationDate", "Date formed", { required: true }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
-      { title: "Members", questions: [list("members", "Members (owners)", [text("name", "Name", { required: true }), text("address", "Address"), money("contribution", "Capital contributed", { required: true }), num("percent", "Ownership %", { required: true })], { required: true, addLabel: "Add a member" })] },
+      { title: "Members", questions: [list("members", "Members (owners) — percentages should total 100", [text("name", "Name (person or company)", { required: true }), text("address", "Address"), money("contribution", "Capital contributed", { required: true }), num("percent", "Ownership %", { required: true })], { required: true, minItems: 2, addLabel: "Add a member" })] },
       { title: "How it runs", questions: [
         pick("management", "Who manages the LLC?", [["members", "All members together (member-managed)"], ["manager", "A named manager (manager-managed)"]], { required: true, default: "members" }),
         text("manager", "Manager's name", { showIf: { id: "management", equals: "manager" }, required: true }),
-        pick("taxClass", "How is the LLC taxed?", [["disregarded", "Single-member (disregarded entity)"], ["partnership", "Partnership"], ["scorp", "S corporation"]], { required: true, default: "partnership" }),
-        pick("distributions", "How are profits shared?", [["percent", "In proportion to ownership percentages"], ["equal", "Equally"]], { required: true, default: "percent" }),
-        text("fiscalYear", "Fiscal year ends", { default: "December 31" }),
+        pick("taxClass", "How is the LLC taxed?", [["partnership", "Partnership (two or more members)"], ["scorp", "S corporation"]], { required: true, default: "partnership", help: "For a one-owner LLC use the Single-Member LLC Operating Agreement instead." }),
+        text("partnershipRep", "Partnership representative for IRS audits (a member)", { showIf: { id: "taxClass", equals: "partnership" }, help: "Leave blank and the agreement says the members will appoint one." }),
+        pick("distributions", "How are profits shared?", [["percent", "In proportion to ownership percentages"], ["equal", "Equally"]], { required: true, default: "percent", showIf: { id: "taxClass", equals: "partnership" }, help: "An S corporation must always share in proportion to ownership." }),
+        text("fiscalYear", "Fiscal year ends", { default: "December 31", help: "Partnerships and S corporations generally must use December 31 — confirm with the tax preparer before changing it." }),
         yesno("consentToTransfer", "Require the other members' consent before an interest is sold or transferred?", { default: true }),
-        num("noticeDays", "Days of written notice to leave or sell", { default: "60", required: true }),
+        num("noticeDays", "Days of written notice to withdraw or sell", { required: true, default: "60" }),
+        num("buyDays", "Days the other members have to decide whether to buy", { required: true, default: "30" }),
+        num("payMonths", "Longest period (months) for paying the buyout price in installments", { required: true, default: "24" }),
         state(),
       ] },
     ],
     body: `OPERATING AGREEMENT OF {{companyName}}
 
-This Operating Agreement is made on {{effectiveDate}} by the members listed below for {{companyName}} (the "Company"), a limited liability company formed under the laws of {{formedIn}} on {{formationDate}}.
+This Operating Agreement is made on {{effectiveDate}} by the members listed below for {{companyName}} (the "Company"), a limited liability company formed under the laws of {{formedIn}} on {{formationDate}} by filing its articles of organization.
 
 1. FORMATION AND PURPOSE
 The Company's principal office is {{address}}. Its purpose is {{purpose}}. The Company continues until dissolved under this Agreement.
@@ -281,119 +284,141 @@ The Company's principal office is {{address}}. Its purpose is {{purpose}}. The C
 2. MEMBERS, CAPITAL AND OWNERSHIP
 {{#list members}}{{n}}. {{name}}{{#if address}}, {{address}}{{/if}} — capital contribution {{contribution}}; ownership {{percent}}%
 {{/list}}
-No member is required to contribute more capital unless all members agree. A member's ownership percentage changes only by written agreement of all members.
+The ownership percentages above are intended to total 100%. No member is required to contribute more capital unless all members agree. A member's ownership percentage changes only by written agreement of all members.
 
 3. MANAGEMENT
-{{#if management=members}}The Company is managed by its members. Ordinary decisions are made by members holding a majority of ownership percentages. Selling the business, admitting a new member, borrowing beyond ordinary needs, or amending this Agreement requires every member's written consent.{{/if}}{{#if management=manager}}The Company is managed by {{manager}} as manager, who may make ordinary decisions. Selling the business, admitting a new member, borrowing beyond ordinary needs, or amending this Agreement requires every member's written consent.{{/if}}
+{{#if management=members}}The Company is managed by its members. Ordinary decisions are made by members holding a majority of ownership percentages; if the members are equally divided, the matter is not approved. The members, by that majority, decide who may open accounts and sign checks for the Company. Selling the business, admitting a new member, borrowing beyond ordinary needs, or amending this Agreement requires every member's written consent.{{/if}}{{#if management=manager}}The Company is managed by {{manager}} as manager, who may make ordinary decisions, open bank accounts and sign for the Company. The manager serves until removed by members holding a majority of ownership percentages. Members, as members, have no authority to bind the Company. Selling the business, admitting a new member, borrowing beyond ordinary needs, or amending this Agreement requires every member's written consent.{{/if}}
 
 4. TAX TREATMENT AND DISTRIBUTIONS
-{{#if taxClass=disregarded}}The Company is a disregarded entity for federal income tax purposes.{{/if}}{{#if taxClass=partnership}}The Company is taxed as a partnership for federal income tax purposes.{{/if}}{{#if taxClass=scorp}}The Company has elected, or will elect, to be taxed as an S corporation for federal income tax purposes.{{/if}} Profits, losses and distributions are allocated {{#if distributions=percent}}in proportion to the members' ownership percentages{{else}}equally among the members{{/if}}. The Company's fiscal year ends {{fiscalYear}}. Books and records are kept at the principal office and are open to every member.
+{{#if taxClass=partnership}}The Company is taxed as a partnership for federal income tax purposes. Tax allocations follow the members' capital accounts. {{#if partnershipRep}}{{partnershipRep}} is the partnership representative for federal tax audits.{{else}}The members will appoint one member as the partnership representative for federal tax audits.{{/if}} If the Company has the cash, it will try to distribute each year enough for the members to pay tax on the income allocated to them.{{/if}}{{#if taxClass=scorp}}The Company has elected, or will elect, by timely filing IRS Form 2553, to be taxed as an S corporation for federal income tax purposes. Each member confirms that the member is eligible to hold an interest in an S corporation and will not transfer an interest to anyone who is not. Nothing in this Agreement gives any member different rights to distributions or liquidation proceeds.{{/if}} Profits and losses are allocated, and distributions are made, {{#if taxClass=scorp}}in proportion to the members' ownership percentages{{else}}{{#if distributions=equal}}equally among the members{{else}}in proportion to the members' ownership percentages{{/if}}{{/if}}. Distributions are made at times {{#if management=manager}}the manager decides{{else}}the members decide by majority{{/if}}, from cash not needed for the business, and are not made if the Company could not then pay its debts as they come due. The Company's fiscal year ends {{fiscalYear}}. Books and records are kept at the principal office and are open to every member.
 
 5. TRANSFERS AND WITHDRAWAL
-{{#if consentToTransfer}}No member may sell or transfer an interest without the written consent of the other members. {{/if}}A member who wishes to leave or sell must give at least {{noticeDays}} days' written notice, and the other members have the first right to buy the interest at a fair value agreed by the members or, failing agreement, set by an independent appraiser.
+{{#if consentToTransfer}}No member may sell or transfer an interest without the written consent of the other members. {{else}}A member may transfer an interest only after following the procedure in this section. {{/if}}A member who wishes to withdraw or sell must give the other members written notice of at least {{noticeDays}} day(s). The other members may, within {{buyDays}} day(s) after receiving the notice, buy the interest in proportion to their ownership percentages (or as they agree among themselves) at a fair value agreed by the members or, if they do not agree within that time, set by an independent appraiser chosen and paid for by the Company. The buyers pay the price within 90 days, or in equal monthly installments over up to {{payMonths}} month(s) if they prefer. {{#if consentToTransfer}}If the other members do not buy, the interest may be sold to another person only with their written consent.{{else}}If the other members do not buy, the member may sell the interest to another person, but not on terms better than those offered to the members.{{/if}} A member who withdraws and whose interest is not bought stops being a member and keeps only the right to receive distributions on that interest. Anyone who acquires an interest and is not already a member receives only the right to distributions until all other members admit that person in writing.
 
-6. DISSOLUTION
-The Company dissolves on the written agreement of all members or as required by law. After debts are paid, remaining assets are distributed to the members according to their ownership percentages.
+6. DEATH, INCAPACITY OR BANKRUPTCY OF A MEMBER
+If a member dies, is declared incompetent or becomes bankrupt, that member (or the member's estate or representative) keeps only the right to receive that member's share of distributions and does not become a member or vote unless all remaining members admit that person in writing. The remaining members may buy the interest within 90 days after the event on the price and payment terms in the section on transfers and withdrawal. The Company continues and is not dissolved.
 
-7. LIABILITY AND INDEMNITY
-Members are not personally liable for the Company's debts solely because they are members. The Company will indemnify members for acts done in good faith for the Company.
+7. DISSOLUTION
+The Company dissolves on the written agreement of all members, by a court order, or as required by law. After debts (including loans from members) are paid, remaining assets are first returned to the members in proportion to their unreturned capital contributions, and the balance is distributed {{#if taxClass=scorp}}in proportion to ownership percentages{{else}}{{#if distributions=equal}}equally among the members{{else}}in proportion to ownership percentages{{/if}}{{/if}}.
 
-8. GENERAL
-This Agreement is the members' entire agreement on its subject, may be amended only in writing signed by all members, and is governed by the laws of the State of {{state}}.
+8. LIABILITY AND INDEMNITY
+Members are not personally liable for the Company's debts solely because they are members. The Company will indemnify members for acts done in good faith for the Company, but not for fraud, willful misconduct or gross negligence, and only out of the Company's assets.
+
+9. GENERAL
+This Agreement is the members' entire agreement on its subject, may be amended only in writing signed by all members, and is governed by the laws of the State of {{state}}. If a term cannot be enforced, the rest stays in force.
 
 MEMBERS
 {{#list members}}{{name}}
 Signature: ______________________________   Date: ______________
+If this member is a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 {{/list}}`,
   },
   {
     key: "partnership_agreement", title: "General Partnership Agreement", category: BUSINESS,
-    description: "Defines how partners share capital, profits, decisions and what happens if a partner leaves.",
-    reviewNote: "Have an attorney review before signing. A general partnership makes each partner personally liable for the business's debts.",
+    description: "Defines how partners share capital, profits, decisions and authority, what happens if a partner leaves or dies, and how the partnership winds up.",
+    reviewNote: "Have an attorney review before signing. A general partnership can make each partner personally responsible for the business's debts. Confirm with an attorney or the tax preparer: (1) a partnership using a name other than its partners' own names may need a trade-name certificate filed with the State Department of Assessments and Taxation; (2) whether the withdrawal-notice wording is enforceable as written — the law lets a partner withdraw at any time; (3) how partners who work in the business are paid and taxed (guaranteed payments, self-employment tax). The profit-share percentages are not checked by the software — make sure they total 100.",
     steps: [
       { title: "Business", questions: [text("businessName", "Partnership name", { prefill: "clientName", required: true }), text("address", "Business address", { prefill: "clientAddress" }), text("purpose", "What the business does", { required: true }), effective(), state()] },
-      { title: "Partners", questions: [list("partners", "Partners", [text("name", "Name", { required: true }), text("address", "Address"), money("capital", "Capital contributed", { required: true }), num("share", "Profit & loss share %", { required: true })], { minItems: 2, required: true, addLabel: "Add a partner" })] },
+      { title: "Partners", questions: [list("partners", "Partners — shares should total 100", [text("name", "Name", { required: true }), text("address", "Address"), money("capital", "Capital contributed", { required: true }), num("share", "Profit & loss share %", { required: true })], { minItems: 2, required: true, addLabel: "Add a partner" }), area("partnerDuties", "What each partner does / time each gives to the business", { placeholder: "e.g. Ali runs the store full-time; Omar handles bookkeeping part-time" })] },
       { title: "Terms", questions: [
         pick("decisions", "How are decisions made?", [["majority", "Majority of profit shares"], ["unanimous", "All partners must agree"]], { required: true, default: "majority" }),
+        money("authorityLimit", "Largest contract, lease or loan one partner may sign alone", { help: "Leave blank to require the decision rule above for every lease, loan or large contract." }),
         pick("draws", "Partner draws", [["none", "No regular draws"], ["monthly", "Monthly draws agreed by the partners"]], { default: "none" }),
-        num("noticeDays", "Days of written notice to withdraw", { default: "90", required: true }),
+        yesno("competeBan", "Partners may not run a competing business while they are partners", { default: true }),
+        text("partnerRep", "Partnership representative for IRS audits (a partner)", { help: "Leave blank and the agreement says the partners will appoint one." }),
+        num("noticeDays", "Days of written notice a withdrawing partner should give", { default: "90", required: true }),
         yesno("buyout", "Remaining partners may buy out a departing partner's interest", { default: true }),
       ] },
     ],
     body: `GENERAL PARTNERSHIP AGREEMENT
 
-This Agreement is made on {{effectiveDate}} among the partners listed below to carry on business as {{businessName}}{{#if address}} at {{address}}{{/if}}.
+This Agreement is made on {{effectiveDate}} among the partners listed below to carry on business as {{businessName}}{{#if address}} at {{address}}{{/if}}. The partnership continues until it is ended under this Agreement.
 
 1. PURPOSE
-The partnership's business is: {{purpose}}.
+The partnership's business is: {{purpose}}.{{#if partnerDuties}} Each partner's role and time commitment: {{partnerDuties}}{{/if}}
 
 2. PARTNERS, CAPITAL AND SHARES
 {{#list partners}}{{n}}. {{name}}{{#if address}}, {{address}}{{/if}} — capital {{capital}}; shares {{share}}% of profits and losses
 {{/list}}
-Capital is not repaid or paid interest unless the partners agree in writing.
+The shares above are intended to total 100%. During the life of the partnership, capital is not repaid and no interest is paid on it unless the partners agree in writing. Each partner's capital account is credited with the partner's contributions and share of profits, and charged with the partner's draws and share of losses.
 
 3. PROFITS, LOSSES AND DRAWS
-Profits and losses are shared according to the percentages above. {{#if draws=monthly}}Partners may take monthly draws in amounts the partners agree, which are charged against their share of profits.{{else}}No partner takes regular draws unless the partners agree.{{/if}}
+Profits and losses are shared according to the percentages above. {{#if draws=monthly}}Partners may take monthly draws in amounts the partners agree, which are charged against their share of profits.{{else}}No partner takes regular draws unless the partners agree.{{/if}} A partner is paid for work only as the partners agree in writing.
 
-4. MANAGEMENT
-Each partner may take part in managing the business. {{#if decisions=majority}}Decisions are made by partners holding a majority of the profit shares.{{else}}Decisions require the agreement of every partner.{{/if}} Borrowing outside the ordinary course, selling the business, or admitting a partner requires every partner's written consent.
+4. MANAGEMENT AND AUTHORITY
+Each partner may take part in managing the business. {{#if decisions=majority}}Decisions are made by partners holding a majority of the profit shares; if the partners are equally divided, the matter is not approved.{{else}}Decisions require the agreement of every partner.{{/if}} Borrowing outside the ordinary course, selling the business, or admitting a partner requires every partner's written consent. {{#if authorityLimit}}No partner may alone sign a contract, lease or loan above {{authorityLimit}}, or hire or dismiss staff.{{else}}No partner may sign a lease or loan, or hire or dismiss staff, without the consent required in this section.{{/if}} The partners understand that, in a general partnership, each partner can be personally responsible for the partnership's debts. {{#if competeBan}}While a partner, no partner will own, run or work for a competing business without the other partners' written consent.{{/if}}
 
-5. BOOKS AND RECORDS
-Accurate books are kept at the business address, are open to every partner, and the partnership's tax return is prepared at the end of each year.
+5. BOOKS, RECORDS AND TAXES
+Accurate books are kept at the business address and are open to every partner. The partnership files a partnership tax return each year and gives each partner a statement of that partner's share of income. {{#if partnerRep}}{{partnerRep}} is the partnership representative for federal tax audits.{{else}}The partners will appoint one partner as the partnership representative for federal tax audits.{{/if}} Payments to a partner for work are treated as the partnership's tax preparer advises.
 
-6. WITHDRAWAL AND DEATH
-A partner may withdraw on {{noticeDays}} days' written notice. {{#if buyout}}The remaining partners may buy the departing partner's interest at a fair value agreed by them or, failing agreement, set by an independent appraiser.{{else}}The partnership then winds up unless the remaining partners agree to continue.{{/if}}
+6. WITHDRAWAL
+A partner may withdraw at any time by written notice. A partner who gives less than {{noticeDays}} day(s) of notice is responsible for the partnership's losses caused by the shorter notice. {{#if buyout}}The remaining partners may, within 30 days after the withdrawal, buy the departing partner's interest at a fair value agreed by the partners or, if they do not agree within that time, set by an independent appraiser chosen and paid for by the partnership. The price is paid within 90 days. A departing partner stays responsible for debts incurred before leaving, and the partners will tell the partnership's banks, landlords and suppliers of the withdrawal.{{else}}The partnership then winds up unless the remaining partners agree to continue and settle with the departing partner.{{/if}}
 
-7. DISSOLUTION
-The partnership dissolves by agreement of all partners or as required by law. After debts are paid, any remainder is distributed according to capital and profit shares.
+7. DEATH OF A PARTNER
+If a partner dies, the partnership continues unless the remaining partners decide to wind up. {{#if buyout}}The estate receives the fair value of the interest, set and paid as described in the section on withdrawal, and does not become a partner unless all remaining partners agree in writing.{{else}}The estate receives the fair value of the interest within 12 months, and does not become a partner unless all remaining partners agree in writing.{{/if}}
 
-8. GENERAL
-This Agreement is the partners' entire agreement, may be changed only in writing signed by all partners, and is governed by the laws of the State of {{state}}.
+8. DISSOLUTION
+The partnership dissolves by agreement of all partners or as required by law. After debts (including loans from partners) are paid, each partner is repaid capital and receives profit shares in accordance with that partner's capital account. A partner whose account is negative must pay the shortfall in proportion to the partner's share of losses.
+
+9. GENERAL
+This Agreement is the partners' entire agreement, may be changed only in writing signed by all partners, and is governed by the laws of the State of {{state}}. If a term cannot be enforced, the rest stays in force.
 
 PARTNERS
 {{#list partners}}{{name}}
 Signature: ______________________________   Date: ______________
+If this partner is a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 {{/list}}`,
   },
   {
     key: "profit_sharing_agreement", title: "Owner Profit-Sharing Agreement", category: BUSINESS,
-    description: "How the owners of one business split profit, how often, and what is held back. Matches the 'Profit split' tool in the client portal.",
+    description: "How the owners of one business split profit, how often, what is held back, and what happens when an owner leaves. Matches the 'Profit split' tool in the client portal.",
+    reviewNote: "This agreement sits on top of the business's own governing documents (operating agreement, partnership agreement or bylaws) and does not replace them. For an LLC or partnership, profit shares should match what those documents say. For an S corporation, profit must be paid in proportion to share ownership — a different split can put the S election at risk. Owners are taxed on their share of a pass-through business's income whether or not it is paid out. If the firm is also the business's accountant, the owners should name someone else to settle disputes. The percentages are not checked by the software — make sure they total 100.",
     steps: [
-      { title: "Business and owners", questions: [text("businessName", "Business name", { prefill: "clientName", required: true }), effective(), state(),
-        list("owners", "Owners and their share of profit", [text("name", "Name", { required: true }), num("percent", "Share %", { required: true })], { minItems: 2, required: true, addLabel: "Add an owner" })] },
+      { title: "Business and owners", questions: [text("businessName", "Business name", { prefill: "clientName", required: true }),
+        pick("entityType", "The business is", [["llc", "An LLC"], ["scorp", "An S corporation"], ["corp", "A C corporation"], ["partnership", "A partnership"], ["other", "Something else"]], { required: true, default: "llc" }),
+        effective(), state(),
+        list("owners", "Owners and their share of profit — should total 100", [text("name", "Name", { required: true }), num("percent", "Share %", { required: true })], { minItems: 2, required: true, addLabel: "Add an owner" })] },
       { title: "Rules", questions: [
         pick("frequency", "Profit is divided", [["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"]], { required: true, default: "monthly" }),
-        num("reserve", "Keep this % of profit in the business as a reserve", { default: "0" }),
-        pick("basis", "Profit means", [["net", "Net income after all business expenses and taxes owed by the business"], ["cash", "Cash left after expenses are paid"]], { required: true, default: "net" }),
+        num("reserve", "Keep this % of profit in the business as a reserve (leave blank for none)"),
+        pick("basis", "Profit means", [["net", "Net income after all business expenses, including any taxes the business itself owes"], ["cash", "Cash left after expenses are paid"]], { required: true, default: "net" }),
+        num("payDays", "Days after the period's books are closed to pay owners", { required: true, default: "30" }),
         yesno("shareLoss", "Losses are shared in the same percentages", { default: true }),
-        text("method", "How owners are paid", { default: "Bank transfer" }),
+        text("method", "How owners are paid", { default: "bank transfer" }),
+        text("reviewer", "Accountant who settles disputes about the numbers", { help: "Leave blank to say an independent CPA chosen by all the owners." }),
       ] },
     ],
     body: `OWNER PROFIT-SHARING AGREEMENT
 
-This Agreement is made on {{effectiveDate}} among the owners of {{businessName}} (the "Business").
+This Agreement is made on {{effectiveDate}} among the owners of {{businessName}} (the "Business"), which is {{#if entityType=llc}}a limited liability company{{/if}}{{#if entityType=scorp}}an S corporation{{/if}}{{#if entityType=corp}}a C corporation{{/if}}{{#if entityType=partnership}}a partnership{{/if}}{{#if entityType=other}}a business{{/if}}.
 
 1. OWNERS AND SHARES
 {{#list owners}}{{n}}. {{name}} — {{percent}}% of profit
 {{/list}}
-The shares above total 100%.
+The shares above are intended to total 100%.
 
 2. WHAT IS PROFIT
-Profit means {{#if basis=net}}net income after all business expenses and any taxes owed by the Business{{else}}the cash left after the Business's expenses have been paid{{/if}}, as shown in the Business's books for the period.
+Profit means {{#if basis=net}}net income after all business expenses, including any taxes the Business itself owes,{{else}}the cash left after the Business's expenses have been paid,{{/if}} as shown in the Business's books for the period. This Agreement does not set wages; an owner who works in the Business is paid for that work separately, as the owners agree in writing.
 
 3. WHEN AND HOW PROFIT IS PAID
-Profit is divided {{frequency}}. {{#if reserve}}Before dividing, {{reserve}}% of the profit stays in the Business as a reserve. {{/if}}Each owner is paid by {{method}} within a reasonable time after the period's books are closed.
+Profit is divided {{#if frequency=weekly}}weekly{{/if}}{{#if frequency=monthly}}monthly{{/if}}{{#if frequency=quarterly}}quarterly{{/if}}. {{#if reserve}}Before dividing, {{reserve}}% of the profit stays in the Business as a reserve; the reserve is released only by decision of owners holding a majority of the shares. {{/if}}Profit is paid only to the extent the Business has cash left after paying its current obligations (including payroll, sales and withholding taxes and loan payments) and setting aside any reserve. Each owner is paid by {{method}} within {{payDays}} day(s) after the period's books are closed. The Business may pay owners extra cash to help cover their personal income tax on the Business's income. No owner is promised any amount of profit.
 
 4. LOSSES
 {{#if shareLoss}}Losses are shared by the owners in the same percentages.{{else}}Losses are handled as the owners agree in writing.{{/if}}
 
-5. RECORDS
-The Business keeps its books accurately and gives every owner access to them. Disputes about the numbers are first discussed by the owners and, if unresolved, reviewed by the Business's accountant.
+5. RECORDS AND DISPUTES
+The Business keeps its books accurately and gives every owner access to them. Disputes about the numbers are first discussed by the owners and, if unresolved, reviewed by {{#if reviewer}}{{reviewer}}{{else}}an independent certified public accountant chosen by all the owners{{/if}}, whose written finding on the numbers is final unless an owner shows a mistake.
 
-6. CHANGES
-This Agreement may be changed only in writing signed by all owners, and is governed by the laws of the State of {{state}}.
+6. AN OWNER WHO LEAVES OR DIES
+If an owner leaves or dies, that owner's share of profit stops on that date. Profit earned up to that date is paid in the normal way, and the share does not pass to anyone else unless the Business's own governing documents say so.
+
+7. RELATIONSHIP TO OTHER DOCUMENTS
+This Agreement does not change the Business's operating agreement, partnership agreement or bylaws; if they conflict with it, those documents control.{{#if entityType=scorp}} Because the Business is an S corporation, profit is paid only in proportion to share ownership.{{/if}}
+
+8. CHANGES
+This Agreement continues until the owners end it in writing. It may be changed only in writing signed by all owners, and is governed by the laws of the State of {{state}}.
 
 OWNERS
 {{#list owners}}{{name}}
@@ -403,8 +428,8 @@ Signature: ______________________________   Date: ______________
   },
   {
     key: "business_bill_of_sale", title: "Bill of Sale — Business Assets", category: BUSINESS,
-    description: "Records the sale of a business or its assets from one party to another.",
-    reviewNote: "A business sale can have licensing, tax and lease consequences — have these confirmed before signing.",
+    description: "Records the sale of a business's assets from one party to another and transfers them to the buyer.",
+    reviewNote: "A business sale can have licensing, tax and lease consequences — have these confirmed before signing. Confirm with an attorney or the tax preparer: (1) the Maryland bulk-transfer rules (notice to creditors and to the Comptroller at least 10 days before the buyer takes possession or pays, and a sworn list of creditors) — a buyer who skips them can be held responsible for the seller's unpaid sales tax; (2) sales tax on equipment and fixtures bought with the business; (3) IRS Form 8594 (both sides report how the price is split among the assets); (4) sales tax, tobacco, alcohol, lottery and health licenses usually must be applied for by the buyer in the buyer's own name; (5) vehicles need their own title transfer. If the Seller is paid in installments, consider a separate promissory note.",
     steps: [
       { title: "Parties", questions: [text("seller", "Seller", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer", { required: true }), text("buyerAddress", "Buyer's address"), text("businessName", "Business being sold", { prefill: "clientName", required: true }), effective(), state()] },
       { title: "The sale", questions: [
@@ -413,7 +438,7 @@ Signature: ______________________________   Date: ______________
         money("price", "Purchase price", { required: true }),
         pick("payment", "How is it paid?", [["full", "In full at signing"], ["installments", "In installments"]], { required: true, default: "full" }),
         text("installmentTerms", "Installment terms", { showIf: { id: "payment", equals: "installments" }, required: true, placeholder: "e.g. $5,000 down, then $1,000 on the 1st of each month for 20 months" }),
-        yesno("liabilities", "Buyer takes on the business's existing debts"), area("liabilityList", "Debts the buyer takes on", { showIf: { id: "liabilities", equals: true } }),
+        yesno("liabilities", "Buyer takes on the business's existing debts"), area("liabilityList", "Debts the buyer takes on", { showIf: { id: "liabilities", equals: true }, required: true }),
       ] },
     ],
     body: `BILL OF SALE
@@ -422,27 +447,37 @@ On {{effectiveDate}}, {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}
 
 1. ASSETS SOLD
 {{assets}}
+The assets sold include the business's goodwill, trade name, telephone numbers and records. They do not include cash, bank accounts, accounts receivable, tax refunds, lottery funds or the Seller's personal items, unless listed above.
 {{#if excluded}}
 EXCLUDED
 {{excluded}}
 {{/if}}
+Any motor vehicle included needs its own signed title transfer, which the parties will complete.
+
 2. PRICE AND PAYMENT
 The purchase price is {{price}}. {{#if payment=full}}It is paid in full at signing.{{else}}It is paid as follows: {{installmentTerms}}{{/if}}
+{{#if payment=installments}}Until the price is paid in full, the Seller keeps a security interest in the assets, and the Buyer allows the Seller to file a financing statement with the State Department of Assessments and Taxation. If any installment is more than 10 days late, the Seller may declare the whole balance due.
+{{/if}}The price is divided among the assets as stated in a schedule both parties sign, which both use for their tax filings; if there is no signed schedule, they will divide it as their tax preparers agree.
 
 3. DEBTS
-{{#if liabilities}}Buyer takes on the following business debts: {{liabilityList}} All other debts of the business remain Seller's responsibility.{{else}}Buyer does not take on any debts of the business; all debts incurred before the sale date remain Seller's responsibility.{{/if}}
+{{#if liabilities}}Buyer takes on the following business debts: {{liabilityList}} All other debts of the business remain Seller's responsibility.{{else}}Buyer does not take on any debts of the business; all debts incurred before the sale date remain Seller's responsibility.{{/if}} Each party will pay the debts it is responsible for and protect the other from claims on them.
 
-4. SELLER'S STATEMENTS
-Seller states that Seller owns the assets, has the right to sell them, and that they are free of liens and claims except as disclosed in writing. The assets are sold as-is except for these statements.
+4. BULK-TRANSFER NOTICE
+If this sale is a bulk transfer under Maryland Commercial Law, Title 6, Subtitle 1, the Seller will give the Buyer a creditor list signed under oath and a schedule of the property, and the Buyer will send the required notice to the Comptroller of Maryland and to the Seller's creditors at least 10 days before the Buyer takes possession or pays, whichever is first. The Buyer may keep back from the price any amount the Comptroller claims for the Seller's unpaid sales and use tax and pay it to the Comptroller.
 
-5. GENERAL
-This Bill of Sale is governed by the laws of the State of {{state}}.
+5. SELLER'S STATEMENTS
+Seller states that Seller owns the assets, has the right to sell them (and, if Seller is a company, that the person signing is authorized to sign for it), and that they are free of liens and claims except as disclosed in writing. The assets are sold as-is except for these statements.
+
+6. GENERAL
+This Bill of Sale is governed by the laws of the State of {{state}}. If a term cannot be enforced, the rest stays in force.
 
 SELLER: {{seller}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 BUYER: {{buyer}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
   },
 
   /* ─────────────── Employment & payroll ─────────────── */
@@ -777,8 +812,8 @@ Signature: ______________________________   Date: ______________`,
   /* ─────────────── Batch 2: chosen from the LawDepot catalogue for this firm's work ─────────────── */
   {
     key: "single_member_llc_agreement", title: "Single-Member LLC Operating Agreement", category: BUSINESS,
-    description: "For an LLC with one owner: ownership, management, taxes, and what happens if the owner dies or sells.",
-    reviewNote: "A short agreement helps keep the LLC separate from its owner. Have an attorney review it if the LLC owns significant property or has lenders.",
+    description: "For an LLC with one owner: ownership, management, taxes, adding a second owner, and what happens if the owner dies or cannot act.",
+    reviewNote: "A short agreement helps keep the LLC separate from its owner. Have an attorney review it if the LLC owns significant property or has lenders. Confirm with an attorney: (1) how the successor named in the death clause is admitted and whether the owner's will or trust should also leave the interest to that person; (2) the effect of an S corporation election on the LLC's tax treatment — talk to the tax preparer before filing one; (3) if a second owner is ever added, replace this agreement with a multi-member operating agreement.",
     steps: [
       { title: "The company", questions: [text("companyName", "LLC name", { prefill: "clientName", required: true }), text("formedIn", "State where the LLC is formed", { default: "Maryland", required: true }), date("formationDate", "Date formed", { required: true }), text("address", "Principal address", { prefill: "clientAddress", required: true }), text("purpose", "Business purpose", { default: "any lawful business" }), effective()] },
       { title: "The owner", questions: [text("member", "Owner (member) name", { required: true }), text("memberAddress", "Owner's address"), money("contribution", "Capital contributed", { required: true }), text("successor", "Who takes over if the owner dies or cannot act", { placeholder: "Name — leave blank to follow state law" }), state()] },
@@ -791,95 +826,128 @@ This Operating Agreement is made on {{effectiveDate}} by {{member}}{{#if memberA
 The Company's principal office is {{address}}. Its purpose is {{purpose}}. The Company continues until the Member ends it.
 
 2. OWNERSHIP AND CAPITAL
-The Member owns 100% of the Company and has contributed {{contribution}} in capital. The Member may contribute or withdraw additional funds at any time, and the Company records each as a capital contribution or distribution — not as pay or as a loan unless documented as a loan.
+The Member owns 100% of the Company and has contributed {{contribution}} in capital. The Member may contribute additional funds or take distributions at any time, and the Company records each as a capital contribution or distribution — not as pay or as a loan unless documented as a loan. A distribution is not made if the Company could not then pay its debts as they come due.
 
 3. MANAGEMENT
 The Member manages the Company and may act and sign on its behalf, open accounts, hire people and make every decision for the Company.
 
 4. SEPARATE FROM THE OWNER
-The Company keeps its own bank accounts and books, and the Member does not mix personal and Company funds. The Company signs contracts in its own name. The Member is not personally liable for the Company's debts solely because they are the Member.
+The Company keeps its own bank accounts and books, and the Member does not mix personal and Company funds. The Company signs contracts in its own name, and the Member signs for it as "Member" or "Manager", not in a personal capacity. The Member is not personally liable for the Company's debts solely because they are the Member. This Agreement is for the Member and the Company only; no creditor or other person may enforce it.
 
 5. TAXES
-The Company is a disregarded entity for federal income tax purposes, so its income and expenses are reported on the Member's own return unless the Member elects otherwise in writing.
+The Company is a disregarded entity for federal income tax purposes, so its income and expenses are reported on the Member's own return, unless the Member elects in writing and files with the IRS for the Company to be taxed differently (for example as an S corporation). The Member should talk to the tax preparer before making any election.
 
-6. DEATH OR INCAPACITY
-{{#if successor}}If the Member dies or cannot act, {{successor}} may manage the Company and wind it up or continue it, to the extent the law allows.{{else}}If the Member dies or cannot act, the Company's affairs are handled as state law provides.{{/if}}
+6. ADDING ANOTHER MEMBER
+The Company may admit another member only by a written amendment signed by the Member. When another member is admitted, this Agreement must be replaced by a multi-member operating agreement and the Company's tax treatment must be reviewed with the tax preparer.
 
-7. GENERAL
-The Member may amend this Agreement at any time in writing. It is governed by the laws of the State of {{state}}.
+7. DEATH OR INCAPACITY
+{{#if successor}}If the Member dies, {{successor}} is admitted as the sole member of the Company at that moment, if {{successor}} accepts, and the Company continues without dissolving; if {{successor}} does not accept, the Member's personal representative may be admitted instead. If the Member is incapacitated, {{successor}} may manage the Company only as far as the Member's power of attorney or a court order allows.{{else}}If the Member dies, the Member's personal representative may be admitted as the member and continue the Company or wind it up, as state law allows. If the Member is incapacitated, the Company's affairs are handled as state law provides.{{/if}}
+
+8. GENERAL
+The Member may amend this Agreement at any time in writing. If a term cannot be enforced, the rest stays in force. This Agreement is governed by the laws of the State of {{state}}.
 
 MEMBER
 {{member}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If the Member is a trust or a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
   },
   {
-    key: "corporate_resolution", title: "Corporate Resolution", category: BUSINESS,
-    description: "Records a decision of the directors or shareholders — opening a bank account, borrowing, signing a lease, paying a bonus.",
+    key: "corporate_resolution", title: "Company Resolution (Corporation or LLC)", category: BUSINESS,
+    description: "Records a decision of a corporation's directors or shareholders, or of an LLC's members or manager — opening a bank account, borrowing, signing a lease, paying a bonus.",
+    reviewNote: "Banks and agencies often insist on their own resolution form and on a certificate signed by an officer. For a corporation, action without a meeting needs the written consent of every director (or, for shareholders, every shareholder unless the charter allows less) and the consent is kept with the minutes. For an LLC, check what the operating agreement requires. If a signer has a personal interest in the decision (a bonus, loan or lease with the owner), confirm with an attorney how to document it.",
     steps: [
-      { title: "Corporation", questions: [text("corporation", "Corporation name", { prefill: "clientName", required: true }), text("incorporatedIn", "State of incorporation", { default: "Maryland", required: true }), effective(),
-        pick("actingBody", "Decision made by", [["directors", "The board of directors"], ["shareholders", "The shareholders"]], { required: true, default: "directors" }), pick("how", "Adopted", [["meeting", "At a meeting"], ["writing", "By written consent, without a meeting"]], { required: true, default: "writing" })] },
+      { title: "The company", questions: [text("corporation", "Company or corporation name", { prefill: "clientName", required: true }), text("incorporatedIn", "State where it was formed", { default: "Maryland", required: true }), effective(),
+        pick("actingBody", "Decision made by", [["directors", "The board of directors (corporation)"], ["shareholders", "The shareholders (corporation)"], ["members", "The members (LLC)"], ["manager", "The manager (LLC)"]], { required: true, default: "directors" }),
+        pick("how", "Adopted", [["meeting", "At a meeting"], ["writing", "By written consent, without a meeting"]], { required: true, default: "writing" }),
+        date("meetingDate", "Date of the meeting", { showIf: { id: "how", equals: "meeting" } }),
+        yesno("quorumPresent", "A quorum was present at the meeting", { showIf: { id: "how", equals: "meeting" }, default: false }),
+        num("votesFor", "Votes in favor", { showIf: { id: "how", equals: "meeting" } }),
+        num("votesAgainst", "Votes against", { showIf: { id: "how", equals: "meeting" } }),
+        yesno("allSign", "Every person entitled to vote is signing below", { showIf: { id: "how", equals: "writing" }, default: false })] },
       { title: "The decision", questions: [text("subject", "Subject", { required: true, placeholder: "e.g. Authority to open a business bank account" }),
-        area("resolved", "What is decided", { required: true, placeholder: "e.g. The corporation is authorized to open an account at First Bank, and the President may sign all documents needed." }),
+        area("resolved", "What is decided", { required: true, placeholder: "e.g. the corporation is authorized to open an account at First Bank, and the President may sign all documents needed." }),
         text("authorizedPerson", "Person authorized to carry it out", { placeholder: "e.g. Ali Hassan, President" }),
-        list("signers", "Directors or shareholders approving", [text("name", "Name", { required: true }), text("role", "Title (optional)")], { required: true, addLabel: "Add a person" })] },
+        yesno("interested", "A person signing or carrying this out has a personal interest in it (for example a bonus, loan or lease with the owner)", { default: false }),
+        text("interestedPerson", "Who has the interest", { showIf: { id: "interested", equals: true }, required: true }),
+        list("signers", "People approving", [text("name", "Name", { required: true }), text("role", "Title (optional)")], { required: true, addLabel: "Add a person" })] },
     ],
     body: `{{corporation}}
-(a corporation of the State of {{incorporatedIn}})
+({{#if actingBody=directors}}a corporation{{/if}}{{#if actingBody=shareholders}}a corporation{{/if}}{{#if actingBody=members}}a limited liability company{{/if}}{{#if actingBody=manager}}a limited liability company{{/if}} formed under the laws of the State of {{incorporatedIn}})
 
-{{#if actingBody=directors}}RESOLUTION OF THE BOARD OF DIRECTORS{{else}}RESOLUTION OF THE SHAREHOLDERS{{/if}}
+{{#if actingBody=directors}}RESOLUTION OF THE BOARD OF DIRECTORS{{/if}}{{#if actingBody=shareholders}}RESOLUTION OF THE SHAREHOLDERS{{/if}}{{#if actingBody=members}}RESOLUTION OF THE MEMBERS{{/if}}{{#if actingBody=manager}}RESOLUTION OF THE MANAGER{{/if}}
 
 Subject: {{subject}}
 Date: {{effectiveDate}}
 
-{{#if how=meeting}}At a meeting duly held, the {{#if actingBody=directors}}directors{{else}}shareholders{{/if}} of {{corporation}} adopted the following resolution:{{else}}The undersigned, being all of the {{#if actingBody=directors}}directors{{else}}shareholders{{/if}} of {{corporation}}, consent to and adopt the following resolution without a meeting:{{/if}}
+{{#if actingBody=manager}}The undersigned, being the manager of {{corporation}}, adopts the following resolution in writing:{{else}}{{#if how=meeting}}At a meeting{{#if meetingDate}} held on {{meetingDate}}{{/if}}, the {{#if actingBody=directors}}directors{{/if}}{{#if actingBody=shareholders}}shareholders{{/if}}{{#if actingBody=members}}members{{/if}} of {{corporation}} adopted the following resolution{{#if quorumPresent}}, a quorum being present{{/if}}{{#if votesFor}}, by a vote of {{votesFor}} in favor{{#if votesAgainst}} and {{votesAgainst}} against{{/if}}{{/if}}:{{else}}The undersigned {{#if actingBody=directors}}directors{{/if}}{{#if actingBody=shareholders}}shareholders{{/if}}{{#if actingBody=members}}members{{/if}} of {{corporation}} consent to and adopt the following resolution without a meeting. This consent takes effect only when it is signed by every {{#if actingBody=directors}}director{{/if}}{{#if actingBody=shareholders}}shareholder{{/if}}{{#if actingBody=members}}member{{/if}} entitled to vote{{#if !actingBody=directors}} (or by the number the company's governing documents allow){{/if}}{{#if allSign}}, and every one of them has signed below{{/if}}, and it will be filed with the company's records:{{/if}}{{/if}}
 
 RESOLVED, that {{resolved}}
 
-{{#if authorizedPerson}}FURTHER RESOLVED, that {{authorizedPerson}} is authorized to take every action and sign every document needed to carry out this resolution, and any such action already taken is approved and confirmed.
+{{#if authorizedPerson}}FURTHER RESOLVED, that {{authorizedPerson}} is authorized to take every action and sign every document needed to carry out this resolution, and any such action already taken within the scope of this resolution is approved and confirmed.
 
-{{/if}}This resolution is to be kept with the corporation's records.
+{{/if}}{{#if interested}}The interest of {{interestedPerson}} in this matter was disclosed to the {{#if actingBody=directors}}board{{/if}}{{#if actingBody=shareholders}}shareholders{{/if}}{{#if actingBody=members}}members{{/if}}{{#if actingBody=manager}}members{{/if}} and is known to them.
+
+{{/if}}This resolution is to be kept with the company's records.{{#if actingBody=members}} If a signer is a company, it signs through an authorized person whose name and title are written next to its signature.{{/if}}
 
 {{#list signers}}{{name}}{{#if role}}, {{role}}{{/if}}
 Signature: ______________________________   Date: ______________
 
-{{/list}}`,
+{{/list}}{{#if how=meeting}}{{#if !actingBody=manager}}CERTIFICATE
+I, ______________________________, the ______________________________ of {{corporation}}, certify that the above is a true copy of a resolution adopted{{#if meetingDate}} on {{meetingDate}}{{/if}} and that it has not been changed or withdrawn.
+Signature: ______________________________   Date: ______________{{/if}}{{/if}}`,
   },
   {
     key: "annual_meeting_minutes", title: "Minutes of Annual Meeting", category: BUSINESS,
-    description: "A simple record of a corporation's yearly meeting — directors elected, officers named, financials reviewed.",
+    description: "A record of a corporation's yearly meeting — attendance, directors elected, officers named, reports reviewed and any pay or distributions decided.",
+    reviewNote: "For corporations. An LLC has no yearly-meeting requirement under this form — use a Company Resolution or written consent instead. Corporations are expected to hold a yearly shareholder meeting to elect directors, and shareholders can act by unanimous written consent instead; confirm what your bylaws require. Only fill in the quorum, share-count and notice questions if they are true — the minutes repeat exactly what you enter. Confirm the filing deadlines for the corporation's yearly state and tax filings with the tax preparer.",
     steps: [
       { title: "Meeting", questions: [text("corporation", "Corporation name", { prefill: "clientName", required: true }), date("meetingDate", "Date of meeting", { required: true }), text("place", "Place (or 'by phone / video')", { required: true }), text("chair", "Chairperson", { required: true }), text("secretary", "Secretary (took the minutes)", { required: true }),
-        pick("who", "Meeting of", [["shareholders", "Shareholders"], ["directors", "Directors"], ["both", "Shareholders and directors"]], { required: true, default: "both" })] },
+        pick("who", "Meeting of", [["shareholders", "Shareholders"], ["directors", "Directors"], ["both", "Shareholders and directors"]], { required: true, default: "both" }),
+        pick("notice", "Notice of the meeting", [["skip", "Do not say anything about notice"], ["given", "Notice was given as the bylaws require"], ["waived", "Notice was waived in writing"]], { required: true, default: "skip" }),
+        yesno("quorumPresent", "A quorum was present", { default: false }),
+        num("sharesOutstanding", "Shares entitled to vote (shareholder meetings)"), num("sharesRepresented", "Shares present in person or by proxy (shareholder meetings)")] },
       { title: "Business", questions: [
         list("attendees", "Present", [text("name", "Name", { required: true }), text("capacity", "Shareholder / director / officer")], { required: true, addLabel: "Add a person" }),
-        list("directors", "Directors elected or re-elected", [text("name", "Name", { required: true })], { required: true, addLabel: "Add a director" }),
-        list("officers", "Officers appointed", [text("name", "Name", { required: true }), text("office", "Office", { required: true, placeholder: "President, Secretary, Treasurer" })], { addLabel: "Add an officer" }),
+        list("directors", "Directors elected or re-elected (shareholder meetings)", [text("name", "Name", { required: true })], { addLabel: "Add a director" }),
+        list("officers", "Officers appointed (director meetings)", [text("name", "Name", { required: true }), text("office", "Office", { required: true, placeholder: "President, Secretary, Treasurer" })], { addLabel: "Add an officer" }),
+        yesno("priorMinutes", "The minutes of the last meeting were approved", { default: false }),
         yesno("financials", "Financial statements for the past year were reviewed", { default: true }), yesno("taxReturns", "The tax filings for the year were reviewed", { default: true }),
+        yesno("filings", "The officers were directed to make the corporation's required yearly state and tax filings", { default: false }),
+        yesno("ratify", "The acts of the directors and officers during the year were approved", { default: false }),
+        area("compDist", "Officer pay, dividends or distributions decided"),
         area("otherBusiness", "Other business discussed or decided"),
       ] },
     ],
     body: `MINUTES OF THE ANNUAL MEETING
 {{corporation}}
 
-A meeting of the {{who}} of {{corporation}} was held on {{meetingDate}} at {{place}}.
+A meeting of the {{#if who=shareholders}}shareholders{{/if}}{{#if who=directors}}directors{{/if}}{{#if who=both}}shareholders and directors{{/if}} of {{corporation}} was held on {{meetingDate}} at {{place}}.
 
 PRESENT
 {{#list attendees}}• {{name}}{{#if capacity}} ({{capacity}}){{/if}}
 {{/list}}
-{{chair}} acted as chairperson and {{secretary}} acted as secretary. The chairperson called the meeting to order, noted that a quorum was present, and confirmed that proper notice had been given or waived.
+{{chair}} acted as chairperson and {{secretary}} acted as secretary. The chairperson called the meeting to order.{{#if quorumPresent}} The chairperson noted that a quorum was present.{{/if}}{{#if !who=directors}}{{#if sharesRepresented}} Holders of {{sharesRepresented}}{{#if sharesOutstanding}} of the {{sharesOutstanding}}{{/if}} shares entitled to vote were present in person or by proxy.{{/if}}{{/if}}{{#if notice=given}} Notice of the meeting was given as the bylaws require.{{/if}}{{#if notice=waived}} Notice of the meeting was waived in writing.{{/if}}
 
-1. DIRECTORS
+{{#if !who=directors}}{{#if directors}}1. DIRECTORS
 The following were elected to serve as directors until the next annual meeting and until their successors are elected:
 {{#list directors}}• {{name}}
 {{/list}}
-{{#if officers}}2. OFFICERS
+
+{{/if}}{{/if}}{{#if !who=shareholders}}{{#if officers}}2. OFFICERS
 The directors appointed these officers:
 {{#list officers}}• {{name}} — {{office}}
-{{/list}}{{/if}}
-3. REPORTS
-{{#if financials}}The financial statements for the past year were presented and reviewed.{{/if}} {{#if taxReturns}}The corporation's tax filings for the year were reviewed.{{/if}}
+{{/list}}
 
-{{#if otherBusiness}}4. OTHER BUSINESS
+{{/if}}{{/if}}3. REPORTS
+{{#if priorMinutes}}The minutes of the last meeting were approved. {{/if}}{{#if financials}}The financial statements for the past year were presented and reviewed.{{else}}No financial statements were presented.{{/if}} {{#if taxReturns}}The corporation's tax filings for the year were reviewed.{{else}}The tax filings for the year were not reviewed at this meeting.{{/if}}{{#if filings}} The officers were directed to make the corporation's required yearly state and tax filings.{{/if}}
+
+{{#if ratify}}4. ACTS OF DIRECTORS AND OFFICERS
+The acts of the directors and officers on behalf of the corporation during the past year were approved.
+
+{{/if}}{{#if compDist}}5. PAY AND DISTRIBUTIONS
+{{compDist}}
+
+{{/if}}{{#if otherBusiness}}6. OTHER BUSINESS
 {{otherBusiness}}
 
 {{/if}}There being no further business, the meeting was adjourned.
@@ -1814,14 +1882,16 @@ My commission expires: ______________`,
   },
   {
     key: "business_sale_agreement", title: "Sale of a Business Agreement", category: BUSINESS,
-    description: "Selling or buying a whole store or business — price, what is included, inventory, lease, licenses and what the seller must not do after the sale.",
-    reviewNote: "Before closing, ask the Maryland Comptroller for a tax clearance: a buyer can be held responsible for the seller's unpaid sales tax. Tobacco, lottery, alcohol and food licenses usually do not transfer — the buyer must apply in their own name.",
+    description: "Selling or buying a whole store or business — price, what is included, inventory, lease, licenses, closing conditions and what the seller must not do after the sale.",
+    reviewNote: "Have an attorney review this before signing. Confirm with an attorney or the tax preparer: (1) Maryland bulk-transfer rules — notice to creditors and the Comptroller at least 10 days before the buyer takes possession or pays, a sworn creditor list, and the buyer's duty to hold back the Comptroller's claim; a buyer who skips them can be held responsible for the seller's unpaid sales tax; (2) sales tax on equipment and fixtures bought with the business; (3) IRS Form 8594 and how the price is split; (4) licenses — tobacco, alcohol, lottery, health and sales-tax registrations usually do not transfer and the buyer must apply in the buyer's own name, sometimes well before closing; no tobacco or lottery stock should change hands before the buyer is licensed; (5) whether the seller's promise not to compete is reasonable for this business and place, and whether it is affected by the seller working for the buyer after closing; (6) employee, payroll and unemployment-insurance accounts; (7) vehicles need their own title transfer.",
     steps: [
       { title: "Parties and business", questions: [text("seller", "Seller", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer", { required: true }), text("buyerAddress", "Buyer's address"), text("businessName", "Business name", { required: true }), text("businessAddress", "Business address", { required: true }), text("businessKind", "What the business does", { placeholder: "e.g. Convenience store selling groceries, tobacco and lottery" }), effective(), state()] },
       { title: "Price and payment", questions: [
-        money("price", "Total price", { required: true }), money("deposit", "Deposit paid now", { default: "0" }),
+        money("price", "Total price", { required: true }), money("deposit", "Deposit paid now (leave blank if none)"),
         pick("payment", "Payment of the rest", [["closing", "All in cash at closing"], ["financed", "Part paid later by the Buyer in installments"]], { required: true, default: "closing" }),
         money("financedAmount", "Amount paid later", { showIf: { id: "payment", equals: "financed" }, required: true }), num("financedMonths", "Number of monthly payments", { showIf: { id: "payment", equals: "financed" }, required: true }),
+        num("financedRate", "Yearly interest rate on the amount paid later (%, leave blank for none)", { showIf: { id: "payment", equals: "financed" } }),
+        yesno("buyerGuaranty", "The Buyer's owners personally guarantee the amount paid later", { showIf: { id: "payment", equals: "financed" }, default: false }),
         date("closingDate", "Closing date", { required: true }),
         pick("inventory", "Inventory (stock)", [["included", "Included in the price"], ["atcost", "Counted on closing day and paid for separately at cost"]], { required: true, default: "atcost" }),
       ] },
@@ -1829,7 +1899,7 @@ My commission expires: ______________`,
         area("equipment", "Equipment, fixtures and other assets included", { placeholder: "e.g. Shelving, coolers, cash registers, signs, security cameras" }),
         yesno("leaseTransfer", "The Buyer takes over the Seller's lease of the premises", { default: true }),
         text("landlord", "Landlord", { showIf: { id: "leaseTransfer", equals: true } }),
-        area("licenses", "Licenses and permits to transfer or re-apply for", { placeholder: "e.g. Tobacco license, lottery agent, health permit, alcohol license" }),
+        area("licenses", "Licenses and permits the Buyer must obtain in the Buyer's own name", { placeholder: "e.g. Tobacco license, lottery agent, health permit, alcohol license, sales tax registration" }),
       ] },
       { title: "After the sale", questions: [
         yesno("nonCompete", "The Seller will not open a competing business nearby", { default: true }),
@@ -1845,48 +1915,64 @@ Date: {{effectiveDate}}
 This agreement is between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
 
 1. THE BUSINESS
-The Seller sells and the Buyer buys the business known as {{businessName}}, located at {{businessAddress}}{{#if businessKind}} ({{businessKind}}){{/if}}, together with its name, customer goodwill, telephone numbers and records, and the assets listed here: {{#if equipment}}{{equipment}}{{else}}the equipment and fixtures at the premises on the date of this agreement{{/if}}.
+The Seller sells and the Buyer buys the business known as {{businessName}}, located at {{businessAddress}}{{#if businessKind}} ({{businessKind}}){{/if}}, together with its name, customer goodwill, telephone numbers and records, and the assets listed here: {{#if equipment}}{{equipment}}{{else}}the equipment and fixtures at the premises on the date of this agreement{{/if}}. The sale does not include cash, bank accounts, accounts receivable, tax refunds, lottery funds or the Seller's personal items. Any motor vehicle included needs its own signed title transfer, which the parties will complete.
 
 2. PRICE
-The total price is {{price}}. A deposit of {{deposit}} is paid now and counts toward the price. {{#if payment=closing}}The rest is paid in cash at closing.{{else}}At closing the Buyer pays the rest except {{financedAmount}}, which the Buyer pays to the Seller in {{financedMonths}} equal monthly payments after closing, under a separate signed note.{{/if}}
+The total price is {{price}}. {{#if deposit}}A deposit of {{deposit}} is paid now and counts toward the price.{{else}}No deposit is paid at signing.{{/if}} {{#if payment=closing}}The rest is paid in cash at closing.{{else}}At closing the Buyer pays the rest except {{financedAmount}}, which the Buyer pays to the Seller in {{financedMonths}} equal monthly payment(s) after closing{{#if financedRate}}, with interest at {{financedRate}}% a year{{/if}}, under a separate signed note. The note is secured by the business's assets and inventory, may be paid early, and becomes fully due if any payment is more than 10 days late.{{#if buyerGuaranty}} The Buyer's owners personally guarantee the note.{{/if}}{{/if}}
 
 3. INVENTORY
-{{#if inventory=included}}The stock on hand at closing is included in the price.{{else}}The stock on hand is counted by both parties on closing day and the Buyer pays the Seller for it at the Seller's cost, in addition to the price above.{{/if}}
+{{#if inventory=included}}The stock on hand at closing is included in the price.{{else}}The stock on hand is counted by both parties on closing day, with the count signed by both, and the Buyer pays the Seller for it, in addition to the price above, at the cost shown on the Seller's supplier invoices. Damaged, expired and unsaleable items are not counted.{{/if}} Lottery tickets, gift cards and goods held on consignment are not inventory of the Seller and are not sold.
 
-4. CLOSING
-The sale closes on {{closingDate}}. At closing the Seller hands over the keys, the assets and the records, and signs a bill of sale. The Buyer takes over the business from that time.
+4. PRICE ALLOCATION
+The price is divided among the assets as stated in a schedule both parties sign, which both use for their tax filings; if there is no signed schedule, they will divide it as their tax preparers agree.
 
-5. DEBTS AND TAXES
-The Seller stays responsible for all debts, wages, taxes and bills of the business up to the closing date, including any sales tax and payroll tax, and will give the Buyer proof that they are paid or that a tax clearance has been obtained. The Buyer is responsible for the business after closing.
+5. CLOSING
+The sale closes on {{closingDate}}. At closing the Seller hands over the keys, the assets and the records, signs a bill of sale{{#if leaseTransfer}} and an assignment of the lease{{/if}}, and delivers releases of any liens on the assets. Rent, utilities and prepaid expenses are divided as of the closing date. The Seller bears the risk of loss until closing. The Buyer takes over the business from that time.
 
-6. LEASE AND LICENSES
-{{#if leaseTransfer}}The Seller will assign the lease of the premises to the Buyer{{#if landlord}} with the written consent of {{landlord}}{{/if}}, and this sale depends on that consent.{{else}}The premises are not part of this sale.{{/if}} {{#if licenses}}The following licenses and permits are handled as the law requires, and the Seller will cooperate: {{licenses}}.{{/if}}
+6. CONDITIONS TO CLOSING AND DEPOSIT
+The Buyer's duty to close depends on {{#if leaseTransfer}}the landlord's written consent to the lease assignment, {{/if}}the Buyer obtaining in its own name the licenses and permits it needs to run the business, and the bulk-transfer notice period described below having passed. If a condition is not met by the closing date through no fault of the Buyer, either party may cancel this agreement{{#if deposit}} and the Seller returns the deposit within 5 days{{/if}}. {{#if deposit}}If the Buyer fails to close when the conditions are met, the Seller keeps the deposit. If the Seller fails to close, the Buyer is refunded the deposit and may claim damages.{{else}}If either party fails to close when the conditions are met, the other party may claim damages.{{/if}}
 
-7. SELLER'S PROMISES
-The Seller states that the Seller owns the assets free of liens, that the information given to the Buyer about sales and expenses is true to the best of the Seller's knowledge, and that no lawsuit or government action is pending against the business except as told to the Buyer in writing.
+7. BULK-TRANSFER NOTICE AND TAX HOLDBACK
+If this sale is a bulk transfer under Maryland Commercial Law, Title 6, Subtitle 1, the Seller will give the Buyer, at least 15 days before closing, a creditor list signed under oath and a schedule of the property. The Buyer will mail the creditor notice to the listed creditors and to the Comptroller of Maryland at least 10 days before the Buyer takes possession or pays, whichever is first. The Buyer may keep from the closing payment any amount the Comptroller claims for the Seller's unpaid sales and use tax and pay it to the Comptroller; the balance is paid to the Seller when the claim is released or paid.
 
-8. AFTER THE SALE
-{{#if helpDays}}For {{helpDays}} days after closing the Seller will help the Buyer with the changeover at no extra charge. {{/if}}{{#if nonCompete}}For {{noCompeteYears}} years after closing the Seller will not own, run or work for a similar business within {{noCompeteMiles}} miles of the premises, and will not seek the business's customers or staff for such a business.{{/if}}
+8. DEBTS AND TAXES
+The Seller stays responsible for all debts, wages, taxes and bills of the business up to the closing date, including any sales tax and payroll tax, and will give the Buyer proof that they are paid. The Buyer decides which employees to hire and is responsible for the business after closing.
 
-9. GENERAL
+9. LEASE AND LICENSES
+{{#if leaseTransfer}}The Seller will assign the lease of the premises to the Buyer{{#if landlord}} with the written consent of {{landlord}}{{/if}}, and this sale depends on that consent.{{else}}The premises are not part of this sale, and the Buyer is responsible for arranging its own right to use them.{{/if}} The Buyer will apply in its own name for every license and permit needed to run the business{{#if licenses}}, including: {{licenses}}{{/if}}. The Seller will cooperate, will settle all lottery, tax and permit accounts up to closing, and will not transfer cigarettes, tobacco products or lottery tickets to the Buyer until the Buyer holds the license required for them.
+
+10. SELLER'S PROMISES
+The Seller states that the Seller owns the assets free of liens, that the information given to the Buyer about sales and expenses is true to the best of the Seller's knowledge, that the business's taxes and licenses are in good standing, and that no lawsuit or government action is pending against the business except as told to the Buyer in writing. If the Seller is a company, the person signing is authorized to sign for it. The Seller will cover the Buyer's losses caused by a statement in this section being untrue.
+
+11. AFTER THE SALE
+{{#if helpDays}}For {{helpDays}} day(s) after closing the Seller will help the Buyer with the changeover at no extra charge. {{/if}}{{#if nonCompete}}For {{noCompeteYears}} year(s) after closing the Seller will not own, run or work for a similar business within {{noCompeteMiles}} mile(s) of the premises, and will not seek the business's customers or staff for such a business. The Seller agrees these limits are reasonable and are a material part of the price; if a court finds a limit too broad, it applies to the extent the law allows.{{/if}}
+
+12. GENERAL
 This is the whole agreement. It may be changed only in writing signed by both parties, binds their heirs and successors, and is governed by the laws of the State of {{state}}. If a term cannot be enforced the rest stays in force.
 
 SELLER: {{seller}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 BUYER: {{buyer}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
   },
   {
     key: "ownership_transfer", title: "Membership Interest / Share Transfer Agreement", category: BUSINESS,
-    description: "One owner transfers all or part of their ownership in an LLC or corporation to another person.",
-    reviewNote: "Check the company's own operating agreement or bylaws: other owners may have to consent or have a first right to buy. Update the company records and tell the tax preparer about the change.",
+    description: "One owner transfers all or part of their ownership in an LLC or corporation to another person, for a price or as a gift.",
+    reviewNote: "Check the company's own operating agreement or bylaws: other owners may have to consent or have a first right to buy. Update the company records and tell the tax preparer about the change. Confirm with an attorney or the tax preparer: (1) an S corporation can lose its S status if shares go to someone who is not an eligible shareholder; (2) a change in the number of LLC members can change how the LLC is taxed; (3) how profit and loss for the year is divided between the old and new owner; (4) whether a gift needs a gift tax return; (5) whether licenses (alcohol, tobacco, lottery, health), the lease or loans need notice or consent when ownership changes — some count a transfer of an interest as a change of ownership. Attach the other owners' written consent if the agreement requires it.",
     steps: [
-      { title: "Company and people", questions: [text("company", "Company name", { prefill: "clientName", required: true }), pick("entityType", "The company is", [["llc", "An LLC (membership interest)"], ["corp", "A corporation (shares of stock)"]], { required: true, default: "llc" }), text("assignor", "Owner transferring (Transferor)", { required: true }), text("assignee", "Person receiving (Transferee)", { required: true }), text("assigneeAddress", "Transferee's address"), text("companySigner", "Person who signs for the company", { required: true }), effective(), state()] },
+      { title: "Company and people", questions: [text("company", "Company name", { prefill: "clientName", required: true }), pick("entityType", "The company is", [["llc", "An LLC (membership interest)"], ["corp", "A corporation (shares of stock)"]], { required: true, default: "llc" }), text("assignor", "Owner transferring (Transferor)", { required: true }), text("assignee", "Person receiving (Transferee)", { required: true }), text("assigneeAddress", "Transferee's address"), text("companySigner", "Person who signs for the company", { required: true }), text("companySignerTitle", "That person's title", { placeholder: "e.g. Manager, President" }), effective(), state()] },
       { title: "Terms", questions: [
-        num("percent", "Ownership transferred (%)", { required: true }), money("price", "Price (0 if a gift)", { required: true, default: "0" }),
+        num("percent", "Ownership transferred (% of the whole company)", { required: true }),
+        num("remaining", "Transferor's ownership after the transfer (%)"),
+        text("shareDetails", "Number of shares and certificate numbers", { showIf: { id: "entityType", equals: "corp" } }),
+        money("price", "Price (leave blank if a gift)"),
         text("payWhen", "How and when it is paid", { placeholder: "e.g. In full by bank transfer on the date above" }),
-        yesno("othersConsent", "The other owners have agreed in writing", { default: true }),
+        yesno("othersConsent", "The other owners have agreed in writing", { default: false }),
+        list("consenters", "Other owners who consent (they sign below)", [text("name", "Name", { required: true })], { addLabel: "Add an owner" }),
+        yesno("releaseGuaranty", "Transferor is to be released from personal guaranties of the company's debts", { default: false }),
         yesno("steppingDown", "The Transferor also resigns as manager / officer", { default: false }),
       ] },
     ],
@@ -1895,34 +1981,47 @@ Signature: ______________________________   Date: ______________`,
 Date: {{effectiveDate}}
 
 1. THE TRANSFER
-{{assignor}} ("Transferor") transfers to {{assignee}}{{#if assigneeAddress}} of {{assigneeAddress}}{{/if}} ("Transferee") {{percent}}% of the {{#if entityType=llc}}membership interest{{else}}shares{{/if}} in {{company}} ("Company"), including the matching share of profits, losses, distributions and voting rights, from the date above.
+{{assignor}} ("Transferor") transfers to {{assignee}}{{#if assigneeAddress}} of {{assigneeAddress}}{{/if}} ("Transferee") {{percent}}% of all the {{#if entityType=llc}}membership interests{{else}}shares{{/if}} in {{company}} ("Company"), including the matching share of profits, losses, distributions and voting rights, from the date above{{#if remaining}}, leaving the Transferor with {{remaining}}%{{/if}}.{{#if entityType=corp}}{{#if shareDetails}} Shares transferred: {{shareDetails}}.{{/if}}{{/if}} At signing the Transferor delivers {{#if entityType=llc}}any membership certificate and a signed assignment{{else}}the stock certificate(s), endorsed, or a signed stock power{{/if}}.
 
-2. PRICE
-{{#if price}}The Transferee pays the Transferor {{price}}{{#if payWhen}}: {{payWhen}}{{/if}}.{{else}}This transfer is a gift and no price is paid.{{/if}}
+2. {{#if price}}PRICE{{else}}GIFT{{/if}}
+{{#if price}}The Transferee pays the Transferor {{price}}{{#if payWhen}}: {{payWhen}}{{/if}}.{{else}}This transfer is a gift and no price is paid. The parties understand that a gift may need a gift tax return and that the Transferee may take over the Transferor's tax basis, and they will ask the tax preparer.{{/if}}
 
 3. THE TRANSFEROR'S PROMISES
-The Transferor owns what is transferred free of any lien or claim, has the right to transfer it, and is not aware of any claim against the Company that has not been told to the Transferee.
+The Transferor owns what is transferred free of any lien or claim, has not transferred or pledged it to anyone else, has the right to transfer it, and is not aware of any claim against the Company that has not been told to the Transferee. The Transferee is acquiring it for the Transferee's own account and has had the chance to review the Company's records.
 
-4. CONSENT
-{{#if othersConsent}}All other owners of the Company have agreed in writing to this transfer and to the Transferee becoming an owner.{{else}}This transfer is subject to any consent or first right of purchase required by the Company's own agreement, and takes effect only once it is obtained.{{/if}} The Transferee agrees to be bound by the Company's operating agreement or bylaws.
+4. CONSENT AND ADMISSION
+{{#if othersConsent}}All other owners of the Company have agreed in writing to this transfer and to the Transferee becoming an owner; they sign below.{{else}}This transfer is subject to any consent or first right of purchase required by the Company's own agreement, and takes effect only once it is obtained.{{/if}} The Transferee agrees to be bound by the Company's operating agreement or bylaws.{{#if entityType=llc}} The Transferee is admitted as a member of the Company on the date above. If the Transferor has transferred the whole interest, the Transferor ceases to be a member.{{/if}}
 
-5. THE COMPANY
-The Company accepts the transfer, will record it in its books and update its ownership records, and the Transferee will be treated as the owner of the percentage above from the date of this agreement. {{#if steppingDown}}The Transferor resigns as manager and officer of the Company on the same date.{{/if}}
+5. APPROVALS
+The Transferor and the Company will give any notice to, and obtain any approval from, licensing agencies, the landlord and lenders that is required for this transfer. This transfer takes effect only when those required approvals have been obtained.
 
-6. TAXES
-Profits and losses for the year are shared between the Transferor and the Transferee in proportion to the time each held the interest, unless the Company's tax preparer advises otherwise in writing.
+6. THE COMPANY
+The Company accepts the transfer, will record it in its books and update its ownership records, and the Transferee will be treated as the owner of the percentage above from the date of this agreement. {{#if steppingDown}}The Transferor resigns as manager and officer of the Company on the same date. {{/if}}{{#if releaseGuaranty}}The Transferee will ask the Company's lenders and landlord to release the Transferor from any personal guaranty of the Company's debts and will protect the Transferor against claims under those guaranties.{{/if}}
 
-7. GENERAL
-This is the whole agreement on this subject, may be changed only in writing signed by all who sign below, and is governed by the laws of the State of {{state}}.
+7. TAXES
+Profits and losses for the year are divided between the Transferor and the Transferee as the Company's tax preparer determines under the tax rules, and both accept that division.
+
+8. GENERAL
+This is the whole agreement on this subject, may be changed only in writing signed by all who sign below, and is governed by the laws of the State of {{state}}. If a term cannot be enforced, the rest stays in force.
 
 TRANSFEROR: {{assignor}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 TRANSFEREE: {{assignee}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
-COMPANY: {{company}}, by {{companySigner}}
-Signature: ______________________________   Date: ______________`,
+COMPANY: {{company}}
+By: {{companySigner}}{{#if companySignerTitle}}, {{companySignerTitle}}{{/if}}
+Signature: ______________________________   Date: ______________
+{{#if consenters}}
+CONSENT OF THE OTHER OWNERS
+The undersigned owners consent to this transfer.
+{{#list consenters}}{{name}}
+Signature: ______________________________   Date: ______________
+
+{{/list}}{{/if}}`,
   },
   {
     key: "personal_guaranty", title: "Personal Guaranty", category: LENDING,
