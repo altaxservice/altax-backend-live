@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Download, ClipboardCheck } from "lucide-react";
 import { usePendingSubmissions } from "../components/ClientSubmissionsInbox";
+import { enterAsTab } from "../utils/enterAsTab";
 import { SalesBlocksEditor, emptyBlocks, blocksToPayload, hasAmounts, stateFromBlocks, stateFromLegacyLines, type BlocksState, type BlocksPreview } from "../components/SalesBlocksEditor";
 import { CardDepositPanel } from "../components/CardDepositPanel";
 import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
@@ -1341,7 +1342,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         note={clientState ? `${clientState} sales tax by category` : "Sales tax by category"}
         action={<button type="button" className="btn btn-sm" onClick={() => setShowCreate(false)}>Close</button>}
       >
-        <form onSubmit={handleSubmit} style={{ padding: 16 }}>
+        <form onKeyDown={enterAsTab} onSubmit={handleSubmit} style={{ padding: 16 }}>
           {importedFromCalculator && (
             <p className="muted" style={{ fontSize: 11.5, margin: "0 0 10px", padding: "6px 10px", background: "var(--line)", borderRadius: 6 }}>
               Category lines filled in from the Calculator — set the date, review, then save.
@@ -1856,7 +1857,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           </div>
         )}
         {editing && (
-          <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
+          <form onKeyDown={enterAsTab} onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
             <strong>Edit sales record — {fmtDate(editing.sale_date)}</strong>
             {editError && <ErrorBanner error={editError} />}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
