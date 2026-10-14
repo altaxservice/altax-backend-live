@@ -37,3 +37,17 @@ export function readWorkbookSheetByName(buffer: Buffer, sheetNameQuery: string):
   const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false, defval: "" });
   return { rows, availableSheetNames };
 }
+
+/** Every sheet of a workbook (or a CSV) flattened to text lines, one per row — label and amounts joined by a space, plain numbers shown with 2 decimals — so a POS report exported as Excel/CSV can go through the same line reader as a PDF's text. */
+export function readWorkbookAsText(buffer: Buffer): string {
+  const workbook = XLSX.read(buffer, { type: "buffer", cellText: true, cellDates: false });
+  const out: string[] = [];
+  for (const name of workbook.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[name], { header: 1, raw: false, defval: "" });
+    for (const row of rows) {
+      const cells = row.map((c) => String(c ?? "").trim()).filter(Boolean).map((c) => (/^-?\d+(\.\d+)?$/.test(c) && c.includes(".") ? Number(c).toFixed(2) : c));
+      if (cells.length) out.push(cells.join(" "));
+    }
+  }
+  return out.join("\n");
+}

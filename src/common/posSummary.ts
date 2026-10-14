@@ -43,3 +43,90 @@ export function allocatePos(i: PosInput): { blocks: PosBlocks; pretax: number; c
     pretax, collected: C + snap, expected: r2(expected + snap), diff, warnings,
   };
 }
+/* ───────────── Reading a Clover "Sales Overview" / "Taxes" report (text extracted from the PDF) ───────────── */
+export interface CloverTaxSection { name: string; rate: number; applicable: number; collected: number; refunded: number; net: number }
+export interface CloverParse {
+  from: string | null; to: string | null;
+  taxSections: CloverTaxSection[];
+  overview: { gross: number | null; refunds: number | null; net: number | null; taxes: number | null; collected: number | null };
+  tenders: { debit: number; credit: number; ebt: number; cash: number; other: { name: string; amount: number }[] };
+  foundOverview: boolean; foundTaxes: boolean; warnings: string[];
+}
+
+const MONTHS: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+const AMT = /\(?-?\$?\(?[\d,]*\d\.\d{2}\)?/g;
+const num = (tok: string) => { const neg = /^\(|^-|\(\$|-\$/.test(tok) || /\)$/.test(tok) && tok.includes("("); const n = Number(tok.replace(/[^0-9.]/g, "")); return neg ? -n : n; };
+const amounts = (line: string) => (line.match(AMT) || []).map(num);
+const BRANDS = /^(visa|mastercard|master card|discover|american express|amex|diners|jcb|union ?pay|interac)\b/i;
+
+export function parseCloverText(text: string): CloverParse {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const out: CloverParse = { from: null, to: null, taxSections: [], overview: { gross: null, refunds: null, net: null, taxes: null, collected: null }, tenders: { debit: 0, credit: 0, ebt: 0, cash: 0, other: [] }, foundOverview: false, foundTaxes: false, warnings: [] };
+  const joined = lines.join(" ");
+  const pm = /([A-Za-z]{3})[a-z]* (\d{1,2}),? (\d{4})[^-–]{0,40}[-–]\s*([A-Za-z]{3})[a-z]* (\d{1,2}),? (\d{4})/.exec(joined);
+  if (pm && MONTHS[pm[1].toLowerCase()] && MONTHS[pm[4].toLowerCase()]) {
+    out.from = `${pm[3]}-${MONTHS[pm[1].toLowerCase()]}-${pm[2].padStart(2, "0")}`; out.to = `${pm[6]}-${MONTHS[pm[4].toLowerCase()]}-${pm[5].padStart(2, "0")}`;
+  }
+
+  // Taxes report: a heading like "Sales Tax (6%)" followed by Applicable Sales / Amount Collected / Amount Refunded / Net Amount.
+  let cur: CloverTaxSection | null = null; let inTaxes = false;
+  for (const l of lines) {
+    const head = /^(.+?)\s*\((\d+(?:\.\d+)?)\s*%\)\s*$/.exec(l);
+    if (head && amounts(l).length === 0) { cur = { name: head[1].trim(), rate: Number(head[2]), applicable: 0, collected: 0, refunded: 0, net: 0 }; out.taxSections.push(cur); inTaxes = true; continue; }
+    if (!cur) continue;
+    if (/^total\b/i.test(l) && amounts(l).length === 0) { cur = null; continue; }
+    const a = amounts(l)[0];
+    if (a === undefined) continue;
+    if (/^applicable sales/i.test(l)) cur.applicable = a;
+    else if (/^amount collected/i.test(l)) cur.collected = a;
+    else if (/^amount refunded/i.test(l)) cur.refunded = a;
+    else if (/^net amount/i.test(l)) cur.net = a;
+  }
+  out.foundTaxes = inTaxes && out.taxSections.some((s) => s.applicable !== 0);
+
+  // Sales Overview: summary lines, then the tender types (first occurrence of each name; indented card-brand lines are skipped).
+  let inTender = false; const seen = new Set<string>();
+  for (const l of lines) {
+    if (/sales by tender type/i.test(l)) { inTender = true; out.foundOverview = true; continue; }
+    if (/total cash deposit|sales by employee|sales by item|discounts/i.test(l)) inTender = false;
+    const a = amounts(l)[0];
+    if (!inTender) {
+      if (a === undefined) continue;
+      if (/^gross sales/i.test(l) && out.overview.gross === null) { out.overview.gross = a; out.foundOverview = true; }
+      else if (/^refunds?\b/i.test(l) && out.overview.refunds === null) out.overview.refunds = a;
+      else if (/^net sales/i.test(l) && out.overview.net === null) out.overview.net = a;
+      else if (/^taxes( & fees)?\b/i.test(l) && out.overview.taxes === null) out.overview.taxes = a;
+      else if (/^amount collected/i.test(l) && out.overview.collected === null && !out.taxSections.length) out.overview.collected = a;
+      else if (/^amount collected/i.test(l) && out.overview.collected === null && out.foundOverview) out.overview.collected = a;
+      continue;
+    }
+    if (a === undefined) continue;
+    const name = /^([A-Za-z][A-Za-z &/.'-]*?)\s*(?:\(\d+\))?\s+\(?-?\$/.exec(l)?.[1]?.trim();
+    if (!name || BRANDS.test(name) || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    if (/^debit/i.test(name)) out.tenders.debit = a; else if (/^credit/i.test(name)) out.tenders.credit = a; else if (/^ebt|snap/i.test(name)) out.tenders.ebt = a; else if (/^cash$/i.test(name)) out.tenders.cash = a;
+    else out.tenders.other.push({ name, amount: a });
+  }
+  if (!out.foundOverview && !out.foundTaxes) out.warnings.push("This doesn't look like a Clover Sales Overview or Taxes report.");
+  if (out.tenders.other.length) out.warnings.push(`Other ways of paying were found (${out.tenders.other.map((o) => `${o.name} $${o.amount.toFixed(2)}`).join(", ")}) — they are not included; add them to Cash or Card if they belong there.`);
+  return out;
+}
+
+/** Combines the parsed reports into the single set of numbers the form shows. */
+export function summarizeClover(parsed: CloverParse[]): { from: string | null; to: string | null; taxable: { rate: number; amount: number; name: string }[]; nonTaxable: number; cash: number; card: number; ebt: number; taxCollected: number | null; warnings: string[]; foundOverview: boolean; foundTaxes: boolean } {
+  const warnings = parsed.flatMap((p) => p.warnings);
+  const sections = parsed.flatMap((p) => p.taxSections);
+  const byRate = new Map<number, { rate: number; amount: number; name: string }>();
+  let nonTaxable = 0;
+  for (const s of sections) {
+    if (s.rate > 0) { const e = byRate.get(s.rate) || { rate: s.rate, amount: 0, name: s.name }; e.amount = r2(e.amount + s.applicable); byRate.set(s.rate, e); }
+    else nonTaxable = r2(nonTaxable + s.applicable);
+  }
+  const t = parsed.reduce((acc, p) => ({ debit: acc.debit || p.tenders.debit, credit: acc.credit || p.tenders.credit, ebt: acc.ebt || p.tenders.ebt, cash: acc.cash || p.tenders.cash }), { debit: 0, credit: 0, ebt: 0, cash: 0 });
+  const ovTax = parsed.map((p) => p.overview.taxes).find((x) => x !== null && x !== undefined) ?? null;
+  const secTax = sections.length ? r2(sections.reduce((s, x) => s + (x.net || x.collected + x.refunded), 0)) : null;
+  const from = parsed.map((p) => p.from).find(Boolean) || null, to = parsed.map((p) => p.to).find(Boolean) || null;
+  if (!parsed.some((p) => p.foundTaxes)) warnings.push("The Taxes report wasn't included, so the taxable and non-taxable sales are blank — add that PDF or type them in.");
+  if (!parsed.some((p) => p.foundOverview)) warnings.push("The Sales Overview wasn't included, so how customers paid (cash / card / EBT) is blank — add that PDF or type it in.");
+  return { from, to, taxable: Array.from(byRate.values()), nonTaxable, cash: t.cash, card: r2(t.debit + t.credit), ebt: t.ebt, taxCollected: ovTax ?? secTax, warnings, foundOverview: parsed.some((p) => p.foundOverview), foundTaxes: parsed.some((p) => p.foundTaxes) };
+}

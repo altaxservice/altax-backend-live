@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Receipt } from "lucide-react";
 import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import { DateInput } from "./DateInput";
+import { FileDropInput } from "./FileDropInput";
+import { fileToBase64 } from "../utils/file";
 import { NON_TAXABLE_CATEGORY, blocksToPayload, stateFromBlocks } from "./SalesBlocksEditor";
 import { enterAsTab } from "../utils/enterAsTab";
 import { useToast } from "./Toast";
@@ -48,6 +50,31 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
     setViewErr(null);
     try { const blob = await fetchAuthedBlob(`/documents/uploads/${u.upload_id}/download`); setViewing({ id: u.upload_id, name: u.file_name, url: URL.createObjectURL(blob), isPdf: /\.pdf$/i.test(u.file_name) }); }
     catch { setViewErr("Could not open that file."); }
+  }
+  const [reportFiles, setReportFiles] = useState<File[]>([]);
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState<{ ok: boolean; lines: string[] } | null>(null);
+  interface ParsedPos { from: string | null; to: string | null; taxable: { rate: number; amount: number; name: string }[]; nonTaxable: number; cash: number; card: number; ebt: number; taxCollected: number | null; warnings: string[]; foundOverview: boolean; foundTaxes: boolean }
+  /** Reads the PDF / Excel reports the POS exported and fills the boxes below — nothing is saved until Save is pressed. */
+  async function readReports() {
+    setReading(true); setReadNote(null); setError(null);
+    try {
+      const files = await Promise.all(reportFiles.map(async (f) => ({ fileName: f.name, fileBase64: await fileToBase64(f) })));
+      const r = await api.post<ParsedPos>("/sales-input-import/pos/parse", { clientId, files });
+      const lines: string[] = []; const next: Record<string, string> = {};
+      setTaxMode(false);
+      for (const t of r.taxable) {
+        const cat = taxableCats.find((c) => rateOf(c) === t.rate);
+        if (cat) next[cat.category_id] = String(t.amount); else lines.push(`No category at ${t.rate}% for this client — ${money(t.amount)} of "${t.name}" sales was NOT filled in. Add it by hand.`);
+      }
+      setTaxable(next); setNoTax(r.nonTaxable ? String(r.nonTaxable) : ""); setRemoved("");
+      setTax(r.taxCollected != null ? String(r.taxCollected) : "");
+      if (r.foundOverview) { setDebit(r.card ? String(r.card) : ""); setCredit(""); setEbt(r.ebt ? String(r.ebt) : ""); setCashTyped(r.cash ? String(r.cash) : ""); }
+      if (r.to) setSaleDate(r.to);
+      idem.current = null;
+      lines.push(...r.warnings);
+      setReadNote({ ok: true, lines: [`Filled from ${reportFiles.length === 1 ? "the file" : "the files"}${r.from && r.to ? ` (${r.from} to ${r.to})` : ""}. Check the numbers against the report, then Save.`, ...lines] });
+    } catch (e) { setReadNote({ ok: false, lines: [e instanceof ApiError ? e.message : "Could not read the files."] }); } finally { setReading(false); }
   }
   const rateOf = (c: Cat) => Number(/\((\d+(?:\.\d+)?)\s*%\)/.exec(c.category_name)?.[1]) || 0;
 
@@ -126,6 +153,17 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
         </div>
       )}
       <form onKeyDown={enterAsTab} onSubmit={(e) => e.preventDefault()} style={{ padding: 16, display: "grid", gap: 12 }}>
+        <details open={reportFiles.length > 0 || undefined} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px" }}>
+          <summary style={{ cursor: "pointer", fontSize: 13 }}><b>Have the PDF or Excel the POS exported?</b> Read it instead of typing</summary>
+          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+            <FileDropInput files={reportFiles} onFilesChange={setReportFiles} accept=".pdf,.xlsx,.xls,.csv" hint="Clover: the Taxes report (and the Sales Overview for how they paid). Up to 4 files." />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm" disabled={reading || !reportFiles.length} onClick={readReports}>{reading ? "Reading…" : "Read the report & fill the form"}</button>
+              <span className="muted" style={{ fontSize: 12 }}>Photos and scanned PDFs have no text — for those, type the numbers below.</span>
+            </div>
+            {readNote && <div className="tender-warn" style={{ color: readNote.ok ? undefined : "var(--red)" }}>{readNote.lines.map((l, i) => <div key={i}>{i > 0 && readNote.ok ? "⚠ " : ""}{l}</div>)}</div>}
+          </div>
+        </details>
         <label className="field" style={{ margin: 0, maxWidth: 260 }}>Month — report ends on <span className="muted">(becomes the sale date)</span><DateInput value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></label>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}><div className="muted" style={{ fontSize: 12.5 }}><b>Tax report</b> — {taxMode ? "tax collected at each rate (the sales are worked out from it)" : "sales before tax for each tax rate"}</div>

@@ -4,9 +4,10 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
-import { readWorkbookSheetByName } from "../../common/xlsxReader";
+import { readWorkbookSheetByName, readWorkbookAsText } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
-import { allocatePos } from "../../common/posSummary";
+import { extractPdfText } from "../../common/pdfBankReader";
+import { allocatePos, parseCloverText, summarizeClover } from "../../common/posSummary";
 import { parseSalesInputSheet, SALES_INPUT_SHEET_NAME, type ParsedSalesInputRow } from "./salesInputParser";
 import { createSalesInputRecord, computeCategoryLinesTax, deleteSalesInputRecord, type SalesCategoryLineInput } from "../accounting/accounting.routes";
 
@@ -353,4 +354,39 @@ salesInputImportRouter.post("/pos/allocate", requireAuth, requireRole("admin", "
   const computed = all.size ? await computeCategoryLinesTax(Array.from(all, ([categoryId, taxableAmount]) => ({ categoryId, taxableAmount })), loaded.client.client_id, loaded.client.state) : { totalTax: 0 };
   const computedTax = Math.round(Number(computed.totalTax) * 100) / 100;
   res.json({ ...result, computedTax, taxCollected, suggestedAdjustment: Math.round((taxCollected - computedTax) * 100) / 100 });
+}));
+
+/**
+ * Reads POS report files the client sent — a PDF the POS exported (it must contain real text), or an Excel/CSV export — and returns the numbers
+ * to put in the entry form. Nothing is saved. Photos and scanned PDFs have no text and are refused with a clear message (they are typed in instead).
+ */
+salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const files: { fileName?: string; fileBase64?: string }[] = Array.isArray(body.files) ? body.files.slice(0, 4) : [];
+  if (!files.length) return res.status(400).json({ error: "Choose at least one report file." });
+  const parsed = [] as ReturnType<typeof parseCloverText>[];
+  for (const f of files) {
+    const name = String(f.fileName || "report");
+    const decoded = decodeUpload(String(f.fileBase64 || ""));
+    if ("error" in decoded) return res.status(400).json({ error: `${name}: ${decoded.error}` });
+    const scan = await scanFileForMalware(decoded.buffer, "pos-report");
+    if (scan.scanned && !scan.clean) return res.status(400).json({ error: `${name} was flagged by malware scanning and was not read.` });
+    const head = decoded.buffer.subarray(0, 8);
+    let text = "";
+    if (head.subarray(0, 4).toString("latin1") === "%PDF") {
+      try { text = await extractPdfText(decoded.buffer); } catch { return res.status(400).json({ error: `${name} could not be opened as a PDF.` }); }
+      if (text.replace(/\s/g, "").length < 40) return res.status(400).json({ error: `${name} is a picture inside a PDF (a scan or photo) — there is no text to read. Type its numbers in below, or ask for the PDF the POS itself exports.` });
+    } else if (/\.(xlsx|xls|csv)$/i.test(name) || head.subarray(0, 2).toString("latin1") === "PK") {
+      try { text = readWorkbookAsText(decoded.buffer); } catch { return res.status(400).json({ error: `${name} could not be opened as a spreadsheet.` }); }
+    } else {
+      return res.status(400).json({ error: `${name}: pictures can't be read automatically. Open the picture beside the form and type the numbers, or ask the client for the PDF/Excel export.` });
+    }
+    const p = parseCloverText(text);
+    if (!p.foundTaxes && !p.foundOverview) return res.status(400).json({ error: `${name} doesn't look like a Clover Taxes or Sales Overview report. Type the numbers in instead.` });
+    parsed.push(p);
+  }
+  const summary = summarizeClover(parsed);
+  res.json({ ...summary, sections: parsed.flatMap((p) => p.taxSections) });
 }));
