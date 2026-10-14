@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Receipt } from "lucide-react";
+import { Receipt, Landmark, ClipboardCheck } from "lucide-react";
 import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import { DateInput } from "./DateInput";
 import { FileDropInput } from "./FileDropInput";
@@ -11,6 +11,7 @@ import { useToast } from "./Toast";
 interface Cat { category_id: string; category_name: string }
 interface Allocation {
   blocks: { cash: { total: number; lines: { categoryId: string; taxableAmount: number }[] }; card: { total: number; lines: { categoryId: string; taxableAmount: number }[] }; snap: number };
+  lines?: { categoryId: string; categoryName: string; taxableAmount: number; rate: number; taxAmount: number }[];
   diff: number; warnings: string[]; computedTax: number; taxCollected: number; suggestedAdjustment: number;
 }
 const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -121,19 +122,28 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
     } catch (e) { setError(e instanceof ApiError ? e.message : "Could not save."); } finally { setSaving(false); }
   }
 
-  const box = (label: string, value: string, set: (v: string) => void, hint?: string) => (
-    <label className="field" style={{ margin: 0 }}>{label}
+  /** One labelled number box; type="number" so the phone keypad shows digits. */
+  const field = (label: string, value: string, set: (v: string) => void, hint?: string) => (
+    <label className="sb-total">{label}
       <input type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00" value={value} onChange={(e) => { set(e.target.value); idem.current = null; }} />
-      {hint && <span className="muted" style={{ fontSize: 11.5 }}>{hint}</span>}
+      {hint && <span className="muted" style={{ fontSize: 11.5, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{hint}</span>}
     </label>
   );
-  const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 } as const;
+  const row = (label: string, value: string, set: (v: string) => void, right: string, aria: string) => (
+    <label className="sb-row" key={aria}><span>{label}</span>
+      <input type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00" aria-label={aria} value={value} onChange={(e) => { set(e.target.value); idem.current = null; }} />
+      <b className="sb-rowtax" dir="ltr">{right}</b>
+    </label>
+  );
+  const lineOf = (id: string) => alloc?.lines?.find((l) => l.categoryId === id);
+  const taxedLines = taxableCats.filter((c) => salesFor(c) > 0);
+  const checkOk = pretax > 0 && Math.abs(diff) <= 1;
 
   return (
     <div className="command-panel">
       <div className="command-panel-header">
-        <div><h3 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><Receipt size={16} aria-hidden="true" /> Enter month from the POS reports</h3>
-          <div className="command-panel-note">Works with any POS (Clover, Square, Toast…): type the monthly numbers from its sales / tax / payments report. Cash is worked out for you; press Save when the check line is green.</div></div>
+        <div><h3 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><Receipt size={16} aria-hidden="true" /> Enter a month from the POS reports</h3>
+          <div className="command-panel-note">Type the numbers from the POS (Clover, Square, Toast…) — everything else is calculated, and the figures for the Sales Tax filing appear on the right.</div></div>
         <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
       {uploads.length > 0 && (
@@ -144,7 +154,7 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
           {viewErr && <span style={{ color: "var(--red)" }}>{viewErr}</span>}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: viewing ? "minmax(0, 1fr) minmax(0, 1.25fr)" : "minmax(0, 1fr)", alignItems: "start" }} className="pos-split">
+      <div style={{ display: "grid", gridTemplateColumns: viewing ? "minmax(0, 1fr) minmax(0, 1.4fr)" : "minmax(0, 1fr)", alignItems: "start" }} className="pos-split">
       {viewing && (
         <div style={{ padding: 12, position: "sticky", top: 8, maxHeight: "92vh", overflow: "auto", borderRight: "1px solid var(--line)" }}>
           {viewing.isPdf
@@ -152,54 +162,69 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
             : <a href={viewing.url} target="_blank" rel="noreferrer" title="Open full size"><img src={viewing.url} alt={viewing.name} style={{ width: "100%", height: "auto", display: "block" }} /></a>}
         </div>
       )}
-      <form onKeyDown={enterAsTab} onSubmit={(e) => e.preventDefault()} style={{ padding: 16, display: "grid", gap: 12 }}>
-        <details open={reportFiles.length > 0 || undefined} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px" }}>
-          <summary style={{ cursor: "pointer", fontSize: 13 }}><b>Have the PDF or Excel the POS exported?</b> Read it instead of typing</summary>
+      <form onKeyDown={enterAsTab} onSubmit={(e) => e.preventDefault()} style={{ padding: 16, display: "grid", gap: 14 }}>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "end", justifyContent: "space-between" }}>
+          <label className="field" style={{ margin: 0, width: 240 }}>Month — report ends on <DateInput value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={taxMode} onChange={(e) => { setTaxMode(e.target.checked); setTaxable({}); }} /> My report shows tax amounts, not sales (Square, Toast…)</label>
+        </div>
+
+        <details open={reportFiles.length > 0 || undefined} className="muted" style={{ fontSize: 13 }}>
+          <summary style={{ cursor: "pointer" }}>Have the PDF or Excel the POS exported? Read it instead of typing</summary>
           <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-            <FileDropInput files={reportFiles} onFilesChange={setReportFiles} accept=".pdf,.xlsx,.xls,.csv" hint="Clover: the Taxes report (and the Sales Overview for how they paid). Up to 4 files." />
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button type="button" className="btn btn-sm" disabled={reading || !reportFiles.length} onClick={readReports}>{reading ? "Reading…" : "Read the report & fill the form"}</button>
-              <span className="muted" style={{ fontSize: 12 }}>Photos and scanned PDFs have no text — for those, type the numbers below.</span>
-            </div>
+            <FileDropInput files={reportFiles} onFilesChange={setReportFiles} accept=".pdf,.xlsx,.xls,.csv" hint="Clover: the Taxes report, and the Sales Overview for how they paid. Up to 4 files. Photos and scanned PDFs can't be read — type those." />
+            <div><button type="button" className="btn btn-sm" disabled={reading || !reportFiles.length} onClick={readReports}>{reading ? "Reading…" : "Read the report & fill the form"}</button></div>
             {readNote && <div className="tender-warn" style={{ color: readNote.ok ? undefined : "var(--red)" }}>{readNote.lines.map((l, i) => <div key={i}>{i > 0 && readNote.ok ? "⚠ " : ""}{l}</div>)}</div>}
           </div>
         </details>
-        <label className="field" style={{ margin: 0, maxWidth: 260 }}>Month — report ends on <span className="muted">(becomes the sale date)</span><DateInput value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></label>
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}><div className="muted" style={{ fontSize: 12.5 }}><b>Tax report</b> — {taxMode ? "tax collected at each rate (the sales are worked out from it)" : "sales before tax for each tax rate"}</div>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={taxMode} onChange={(e) => { setTaxMode(e.target.checked); setTaxable({}); }} /> My report shows tax amounts, not sales (Square, Toast…)</label></div>
-        <div style={grid}>
-          {taxableCats.map((c) => box(taxMode && rateOf(c) > 0 ? `Tax collected at ${rateOf(c)}%` : c.category_name, taxable[c.category_id] || "", (v) => setTaxable((t) => ({ ...t, [c.category_id]: v })), taxMode && rateOf(c) > 0 && num(taxable[c.category_id] || "") > 0 ? `= ${money(salesFor(c))} of sales` : undefined))}
-          {box("No Tax (0%)", noTax, setNoTax)}
-          {box("Tax-exempt / removed (0%)", removed, setRemoved, "Leave empty if the report has none")}
-          {box("Total tax collected", tax, setTax, taxMode ? "Leave empty to add up the taxes above" : "The month's tax total (Clover: “Net Amount” in the Total block)")}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 12, alignItems: "start" }}>
+          <section className="sb-card cash" aria-label="Taxes report">
+            <header><Receipt size={16} aria-hidden="true" /><h3>1 · Taxes report</h3></header>
+            <div className="sb-row sb-head"><span></span><span>{taxMode ? "Tax collected" : "Sales"}</span><span>{taxMode ? "Sales" : "Tax"}</span></div>
+            {taxableCats.map((c) => {
+              const l = lineOf(c.category_id); const has = salesFor(c) > 0;
+              const right = !has ? "—" : taxMode ? money(salesFor(c)) : money(l ? l.taxAmount : r2(salesFor(c) * rateOf(c) / 100));
+              return row(taxMode && rateOf(c) > 0 ? `${c.category_name}` : c.category_name, taxable[c.category_id] || "", (v) => setTaxable((t) => ({ ...t, [c.category_id]: v })), right, `Taxes report — ${c.category_name}`);
+            })}
+            {row("No Tax (0%)", noTax, setNoTax, "—", "No Tax")}
+            {row("Tax Removed (0%)", removed, setRemoved, "—", "Tax Removed")}
+            <div className="sb-row sb-sum"><span>Total</span><b dir="ltr">{money(pretax)}</b><b dir="ltr">{money(alloc ? alloc.computedTax : 0)}</b></div>
+            {field("Total tax collected (Net Amount)", tax, setTax, taxMode ? "Leave empty to add up the taxes above" : "From the Total block of the Taxes report")}
+          </section>
+
+          <section className="sb-card card" aria-label="Payments report">
+            <header><Landmark size={16} aria-hidden="true" /><h3>2 · Payments report</h3></header>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>How customers paid, tax included. Leave empty if you only have the Taxes report — it's entered as cash.</p>
+            {field("Debit / card", debit, setDebit, "Or the one card total")}
+            {field("Credit card (if listed separately)", credit, setCredit)}
+            {field("EBT / SNAP", ebt, setEbt)}
+            {field("Cash", cashTyped, setCashTyped, cashTyped === "" && expected > 0 ? `Calculated: ${money(cash)}` : undefined)}
+            <div className="sb-calc strong"><span>Collected</span><b dir="ltr">{money(paid)}</b></div>
+          </section>
+
+          <section className="sb-card snap" aria-label="Figures for the Sales Tax filing" style={{ borderColor: checkOk ? "var(--green)" : undefined }}>
+            <header><ClipboardCheck size={16} aria-hidden="true" /><h3>3 · For the Sales Tax filing</h3></header>
+            {pretax <= 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>Type the Taxes report numbers and the filing figures appear here.</p> : (<>
+              {taxedLines.map((c) => { const l = lineOf(c.category_id); return (
+                <div key={c.category_id} className="sb-calc"><span>{c.category_name}</span><b dir="ltr">{money(salesFor(c))}{l ? <span className="muted"> · tax {money(l.taxAmount)}</span> : null}</b></div>
+              ); })}
+              <div className="sb-calc"><span>Non-taxable sales</span><b dir="ltr">{money(nonTaxable)}</b></div>
+              <div className="sb-calc strong"><span>Total sales</span><b dir="ltr">{money(pretax)}</b></div>
+              {alloc && <div className="sb-calc"><span>Tax at the category rates</span><b dir="ltr">{money(alloc.computedTax)}</b></div>}
+              {alloc && Math.abs(alloc.suggestedAdjustment) >= 0.005 && <div className="sb-calc"><span>Adjustment (POS rounding)</span><b dir="ltr">{money(alloc.suggestedAdjustment)}</b></div>}
+              <div className="sb-calc strong" style={{ fontSize: 15 }}><span>Sales tax to report</span><b dir="ltr">{money(taxAmount)}</b></div>
+              <div className="sb-calc"><span>Collected from customers</span><b dir="ltr">{money(expected)}</b></div>
+              <div className={`sb-calc${checkOk ? "" : " bad"}`}><span>{checkOk ? "✓ Payments add up" : "⚠ Payments differ by"}</span><b dir="ltr">{checkOk ? (Math.abs(diff) >= 0.005 ? `off ${money(Math.abs(diff))}` : "") : money(Math.abs(diff))}</b></div>
+              {alloc && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Entered as Cash {money(alloc.blocks.cash.total)} · Card {money(alloc.blocks.card.total)} · SNAP/EBT {money(alloc.blocks.snap)}</p>}
+            </>)}
+          </section>
         </div>
 
-        <div className="muted" style={{ fontSize: 12.5 }}><b>Payments report</b> — how customers paid <span>(leave empty if you only have the Taxes report — it's entered as cash)</span></div>
-        <div style={grid}>
-          {box("Card (debit, or all cards)", debit, setDebit, "If the report shows one card total, type it here")}
-          {box("Credit card (if listed separately)", credit, setCredit)}
-          {box("EBT", ebt, setEbt)}
-          {box("Cash", cashTyped, setCashTyped, cashTyped === "" && expected > 0 ? `Calculated: ${money(cash)}` : "Typed from the report")}
-        </div>
-
-        {pretax > 0 && (
-          <div className="tender-warn" style={{ background: Math.abs(diff) <= 1 ? "var(--green-soft, #e8f6ee)" : undefined }}>
-            Sales {money(pretax)} + tax {money(taxAmount)} = <b>{money(expected)}</b> · paid {money(paid)} ·{" "}
-            {Math.abs(diff) <= 1 ? <b>✓ adds up{Math.abs(diff) >= 0.005 ? ` (off by ${money(Math.abs(diff))})` : ""}</b> : <b style={{ color: "var(--red)" }}>⚠ off by {money(Math.abs(diff))} — check the numbers</b>}
-          </div>
-        )}
-        {alloc && (
-          <div className="muted" style={{ fontSize: 13 }}>
-            Will be entered as: Cash {money(alloc.blocks.cash.total)} · Card {money(alloc.blocks.card.total)} · SNAP / EBT {money(alloc.blocks.snap)}
-            {Math.abs(alloc.suggestedAdjustment) >= 0.005 && <> · tax adjustment {money(alloc.suggestedAdjustment)} (so tax due = the {money(alloc.taxCollected)} Clover collected)</>}
-          </div>
-        )}
         {alloc?.warnings.map((w, i) => <div key={i} className="tender-warn" style={{ color: "var(--red)" }}>⚠ {w}</div>)}
         {error && <div className="tender-warn" style={{ color: "var(--red)" }}>{error}</div>}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn btn-primary" disabled={saving || !ready || !alloc} onClick={save}>{saving ? "Saving…" : `Save ${monthLabel(saleDate) || "sales"}`}</button>
-          {!ready && pretax > 0 && <span className="muted" style={{ fontSize: 12 }}>The numbers need to add up before you can save.</span>}
+          {!ready && pretax > 0 && <span className="muted" style={{ fontSize: 12 }}>The payments need to add up before you can save.</span>}
         </div>
       </form>
       </div>

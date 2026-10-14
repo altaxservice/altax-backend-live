@@ -353,7 +353,7 @@ salesInputImportRouter.post("/pos/allocate", requireAuth, requireRole("admin", "
   for (const l of [...result.blocks.cash.lines, ...result.blocks.card.lines]) all.set(l.categoryId, Math.round(((all.get(l.categoryId) || 0) + l.taxableAmount) * 100) / 100);
   const computed = all.size ? await computeCategoryLinesTax(Array.from(all, ([categoryId, taxableAmount]) => ({ categoryId, taxableAmount })), loaded.client.client_id, loaded.client.state) : { totalTax: 0 };
   const computedTax = Math.round(Number(computed.totalTax) * 100) / 100;
-  res.json({ ...result, computedTax, taxCollected, suggestedAdjustment: Math.round((taxCollected - computedTax) * 100) / 100 });
+  res.json({ ...result, lines: (computed as any).lines || [], computedTax, taxCollected, suggestedAdjustment: Math.round((taxCollected - computedTax) * 100) / 100 });
 }));
 
 /**
