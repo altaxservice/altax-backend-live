@@ -8,6 +8,7 @@ import { DocSigningPanel } from "../components/DocSigningPanel";
 import { printText } from "../utils/printDocument";
 import { DateInput } from "../components/DateInput";
 import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ConfirmProvider";
 
 interface Option { value: string; label: string }
 interface Question {
@@ -21,7 +22,16 @@ type Lang = "en" | "ar" | "both";
 interface TemplateFull extends TemplateSummary { stepList: Step[] }
 interface ExistingTool { title: string; description: string; path: string; hint: string }
 interface HistoryDoc { docId: string; templateKey: string; title: string; contractId: string | null; status: string | null; createdBy: string; createdAt: string; clientId: string; clientName: string | null }
+interface DraftRow { draftId: string; templateKey: string; title: string; clientId: string | null; clientName: string | null; lang: string; step: number; stepCount: number; stepTitle: string; createdBy: string; updatedAt: string }
 type Answers = Record<string, any>;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function ago(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 function condMet(c: Question["showIf"], a: Answers): boolean {
   if (!c) return true;
@@ -69,19 +79,46 @@ function Field({ q, value, onChange, answers }: { q: Question; value: any; onCha
 function Library({ onPick }: { onPick: (key: string) => void }) {
   const [data, setData] = useState<{ templates: TemplateSummary[]; categories: string[]; existingTools: ExistingTool[] } | null>(null);
   const [recent, setRecent] = useState<HistoryDoc[]>([]);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const confirmDialog = useConfirm();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [signing, setSigning] = useState<string | null>(null);
   const loadRecent = () => api.get<{ docs: HistoryDoc[] }>("/doc-builder/history").then((r) => setRecent(r.docs.slice(0, 8))).catch(() => {});
+  const loadDrafts = () => api.get<{ drafts: DraftRow[] }>("/doc-builder/drafts").then((r) => setDrafts(r.drafts)).catch(() => {});
+  async function discardDraft(d: DraftRow) {
+    const ok = await confirmDialog({ title: "Delete this unfinished document?", message: `"${d.title}"${d.clientName ? ` for ${d.clientName}` : ""} will be removed. This cannot be undone.`, confirmLabel: "Delete" });
+    if (!ok) return;
+    try { await api.post(`/doc-builder/drafts/${d.draftId}/delete`, {}); } catch { /* it may already be gone */ }
+    loadDrafts();
+  }
   useEffect(() => {
     api.get<NonNullable<typeof data>>("/doc-builder/templates").then(setData).catch(() => setData({ templates: [], categories: [], existingTools: [] }));
     loadRecent();
+    loadDrafts();
   }, []);
   if (!data) return <div className="spinner-wrap">Loading the library…</div>;
   const needle = q.trim().toLowerCase();
   const shown = data.templates.filter((t) => (!cat || t.category === cat) && (!needle || `${t.title} ${t.description}`.toLowerCase().includes(needle)));
   return (
     <div style={{ display: "grid", gap: 18 }}>
+      {drafts.length > 0 && (
+        <div className="command-panel">
+          <div className="command-panel-header"><div><h2 className="command-panel-title">Continue where you left off</h2><div className="command-panel-note">Unfinished documents are saved automatically as you work. Open one to pick up at the step you stopped.</div></div></div>
+          <div className="table-scroll"><table>
+            <thead><tr><th scope="col">Document</th><th scope="col">Client</th><th scope="col">Where you stopped</th><th scope="col">Last edited</th><th scope="col"></th></tr></thead>
+            <tbody>{drafts.map((d) => (
+              <tr key={d.draftId}>
+                <td>{d.title}</td>
+                <td>{d.clientName || (d.clientId ? d.clientId : <span className="muted">No client chosen</span>)}</td>
+                <td>Step {d.step + 1} of {d.stepCount} · <span className="muted">{d.stepTitle}</span></td>
+                <td className="muted">{ago(d.updatedAt)}{d.createdBy ? ` · ${d.createdBy}` : ""}</td>
+                <td style={{ whiteSpace: "nowrap" }}><button type="button" className="btn btn-sm btn-primary" onClick={() => onPick(`${d.templateKey}?draft=${d.draftId}`)}>Continue</button> <button type="button" className="btn btn-sm" onClick={() => discardDraft(d)}>Delete</button></td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </div>
+      )}
       <div className="command-panel">
         <div className="command-panel-header"><div><h2 className="command-panel-title">Create a document</h2><div className="command-panel-note">Pick a document, answer a few questions, and it is written for you — then save it to the client, send it to sign, or print it.</div></div></div>
         <div style={{ padding: "12px 16px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", borderBottom: "1px solid var(--line)" }}>
@@ -142,7 +179,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
   );
 }
 
-function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromDocId: string | null; onExit: () => void }) {
+function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey: string; fromDocId: string | null; resumeDraftId: string | null; onExit: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [tpl, setTpl] = useState<TemplateFull | null>(null);
@@ -156,15 +193,36 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
   const [done, setDone] = useState<{ contractId: string; docId: string; body: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const loadedFor = useRef("");
+  const confirmDialog = useConfirm();
+
+  // Unfinished-document autosave: nothing is saved until the person actually changes something, then every change is saved after a short pause.
+  const touched = useRef(false);
+  const finished = useRef(false);
+  const draftRef = useRef<string | null>(resumeDraftId);
+  const inflight = useRef(false);
+  const again = useRef(false);
+  const [draftReady, setDraftReady] = useState(!resumeDraftId);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const touch = () => { touched.current = true; };
 
   useEffect(() => {
     api.get<{ template: TemplateFull }>(`/doc-builder/templates/${templateKey}`).then((r) => setTpl(r.template)).catch(() => setErr("Could not load this document."));
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
   }, [templateKey]);
 
+  // Picking an unfinished document back up: restore its answers, client, language and step before anything else fills in defaults.
+  useEffect(() => {
+    if (!resumeDraftId) return;
+    api.get<{ clientId: string; lang: Lang; answers: Answers; step: number }>(`/doc-builder/drafts/${resumeDraftId}`).then((d) => {
+      loadedFor.current = `${templateKey}|${d.clientId}|`;
+      setLang(d.lang || "en"); setAnswers(d.answers || {}); setClientId(d.clientId || ""); setStep(d.step || 0);
+    }).catch(() => { draftRef.current = null; toast("Could not open that unfinished document — starting a new one."); }).finally(() => setDraftReady(true));
+  }, [resumeDraftId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Starting answers: from a past document when "Use again", otherwise defaults plus whatever the chosen client's record fills in.
   useEffect(() => {
-    if (!tpl) return;
+    if (!tpl || !draftReady) return;
     const k = `${tpl.key}|${clientId}|${fromDocId || ""}`;
     if (loadedFor.current === k) return;
     const prevClient = loadedFor.current.split("|")[1];
@@ -182,7 +240,41 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
         setAnswers((cur) => { const out = { ...r.answers }; for (const [key, v] of Object.entries(cur)) if (v !== "" && v !== undefined && !(Array.isArray(v) && v.length === 0)) out[key] = v; return clientId ? { ...out, ...pickPrefilled(tpl, r.answers) } : out; });
       } catch { /* the form still works without prefill */ }
     })();
-  }, [tpl, clientId, fromDocId]);
+  }, [tpl, clientId, fromDocId, draftReady]);
+
+  const latest = useRef({ clientId, lang, answers, step });
+  latest.current = { clientId, lang, answers, step };
+  async function saveNow(): Promise<void> {
+    if (finished.current) return;
+    if (inflight.current) { again.current = true; return; }
+    inflight.current = true; setSaveState("saving");
+    try {
+      const r = await api.post<{ draftId: string }>("/doc-builder/drafts", { draftId: draftRef.current, templateKey, ...latest.current });
+      draftRef.current = r.draftId; setSavedAt(new Date()); setSaveState("saved");
+    } catch { setSaveState("error"); } finally {
+      inflight.current = false;
+      if (again.current) { again.current = false; void saveNow(); }
+    }
+  }
+  async function flushSave() { while (inflight.current) await sleep(80); await saveNow(); while (inflight.current) await sleep(80); }
+  useEffect(() => {
+    if (!tpl || !touched.current || finished.current) return;
+    const t = window.setTimeout(() => { void saveNow(); }, 1200);
+    return () => window.clearTimeout(t);
+  }, [tpl, answers, clientId, lang, step]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden" && touched.current && !finished.current) void saveNow(); };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  async function leave() { if (touched.current && !finished.current) await flushSave().catch(() => {}); onExit(); }
+  async function discard() {
+    const ok = await confirmDialog({ title: "Discard this unfinished document?", message: "What you have typed so far will be deleted. This cannot be undone.", confirmLabel: "Discard" });
+    if (!ok) return;
+    finished.current = true;
+    if (draftRef.current) await api.post(`/doc-builder/drafts/${draftRef.current}/delete`, {}).catch(() => {});
+    onExit();
+  }
 
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -196,13 +288,16 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
 
   const steps = useMemo(() => (tpl ? [{ title: "Client", questions: [] as Question[] }, ...tpl.stepList, { title: "Review", questions: [] as Question[] }] : []), [tpl]);
   const last = steps.length - 1;
-  const set = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
+  const set = (id: string, v: any) => { touch(); setAnswers((a) => ({ ...a, [id]: v })); };
+  const go = (n: number) => { touch(); setStep(n); };
   const body = { templateKey, clientId, answers, lang };
 
   async function create() {
     setBusy(true); setErr(null);
     try {
-      const r = await api.post<{ contractId: string; docId: string }>("/doc-builder/create", body);
+      while (inflight.current) await sleep(80);
+      const r = await api.post<{ contractId: string; docId: string }>("/doc-builder/create", { ...body, draftId: draftRef.current });
+      finished.current = true;
       setDone({ contractId: r.contractId, docId: r.docId, body: preview.body }); toast("Document saved to the client's file.");
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not save the document."); } finally { setBusy(false); }
   }
@@ -243,12 +338,16 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-sm" onClick={onExit}><ArrowLeft size={14} aria-hidden="true" /> Library</button>
+        <button type="button" className="btn btn-sm" onClick={leave}><ArrowLeft size={14} aria-hidden="true" /> Library</button>
         <h2 style={{ margin: 0, fontSize: 18 }}>{tpl.title}</h2>
         <span className="muted" style={{ fontSize: 12.5 }}>{tpl.category}</span>
+        <span className="muted" style={{ fontSize: 12.5, marginLeft: "auto" }} role="status" aria-live="polite">
+          {saveState === "saving" ? "Saving…" : saveState === "saved" && savedAt ? `Unfinished document saved ${savedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : saveState === "error" ? <span style={{ color: "var(--red)" }}>Could not save your progress — check your connection</span> : "Saved automatically as you type"}
+        </span>
+        {(draftRef.current || touched.current) && <button type="button" className="btn btn-sm" onClick={discard}>Discard</button>}
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {steps.map((s, i) => <button key={s.title + i} type="button" className={`tpl-chip${i === step ? " on" : ""}`} onClick={() => setStep(i)}>{i + 1}. {s.title}</button>)}
+        {steps.map((s, i) => <button key={s.title + i} type="button" className={`tpl-chip${i === step ? " on" : ""}`} onClick={() => go(i)}>{i + 1}. {s.title}</button>)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.1fr)", gap: 14, alignItems: "start" }} className="db-split">
         <div className="command-panel">
@@ -257,7 +356,7 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
             {step === 0 && (
               <div className="field">
                 <label htmlFor="db-client">Which client is this for? <span className="muted">(optional)</span></label>
-                <select id="db-client" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+                <select id="db-client" value={clientId} onChange={(e) => { touch(); setClientId(e.target.value); }}>
                   <option value="">No client — outside parties</option>
                   {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
                 </select>
@@ -269,7 +368,7 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
                 <label>Document language</label>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {([["en", "English"], ["ar", "العربية"], ["both", "English + العربية"]] as [Lang, string][]).map(([v, label]) => (
-                    <button key={v} type="button" className={`tpl-chip${lang === v ? " on" : ""}`} onClick={() => setLang(v)}>{label}</button>
+                    <button key={v} type="button" className={`tpl-chip${lang === v ? " on" : ""}`} onClick={() => { touch(); setLang(v); }}>{label}</button>
                   ))}
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>The questions stay in English. "English + العربية" puts the Arabic edition after the English one, in a single document.</div>
@@ -298,8 +397,8 @@ function Wizard({ templateKey, fromDocId, onExit }: { templateKey: string; fromD
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, gap: 8 }}>
-              <button type="button" className="btn" disabled={step === 0} onClick={() => setStep(step - 1)}><ArrowLeft size={14} aria-hidden="true" /> Back</button>
-              {step < last && <button type="button" className="btn btn-primary" onClick={() => setStep(step + 1)}>Next <ArrowRight size={14} aria-hidden="true" /></button>}
+              <button type="button" className="btn" disabled={step === 0} onClick={() => go(step - 1)}><ArrowLeft size={14} aria-hidden="true" /> Back</button>
+              {step < last && <button type="button" className="btn btn-primary" onClick={() => go(step + 1)}>Next <ArrowRight size={14} aria-hidden="true" /></button>}
             </div>
           </div>
         </div>
@@ -324,11 +423,14 @@ function pickPrefilled(tpl: TemplateFull, fresh: Answers): Answers {
 export function DocumentBuilderPage() {
   const [params, setParams] = useSearchParams();
   const raw = params.get("doc") || "";
-  const [key, from] = raw.split("?from=");
+  const m = raw.match(/^([^?]+)\?(from|draft)=(.+)$/);
+  const key = m ? m[1] : raw;
+  const from = m && m[2] === "from" ? m[3] : "";
+  const draft = m && m[2] === "draft" ? m[3] : "";
   return (
     <div style={{ padding: 20 }}>
       {key
-        ? <Wizard key={`${key}-${from || ""}`} templateKey={key} fromDocId={from || null} onExit={() => setParams({})} />
+        ? <Wizard key={`${key}-${from || ""}-${draft || ""}`} templateKey={key} fromDocId={from || null} resumeDraftId={draft || null} onExit={() => setParams({})} />
         : <Library onPick={(k) => setParams({ doc: k })} />}
     </div>
   );

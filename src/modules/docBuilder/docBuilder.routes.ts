@@ -169,6 +169,9 @@ docBuilderRouter.post("/create", asyncHandler(async (req: AuthedRequest, res: Re
     [docId, external ? null : clientId, p.t.key, title, JSON.stringify({ ...p.answers, _lang: p.lang }), contractId, req.user!.email]
   );
   await logAudit("Contracts", "DOC_BUILDER_CREATE", contractId, "template", "", p.t.key, `"${title}" built for ${client ? client.client_name : "an outside party (no client)"} by ${req.user!.email}.`, req.user!.email);
+  // The unfinished draft this came from is finished now — remove it (only the creator's own).
+  const fromDraft = String(req.body?.draftId || "").trim();
+  if (fromDraft) await query(`DELETE FROM altax.v3_doc_builder_drafts WHERE draft_id = $1 AND lower(created_by) = lower($2)`, [fromDraft, req.user!.email]).catch(() => {});
   res.status(201).json({ ok: true, docId, contractId });
 }));
 
@@ -190,6 +193,64 @@ docBuilderRouter.get("/docs/:docId", asyncHandler(async (req: AuthedRequest, res
   if (!row) return res.status(404).json({ error: "Document not found." });
   if (!(await canAccessDoc(req, row.client_id, row.created_by))) return res.status(403).json({ error: "You do not have access to this document." });
   res.json({ docId: row.doc_id, clientId: row.client_id, templateKey: row.template_key, title: row.title, answers: row.answers, contractId: row.contract_id, fmtDate: fmtLongDate(String(row.answers?.effectiveDate || "")) });
+}));
+
+/* ───────────── Unfinished documents (drafts) ───────────── */
+
+const isDraftOwner = (req: AuthedRequest, createdBy: string) => req.user!.role === "admin" || String(createdBy || "").toLowerCase() === req.user!.email.toLowerCase();
+const stepTitles = (t: DocTemplate) => ["Client", ...t.steps.map((s) => s.title), "Review"];
+
+/** Unfinished documents: your own (admins see everyone's), newest first. */
+docBuilderRouter.get("/drafts", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const admin = req.user!.role === "admin";
+  const rows = await query<any>(
+    `SELECT d.draft_id, d.template_key, d.client_id, d.lang, d.step, d.created_by, d.updated_at, c.client_name
+       FROM altax.v3_doc_builder_drafts d LEFT JOIN altax.v3_clients c ON c.client_id = d.client_id
+      ${admin ? "" : "WHERE lower(d.created_by) = lower($1)"} ORDER BY d.updated_at DESC LIMIT 100`,
+    admin ? [] : [req.user!.email]
+  );
+  const drafts = rows.map((r: any) => {
+    const t = getDocTemplate(r.template_key); if (!t) return null;
+    const titles = stepTitles(t);
+    return { draftId: r.draft_id, templateKey: r.template_key, title: t.title, clientId: r.client_id, clientName: r.client_name || null, lang: r.lang, step: r.step, stepCount: titles.length, stepTitle: titles[Math.min(r.step, titles.length - 1)], createdBy: r.created_by, updatedAt: r.updated_at };
+  }).filter(Boolean);
+  res.json({ drafts });
+}));
+
+docBuilderRouter.get("/drafts/:draftId", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(`SELECT draft_id, template_key, client_id, lang, answers, step, created_by FROM altax.v3_doc_builder_drafts WHERE draft_id = $1`, [req.params.draftId]);
+  if (!row || !isDraftOwner(req, row.created_by)) return res.status(404).json({ error: "That unfinished document was not found." });
+  res.json({ draftId: row.draft_id, templateKey: row.template_key, clientId: row.client_id || "", lang: row.lang, answers: row.answers || {}, step: row.step });
+}));
+
+/** Saves (or updates) an unfinished document. Nothing is validated beyond the document and client — it is allowed to be incomplete. */
+docBuilderRouter.post("/drafts", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const t = getDocTemplate(String(req.body?.templateKey || ""));
+  if (!t) return res.status(404).json({ error: "Unknown document." });
+  const clientId = String(req.body?.clientId || "").trim();
+  if (clientId) { const client = await loadClient(req, res, clientId); if (!client) return; }
+  const answers = cleanAnswers(t, req.body?.answers);
+  const lang = hasArabic(t) ? parseLang(req.body?.lang) : "en";
+  const step = Math.max(0, Math.min(Number(req.body?.step) || 0, t.steps.length + 1));
+  let draftId = String(req.body?.draftId || "").trim();
+  if (draftId) {
+    const row = await queryOne<any>(`SELECT created_by FROM altax.v3_doc_builder_drafts WHERE draft_id = $1`, [draftId]);
+    if (!row || !isDraftOwner(req, row.created_by)) draftId = "";
+  }
+  if (draftId) {
+    await query(`UPDATE altax.v3_doc_builder_drafts SET client_id = $2, lang = $3, answers = $4, step = $5, updated_at = now() WHERE draft_id = $1`, [draftId, clientId || null, lang, JSON.stringify(answers), step]);
+  } else {
+    draftId = newId("DRF");
+    await query(`INSERT INTO altax.v3_doc_builder_drafts (draft_id, template_key, client_id, lang, answers, step, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [draftId, t.key, clientId || null, lang, JSON.stringify(answers), step, req.user!.email]);
+  }
+  res.json({ ok: true, draftId, updatedAt: new Date().toISOString() });
+}));
+
+docBuilderRouter.post("/drafts/:draftId/delete", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(`SELECT created_by FROM altax.v3_doc_builder_drafts WHERE draft_id = $1`, [req.params.draftId]);
+  if (!row || !isDraftOwner(req, row.created_by)) return res.status(404).json({ error: "That unfinished document was not found." });
+  await query(`DELETE FROM altax.v3_doc_builder_drafts WHERE draft_id = $1`, [req.params.draftId]);
+  res.json({ ok: true });
 }));
 
 registerSigningRoutes(docBuilderRouter);
