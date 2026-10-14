@@ -757,57 +757,78 @@ Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "commercial_lease_short", title: "Short-Form Commercial Lease", category: LENDING,
-    description: "A plain, short lease for a store or office: rent, term, deposit and the main rules.",
-    reviewNote: "Commercial leases carry long-term obligations — have an attorney review it before signing, especially for longer terms.",
+    description: "A plain, short lease for a store or office: rent, term, deposit, taxes and the main rules.",
+    reviewNote: "Commercial leases carry long-term obligations — have an attorney review it before signing, especially for longer terms. This short form is meant for small spaces and short terms; for a longer or larger lease use the full Commercial Lease Agreement. If the term including renewals is over seven years, sign and record a memorandum of lease (confirm with an attorney). Companies must sign through an officer with a title.",
     steps: [
-      { title: "Parties and space", questions: [text("landlord", "Landlord", { required: true }), text("landlordAddress", "Landlord's address"), text("tenant", "Tenant", { prefill: "clientName", required: true }), text("premises", "Address of the space", { required: true }), text("use", "Permitted use", { required: true, placeholder: "e.g. Retail convenience store" }), effective(), state()] },
+      { title: "Parties and space", questions: [text("landlord", "Landlord", { required: true }), text("landlordAddress", "Landlord's address for notices", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), text("tenantAddress", "Tenant's address for notices", { prefill: "clientAddress", required: true }), text("premises", "Address of the space", { required: true }), text("use", "Permitted use", { required: true, placeholder: "e.g. Retail convenience store" }), effective(), state()] },
       { title: "Term and rent", questions: [
-        date("startDate", "Lease starts", { required: true }), date("endDate", "Lease ends", { required: true }), money("rent", "Monthly rent", { required: true }), num("rentDay", "Rent due on day of the month", { default: "1", required: true }),
+        date("startDate", "Lease starts", { required: true }), date("endDate", "Lease ends", { required: true }), money("rent", "Monthly rent", { required: true }), num("rentDay", "Rent due on day of the month", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
         money("deposit", "Security deposit", { required: true }), yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }),
+        pick("taxesBy", "Who pays property taxes and building insurance?", [["landlord", "Landlord"], ["tenant", "Tenant"]], { required: true, default: "landlord" }),
         pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }),
-        text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" } }),
-        yesno("renewal", "Tenant may renew for another term"), text("renewalTerms", "Renewal terms", { showIf: { id: "renewal", equals: true }, placeholder: "e.g. One 3-year renewal at the then-current market rent" }),
+        text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true }),
+        money("liabilityAmount", "Tenant's liability insurance (minimum per occurrence)", { default: "1000000", required: true }),
+        yesno("renewal", "Tenant may renew for another term"), text("renewalTerms", "Renewal terms", { showIf: { id: "renewal", equals: true }, required: true, placeholder: "e.g. One 3-year renewal, 6 months' notice, rent increased by 3% a year" }),
+        yesno("guarantee", "Someone personally guarantees the tenant's obligations"), text("guarantor", "Guarantor's name", { showIf: { id: "guarantee", equals: true }, required: true }),
       ] },
     ],
     body: `COMMERCIAL LEASE
 
-This Lease is made on {{effectiveDate}} between {{landlord}}{{#if landlordAddress}}, {{landlordAddress}}{{/if}} ("Landlord") and {{tenant}} ("Tenant").
+This Lease is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}} ("Landlord") and {{tenant}}, {{tenantAddress}} ("Tenant").
 
 1. PREMISES AND USE
-Landlord leases to Tenant the space at {{premises}} (the "Premises"). Tenant will use it only for {{use}} and in compliance with all laws and required licenses.
+Landlord leases to Tenant the space at {{premises}} (the "Premises"). Tenant will use it only for {{use}} and in compliance with all laws and required licenses. Landlord does not promise that zoning or any law allows Tenant's use; Tenant is responsible for confirming this and for every license and permit its business needs.
 
 2. TERM
-The Lease runs from {{startDate}} to {{endDate}}.{{#if renewal}} Renewal: {{renewalTerms}}{{/if}}
+The Lease runs from {{startDate}} to {{endDate}}.{{#if renewal}} Renewal: {{renewalTerms}}.{{/if}} If the term, including any renewal, is longer than seven years, the parties will sign a memorandum of lease that either of them may record.
 
 3. RENT
-Tenant pays {{rent}} per month, due on day {{rentDay}} of each month. {{#if lateFee}}Rent more than 5 days late is subject to a late fee of {{lateFeeAmount}}. {{/if}}
+Tenant pays {{rent}} per month, due on day {{rentDay}} of each month. Rent not received within {{graceDays}} days after the due date is late{{#if lateFee}} and subject to a late fee of {{lateFeeAmount}}{{/if}}.
 
 4. SECURITY DEPOSIT
-Tenant pays a security deposit of {{deposit}}, held by Landlord and returned within 30 days after the Lease ends, less amounts needed for unpaid rent or damage beyond normal wear.
+Tenant pays a security deposit of {{deposit}}, held by Landlord and returned within 45 days after the Lease ends and Tenant has surrendered the Premises, less amounts needed for unpaid rent or damage beyond normal wear.
 
-5. UTILITIES
+5. TAXES AND BUILDING INSURANCE
+{{#if taxesBy=landlord}}Landlord pays the property taxes and the insurance on the building.{{else}}Tenant pays the property taxes and the insurance on the building, or repays Landlord for them within 30 days after Landlord's written request.{{/if}}
+
+6. UTILITIES
 {{#if utilities=tenant}}Tenant pays all utilities for the Premises.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Premises.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
 
-6. MAINTENANCE AND ALTERATIONS
-Tenant keeps the Premises clean and in good condition and may not make structural changes without Landlord's written consent. Landlord is responsible for the roof, structure and building systems unless damage is caused by Tenant.
+7. MAINTENANCE AND ALTERATIONS
+Tenant keeps the Premises clean and in good condition and may not make structural changes without Landlord's written consent. Landlord is responsible for the roof, structure and building systems unless damage is caused by Tenant. Landlord may enter the Premises at reasonable times on reasonable notice to inspect or repair, and at any time in an emergency.
 
-7. INSURANCE AND LIABILITY
-Tenant carries commercial general liability insurance and insurance on its own property, and indemnifies Landlord for claims arising from Tenant's use of the Premises.
+8. INSURANCE AND LIABILITY
+Tenant carries commercial general liability insurance of at least {{liabilityAmount}} per occurrence, naming Landlord as an additional insured, plus insurance on its own property. Tenant protects Landlord from claims arising from Tenant's use of the Premises, except those caused by Landlord's negligence.
 
-8. DEFAULT
+9. DAMAGE
+If the Premises are damaged and cannot be used, rent is reduced until they are repaired. If repairs would take more than 120 days, either party may end the Lease by written notice.
+
+10. DEFAULT
 If Tenant does not pay rent within 10 days after written notice, or breaks another term and does not fix it within 30 days after written notice, Landlord may end the Lease and recover what the law allows.
 
-9. ASSIGNMENT
+11. ASSIGNMENT
 Tenant may not assign this Lease or sublet without Landlord's written consent, which will not be unreasonably withheld.
 
-10. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+12. END OF LEASE AND HOLDING OVER
+At the end of the Lease Tenant returns the Premises clean and in good condition, normal wear excepted. If Tenant stays after the end date without a new written lease, Tenant is a holdover tenant and this is not a renewal: rent is 150% of the last monthly rent, prorated by day, and Landlord may recover possession.
+
+{{#if guarantee}}13. GUARANTEE
+{{guarantor}} personally and unconditionally guarantees that Tenant will pay all rent and perform all obligations under this Lease, as amended or renewed, and signs below to confirm it. The guarantee continues despite any change to the Lease or any delay by Landlord, and Landlord need not first pursue Tenant.
+
+{{/if}}14. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above. Each person who signs for a company states that he or she is authorized to do so.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 TENANT: {{tenant}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+{{#if guarantee}}
+GUARANTOR: {{guarantor}}
+Signature: ______________________________   Date: ______________
+{{/if}}`,
   },
   /* ─────────────── Batch 2: chosen from the LawDepot catalogue for this firm's work ─────────────── */
   {
@@ -1293,39 +1314,50 @@ Signature: ______________________________
   },
   {
     key: "lease_termination_agreement", title: "Lease Termination Agreement", category: LENDING,
-    description: "Landlord and tenant agree to end a lease early — move-out date, deposit and any final payments.",
+    description: "Landlord and tenant agree to end a lease early — move-out date, keys, deposit, final payments and release.",
+    reviewNote: "For a home, Maryland's security-deposit rules still apply even though the lease ends by agreement: the landlord must send an itemized list of any deductions and return the rest within 45 days, and the tenant cannot give up those rights (Real Property Article 8-203). A business landlord may choose to keep the deposit, but only to the extent the lease allows. If a guarantor signed the lease, the guarantor is released only if the guarantor signs this agreement too. Not checked by the app: that the end date is after the date of signing. Companies must sign through an officer with a title.",
     steps: [
-      { title: "Lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), text("premises", "Space being leased", { required: true }), date("leaseDate", "Date of the original lease", { required: true }), effective(), state()] },
-      { title: "Ending it", questions: [date("endDate", "Lease ends on", { required: true }), money("deposit", "Security deposit held", { default: "0" }), pick("depositTreatment", "The deposit will be", [["return", "Returned in full"], ["deduct", "Returned less amounts owed"], ["keep", "Kept by the landlord"]], { default: "return", required: true }),
+      { title: "Lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), text("premises", "Space being leased", { required: true }), date("leaseDate", "Date of the original lease", { required: true }),
+        pick("leaseKind", "The lease is for", [["residential", "A home (where the tenant lives)"], ["commercial", "A business space"]], { required: true }), text("guarantor", "Guarantor of the lease (if any)", { help: "Leave blank if nobody guaranteed the lease." }), effective(), state()] },
+      { title: "Ending it", questions: [date("endDate", "Lease ends on", { required: true }), money("deposit", "Security deposit held", { default: "0" }), pick("depositTreatment", "The deposit will be", [["return", "Returned in full"], ["deduct", "Returned less amounts owed"], ["keep", "Kept by the landlord (business leases only)"]], { default: "return", required: true }),
         money("finalPayment", "Final payment from tenant (0 if none)", { default: "0" }), yesno("restore", "Tenant leaves the space clean and in its original condition", { default: true }), yesno("release", "Each side releases the other from further lease claims", { default: true })] },
     ],
     body: `LEASE TERMINATION AGREEMENT
 
-This Agreement is made on {{effectiveDate}} between {{landlord}} ("Landlord") and {{tenant}} ("Tenant") about the lease dated {{leaseDate}} for {{premises}} (the "Lease").
+This Agreement is made on {{effectiveDate}} between {{landlord}} ("Landlord") and {{tenant}} ("Tenant") about the lease dated {{leaseDate}} for {{premises}} (the "Lease"). Both parties agree to it voluntarily.
 
 1. EARLY END OF LEASE
-Landlord and Tenant agree that the Lease ends on {{endDate}}, and Tenant will give up the space by that date.
+Landlord and Tenant agree that the Lease ends on {{endDate}}, and Tenant will give up the space and return all keys by that date.
 
 2. RENT AND PAYMENTS
-Tenant pays rent due up to {{endDate}}.{{#if finalPayment}} Tenant also pays {{finalPayment}} as a final payment to Landlord.{{/if}}
+Tenant pays all rent and other charges due under the Lease up to {{endDate}}.{{#if finalPayment}} Tenant also pays {{finalPayment}} as a final payment to Landlord on or before {{endDate}}.{{/if}} Tenant states that it has not assigned or sublet the Lease or the space.
 
 3. SECURITY DEPOSIT
-{{#if deposit}}Landlord holds a deposit of {{deposit}}, which will be {{#if depositTreatment=return}}returned to Tenant in full{{/if}}{{#if depositTreatment=deduct}}returned to Tenant less any amounts owed and any damage beyond normal wear{{/if}}{{#if depositTreatment=keep}}kept by Landlord{{/if}} within 30 days after {{endDate}}.{{else}}No security deposit is being held.{{/if}}
+{{#if deposit}}Landlord holds a security deposit of {{deposit}}. {{#if leaseKind=residential}}Within 45 days after {{endDate}}, Landlord will mail Tenant, by first-class mail, {{#if depositTreatment=return}}the deposit in full, with any interest due{{else}}an itemized list of any deductions for unpaid rent or damage beyond normal wear, with their actual costs, and the rest of the deposit with any interest due{{/if}}. This Agreement does not give up any of Tenant's rights under Maryland's security-deposit law.{{else}}{{#if depositTreatment=keep}}The deposit will be kept by Landlord.{{else}}Within 30 days after {{endDate}}, the deposit will be {{#if depositTreatment=return}}returned to Tenant in full{{else}}returned to Tenant less any amounts owed and any damage beyond normal wear{{/if}}.{{/if}}{{/if}}{{else}}No security deposit is being held.{{/if}}
 
-{{#if restore}}4. CONDITION OF THE SPACE
+4. SURRENDER
+Tenant returns all keys on {{endDate}}. If Tenant stays longer, rent under the Lease continues for each extra day and Landlord may recover possession. Belongings left in the space after {{endDate}} are treated as abandoned.{{#if guarantor}} {{guarantor}} (the guarantor) is released from the Lease only by signing this Agreement below.{{/if}}
+
+{{#if restore}}5. CONDITION OF THE SPACE
 Tenant leaves the space clean, free of Tenant's belongings, and in the condition required by the Lease, normal wear excepted.
 
-{{/if}}{{#if release}}5. RELEASE
-Once the terms above are met, each party releases the other from further claims under the Lease.
+{{/if}}{{#if release}}6. RELEASE
+Once Tenant has given up the space and paid what this Agreement requires, each party releases the other from claims under the Lease, except the obligations in this Agreement, Tenant's rights to the security deposit, damage that was not apparent at move-out, charges still to be settled, and claims made by other people.
 
-{{/if}}6. GENERAL
-This Agreement is governed by the laws of the State of {{state}}.
+{{/if}}7. GENERAL
+This Agreement is the parties' entire agreement about ending the Lease, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Each person who signs for a company states that he or she is authorized to do so.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 TENANT: {{tenant}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+{{#if guarantor}}
+GUARANTOR: {{guarantor}}
+Signature: ______________________________   Date: ______________
+{{/if}}`,
   },
   {
     key: "workplace_incident_report", title: "Workplace Incident Report", category: EMPLOYMENT,
@@ -1402,55 +1434,77 @@ My commission expires: ______________
   /* ─────────────── Family & personal ─────────────── */
   {
     key: "child_travel_consent", title: "Minor Travel Consent", category: FAMILY,
-    description: "A parent or guardian gives permission for a child to travel with another adult or alone — for airlines, border officers and hotels.",
-    reviewNote: "Some countries and airlines want this notarized and carried with the child's passport and a copy of the parent's ID — check the destination's rules before the trip.",
+    description: "A parent or guardian gives permission for a child to travel with another adult, with one parent, or alone — for airlines, border officers and hotels.",
+    reviewNote: "Sign in front of a notary (the notary may attach their own certificate in place of the one printed here). Airlines, border officers and destination countries have their own rules — some want a specific form, an apostille or a translation — so check the destination's embassy or consulate before the trip, and carry the original with the child's passport, a copy of each signer's ID, and the child's birth certificate. Border officers generally ask for a note from the parent who is not travelling, and from both parents if the child travels with neither; if there is a court order or a custody dispute, bring the order. Confirm with an attorney whether a non-parent adult can legally approve medical treatment abroad. Not checked by the app: each child's passport number, if the trip is international.",
     steps: [
-      { title: "Parent or guardian", questions: [text("parent", "Parent or legal guardian", { required: true }), text("parentAddress", "Address"), text("parentPhone", "Phone", { required: true }), text("parentEmail", "Email"),
-        yesno("secondParent", "A second parent or guardian also gives consent"), text("parent2", "Second parent or guardian", { showIf: { id: "secondParent", equals: true }, required: true }), effective()] },
-      { title: "The child", questions: [list("children", "Child or children travelling", [text("name", "Full name", { required: true }), date("dob", "Date of birth", { required: true }), text("passport", "Passport number (optional)")], { required: true, addLabel: "Add a child" })] },
+      { title: "Parent or guardian", questions: [text("parent", "Parent or legal guardian who is signing", { required: true }), text("parentAddress", "Address", { required: true }), text("parentPhone", "Phone", { required: true }), text("parentEmail", "Email"),
+        yesno("secondParent", "A second parent or guardian also signs this consent"), text("parent2", "Second parent or guardian", { showIf: { id: "secondParent", equals: true }, required: true }), text("parent2Phone", "Second parent or guardian's phone", { showIf: { id: "secondParent", equals: true }, required: true }),
+        pick("noSecondReason", "About the child's other parent", [["travelling", "The other parent is the one travelling with the child"], ["sole", "I have sole legal custody"], ["deceased", "The other parent is deceased"], ["none", "The child has no other legal parent"], ["informed", "The other parent knows about the trip but is not signing"]], { showIf: { id: "secondParent", equals: false }, required: true }),
+        effective()] },
+      { title: "The child", questions: [list("children", "Child or children travelling", [text("name", "Full name (as on the passport)", { required: true }), date("dob", "Date of birth", { required: true }), text("passport", "Passport number (needed for international trips)"), text("nationality", "Passport country")], { required: true, addLabel: "Add a child" })] },
       { title: "The trip", questions: [
-        pick("travellingWith", "The child is travelling", [["adult", "With another adult"], ["alone", "Alone (for example an unaccompanied-minor flight)"], ["parent", "With one parent only"]], { required: true, default: "adult" }),
-        text("adult", "Travelling adult's name", { showIf: { id: "travellingWith", equals: "adult" }, required: true }), text("adultRelation", "Relationship to the child", { showIf: { id: "travellingWith", equals: "adult" } }), text("adultPhone", "Travelling adult's phone", { showIf: { id: "travellingWith", equals: "adult" } }),
-        text("meetingPerson", "Person meeting the child on arrival", { showIf: { id: "travellingWith", equals: "alone" } }),
-        text("destination", "Destination (city and country)", { required: true }), date("departure", "Leaving on", { required: true }), date("returning", "Returning on", { required: true }), text("purpose", "Purpose", { placeholder: "e.g. Family visit, vacation, school trip" }), text("staying", "Where the child will stay", { placeholder: "Address or hotel" }),
-        yesno("medical", "The travelling adult may approve emergency medical treatment", { default: true }), text("insurance", "Health insurance details (optional)"),
+        pick("travellingWith", "The child is travelling", [["adult", "With another adult"], ["alone", "Alone (for example an unaccompanied-minor flight)"], ["parent", "With one parent only (the parent signing here is not travelling)"]], { required: true, default: "adult" }),
+        text("adult", "Travelling adult's name", { showIf: { id: "travellingWith", equals: "adult" }, required: true }), text("adultRelation", "Relationship to the child", { showIf: { id: "travellingWith", equals: "adult" }, required: true }), text("adultAddress", "Travelling adult's address", { showIf: { id: "travellingWith", equals: "adult" }, required: true }), text("adultPhone", "Travelling adult's phone", { showIf: { id: "travellingWith", equals: "adult" }, required: true }), text("adultPassport", "Travelling adult's passport number", { showIf: { id: "travellingWith", equals: "adult" } }),
+        text("travellingParent", "Name of the parent who is travelling with the child", { showIf: { id: "travellingWith", equals: "parent" }, required: true }), text("travellingParentPhone", "That parent's phone", { showIf: { id: "travellingWith", equals: "parent" } }),
+        text("meetingPerson", "Person meeting the child on arrival", { showIf: { id: "travellingWith", equals: "alone" }, required: true }), text("meetingPhone", "Their phone", { showIf: { id: "travellingWith", equals: "alone" } }),
+        text("destination", "Destination (city and country)", { required: true }), date("departure", "Leaving on", { required: true }), date("returning", "Returning on", { required: true }), text("purpose", "Purpose", { placeholder: "e.g. Family visit, vacation, school trip" }), text("staying", "Where the child will stay", { placeholder: "Address or hotel" }), text("flight", "Flight or travel details (optional)", { placeholder: "Airline, flight numbers" }),
+        yesno("medical", "The adult in charge may approve emergency medical treatment", { default: true }), text("allergies", "Allergies or medicines (optional)"), text("insurance", "Health insurance details (optional)"),
       ] },
     ],
     body: `MINOR TRAVEL CONSENT
 
-I, {{parent}}{{#if parentAddress}}, of {{parentAddress}}{{/if}}{{#if secondParent}}, and {{parent2}}{{/if}}, being the {{#if secondParent}}parents or legal guardians{{else}}parent or legal guardian{{/if}} of the child named below, give permission for the child to travel as described.
+Prepared on {{effectiveDate}}
 
-CHILD
-{{#list children}}{{n}}. {{name}} — born {{dob}}{{#if passport}} — passport {{passport}}{{/if}}
+{{#if secondParent}}We, {{parent}} and {{parent2}}, of {{parentAddress}}, are each a parent or legal guardian{{else}}I, {{parent}}, of {{parentAddress}}, am a parent or legal guardian{{/if}} of the child or children named below. {{#if secondParent}}We have{{else}}I have{{/if}} the legal authority to give this consent, and no court order or agreement limits this travel. {{#if secondParent}}We give{{else}}I give{{/if}} permission for the child to travel as described.
+
+{{#if !secondParent}}{{#if noSecondReason=sole}}OTHER PARENT
+I have sole legal custody of the child, and no one else's consent is needed for this trip.
+
+{{/if}}{{#if noSecondReason=deceased}}OTHER PARENT
+The child's other parent is deceased.
+
+{{/if}}{{#if noSecondReason=none}}OTHER PARENT
+The child has no other legal parent.
+
+{{/if}}{{#if noSecondReason=informed}}OTHER PARENT
+The child's other parent knows about this trip.
+
+{{/if}}{{/if}}CHILD
+{{#list children}}{{n}}. {{name}} — born {{dob}}{{#if passport}} — passport {{passport}}{{#if nationality}} ({{nationality}}){{/if}}{{/if}}
 {{/list}}
 TRIP
 Destination: {{destination}}
 Leaving: {{departure}}    Returning: {{returning}}
 {{#if purpose}}Purpose: {{purpose}}
 {{/if}}{{#if staying}}Staying at: {{staying}}
-{{/if}}{{#if travellingWith=adult}}Travelling with: {{adult}}{{#if adultRelation}} ({{adultRelation}}){{/if}}{{#if adultPhone}}, phone {{adultPhone}}{{/if}}{{/if}}{{#if travellingWith=alone}}The child is travelling alone and will be met on arrival by {{#if meetingPerson}}{{meetingPerson}}{{else}}the person named to the airline{{/if}}.{{/if}}{{#if travellingWith=parent}}The child is travelling with one parent; the other parent consents to this trip.{{/if}}
+{{/if}}{{#if flight}}Travel details: {{flight}}
+{{/if}}{{#if travellingWith=adult}}Travelling with: {{adult}} ({{adultRelation}}), of {{adultAddress}}, phone {{adultPhone}}{{#if adultPassport}}, passport {{adultPassport}}{{/if}}{{/if}}{{#if travellingWith=alone}}The child is travelling alone and will be met on arrival by {{meetingPerson}}{{#if meetingPhone}}, phone {{meetingPhone}}{{/if}}.{{/if}}{{#if travellingWith=parent}}The child is travelling with {{travellingParent}}, the child's parent{{#if travellingParentPhone}}, phone {{travellingParentPhone}}{{/if}}. The person or people signing this consent are not travelling with the child and consent to this trip.{{/if}}
 
 {{#if medical}}MEDICAL CARE
-If the child needs emergency medical treatment, I authorize {{#if travellingWith=adult}}{{adult}}{{else}}the adult in charge of the child{{/if}} to consent to it on my behalf.{{#if insurance}} Health insurance: {{insurance}}.{{/if}}
+If the child needs emergency medical treatment, {{#if secondParent}}we authorize{{else}}I authorize{{/if}} {{#if travellingWith=adult}}{{adult}}{{/if}}{{#if travellingWith=parent}}{{travellingParent}}{{/if}}{{#if travellingWith=alone}}the adult in charge of the child{{/if}} to consent to it on {{#if secondParent}}our{{else}}my{{/if}} behalf. Any doctor or hospital may rely on this authorization.{{#if allergies}} Allergies or medicines: {{allergies}}.{{/if}}{{#if insurance}} Health insurance: {{insurance}}.{{/if}}
 
-{{/if}}I can be reached at {{parentPhone}}{{#if parentEmail}} or {{parentEmail}}{{/if}}. This consent is valid for the dates of this trip only.
+{{/if}}CONTACT AND VALIDITY
+{{parent}} can be reached at {{parentPhone}}{{#if parentEmail}} or {{parentEmail}}{{/if}}{{#if secondParent}}; {{parent2}} can be reached at {{parent2Phone}}{{/if}}. The child and the person travelling with or meeting the child may show this document to airlines, border and immigration officers, hotels and medical staff. This consent is valid only from {{departure}} to {{returning}}, and any person who signed it may cancel it by written notice.
 
 {{parent}}
-Signature: ______________________________   Date: {{effectiveDate}}
+Signature: ______________________________   Date: ______________
 {{#if secondParent}}
 {{parent2}}
-Signature: ______________________________   Date: {{effectiveDate}}
+Signature: ______________________________   Date: ______________
 {{/if}}
-Notary (if required): Subscribed and sworn before me on ______________.
-Notary Public: ______________________________   Commission expires: ______________`,
+NOTARY ACKNOWLEDGMENT
+State of ______________________   County of ______________________
+On ______________, before me, a Notary Public, personally appeared the person or people who signed this consent, who proved their identity to me with satisfactory identification and signed it in my presence.
+Notary Public (printed name): ______________________________
+Signature: ______________________________   Commission expires: ______________`,
   },
   /* ─────────────── Real estate ─────────────── */
   {
     key: "property_sale_residential", title: "Residential Property Sale Agreement", category: REAL_ESTATE,
-    description: "A seller and buyer agree on the sale of a home, condo or other residential property: price, deposit, financing, inspection and closing.",
-    reviewNote: "Have a real-estate attorney or title company review this before signing. Maryland sellers of most residential property must give the buyer the state's Residential Property Disclosure or Disclaimer Statement, and homes built before 1978 need the federal lead-paint disclosure — attach them.",
+    description: "A seller and buyer agree on the sale of a home, condo or other residential property: price, deposit, financing, inspection, Maryland notices and closing.",
+    reviewNote: "Have a real-estate attorney or title company review this before signing. Before the buyer signs, the seller must give the buyer the Maryland Residential Property Disclosure or Disclaimer Statement (if the buyer gets it late, the buyer can rescind), and homes built before 1978 need the signed federal lead-paint disclosure and EPA pamphlet attached. Attach the separate Critical Area notice sheet and the buyer's signed disclosure receipt. The Maryland Notices section (transfer/recordation tax sharing, Critical Area, homestead credit) and the withholding wording are in plain words: check them against the current statute (Real Property Article 14-117, 10-702, Tax-General 10-912) and the current MREC / local board addenda, which may require exact wording and extra local or new-law notices (for example the flood-risk statement starting July 2027). Confirm with an attorney: seller-financing rules, whether the 'exempt' choice really applies, and whether this buyer's lender or county adds its own notices. Not yet checked by the app: the loan amount against the price, and that the closing date is after the loan-approval period.",
     steps: [
-      { title: "Seller and buyer", questions: [text("seller", "Seller(s) — full legal name(s)", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer(s) — full legal name(s)", { required: true }), text("buyerAddress", "Buyer's address"), effective(), state()] },
+      { title: "Seller and buyer", questions: [text("seller", "Seller(s) — full legal name(s)", { required: true }), text("sellerAddress", "Seller's address (for notices)", { required: true }), text("buyer", "Buyer(s) — full legal name(s)", { required: true }), text("buyerAddress", "Buyer's address (for notices)", { required: true }), effective(), state()] },
       { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), text("idNumbers", "Ward / section / block / lot (Baltimore City) or other property ID"), area("legalDescription", "Legal description (from the deed)"),
         area("included", "Items that stay with the property", { default: "All fixtures and attached items, including built-in appliances, heating and cooling equipment, plumbing and lighting fixtures, window coverings and fencing." }), area("excluded", "Items the seller keeps")] },
       { title: "Price and payment", questions: [money("price", "Purchase price", { required: true }), money("deposit", "Earnest-money deposit", { required: true }), text("depositHolder", "Deposit held by", { required: true, placeholder: "Title company or escrow agent" }),
@@ -1464,13 +1518,15 @@ Notary Public: ______________________________   Commission expires: ____________
         yesno("brokerUsed", "A real-estate agent or broker was used"), text("brokerName", "Agent / brokerage", { showIf: { id: "brokerUsed", equals: true } }), pick("commissionPaidBy", "Commission is paid by", [["seller", "The seller"], ["buyer", "The buyer"], ["split", "Split between them"]], { showIf: { id: "brokerUsed", equals: true }, default: "seller" }),
         yesno("hoa", "The property is in a homeowners', condominium or similar association"),
         pick("possession", "Buyer takes possession", [["closing", "At closing"], ["date", "On a set date"]], { required: true, default: "closing" }), date("possessionDate", "Possession date", { showIf: { id: "possession", equals: "date" }, required: true }), text("titleCompany", "Title company or settlement agent"),
-        pick("disclosureType", "Seller's Maryland disclosure", [["disclosure", "Residential Property Disclosure Statement"], ["disclaimer", "Residential Property Disclaimer Statement"], ["exempt", "Not required for this sale"]], { required: true, default: "disclosure" }),
+        pick("disclosureType", "Seller's Maryland disclosure", [["disclosure", "Residential Property Disclosure Statement"], ["disclaimer", "Residential Property Disclaimer Statement"], ["exempt", "Not required — an exempt sale (for example new, estate or foreclosure)"]], { required: true, default: "disclosure" }),
+        text("exemptReason", "Why no disclosure statement is required", { showIf: { id: "disclosureType", equals: "exempt" }, required: true, placeholder: "e.g. it is a sale by the personal representative of an estate", help: "Maryland exempts only certain sales (for example a home never lived in, a lender's sale after foreclosure, court or fiduciary sales). Ask the title company or an attorney before choosing this." }),
         pick("closingCosts", "Closing costs are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { default: "split", required: true }),
-        yesno("preYear78", "The home was built before 1978"), yesno("asIs", "The buyer accepts the property as-is after inspection", { default: false })] },
+        pick("preYear78", "Was the home built before 1978?", [["yes", "Yes — built before 1978"], ["no", "No — built in 1978 or later"]], { required: true, help: "If you do not know, check the tax records or ask the seller. Pre-1978 homes need the federal lead-paint papers." }),
+        yesno("asIs", "The buyer accepts the property as-is after inspection", { default: false })] },
     ],
     body: `RESIDENTIAL PROPERTY SALE AGREEMENT
 
-This Agreement is made on {{effectiveDate}} between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
+This Agreement is made on {{effectiveDate}} between {{seller}} of {{sellerAddress}} ("Seller") and {{buyer}} of {{buyerAddress}} ("Buyer").
 
 1. THE PROPERTY
 Seller agrees to sell and Buyer agrees to buy the residential property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}}{{#if idNumbers}}, {{idNumbers}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
@@ -1479,34 +1535,42 @@ Included: {{included}}
 {{#if excluded}}Excluded: {{excluded}}
 {{/if}}
 2. PRICE AND DEPOSIT
-The purchase price is {{price}}. Buyer pays an earnest-money deposit of {{deposit}} to be held by {{depositHolder}} and credited to the price at closing. The balance is paid at closing in certified funds or by wire transfer.
+The purchase price is {{price}}. Buyer pays an earnest-money deposit of {{deposit}} to {{depositHolder}} within 2 business days after both parties sign this Agreement. The holder keeps the deposit in escrow and releases it only as this Agreement provides, on the written agreement of both parties, or by court order; if the parties disagree about who is entitled to it, the holder may keep it until the disagreement is resolved or pay it into court. The deposit is credited to the price at closing. The balance is paid at closing in certified funds or by wire transfer.
 
 3. FINANCING
-{{#if financing=cash}}Buyer is paying cash. This Agreement does not depend on any loan, and Buyer will show proof of funds within 5 days of signing.{{/if}}{{#if financing=mortgage}}Buyer will apply for a mortgage loan of {{loanAmount}} and will pursue it in good faith. If Buyer cannot obtain loan approval within {{loanDays}} days after signing, despite good-faith effort, Buyer may cancel by written notice and the deposit is returned.{{/if}}{{#if financing=seller}}Seller will finance part of the price on these terms: {{sellerFinanceTerms}} The terms will be put in a promissory note and a mortgage or deed of trust signed at closing.{{/if}}
+{{#if financing=cash}}Buyer is paying cash. This Agreement does not depend on any loan, and Buyer will show proof of funds within 5 days after signing.{{/if}}{{#if financing=mortgage}}Buyer will apply for a mortgage loan of {{loanAmount}} within 5 days after signing, will pursue it in good faith, and will give Seller a copy of the lender's decision. If Buyer cannot obtain loan approval within {{loanDays}} days after signing, despite good-faith effort, Buyer may cancel by written notice given no later than the last day of that period, and the deposit is returned. If Buyer does not give that notice in time, this financing condition is waived.{{/if}}{{#if financing=seller}}Seller will finance part of the price on these terms: {{sellerFinanceTerms}}
+The terms will be put in a promissory note and a mortgage or deed of trust signed at closing.{{/if}}
 
 4. INSPECTION AND CONDITION
-{{#if inspectionDays}}Buyer may have the Property inspected within {{inspectionDays}} days after signing. If the inspection shows a problem Buyer is not willing to accept, Buyer may cancel by written notice within that period and the deposit is returned, or the parties may agree in writing on repairs or a price change. If Buyer does not cancel in time, Buyer accepts the Property's condition.{{else}}Buyer has chosen not to inspect before closing.{{/if}} {{#if asIs}}The Property is sold as-is, without warranty as to its condition, except as stated in this Agreement and required by law.{{/if}}
+{{#if inspectionDays}}Buyer may have the Property inspected within {{inspectionDays}} days after signing. If the inspection shows a problem Buyer is not willing to accept, Buyer may cancel by written notice given within that period and the deposit is returned, or the parties may agree in writing on repairs or a price change. If Buyer does not cancel in time, Buyer accepts the Property's condition.{{else}}Buyer has chosen not to inspect before closing.{{/if}}{{#if asIs}} The Property is sold as-is, without warranty as to its condition, except as stated in this Agreement and as the law requires.{{/if}}
 
 {{#if appraisalContingency}}5. APPRAISAL
-This Agreement depends on the Property appraising at or above the purchase price. If it appraises lower, the parties may agree on a lower price; otherwise Buyer may cancel and the deposit is returned.
+This Agreement depends on the Property appraising at or above the purchase price. If it appraises lower, the parties may agree in writing on a lower price; otherwise Buyer may cancel by written notice given within 5 days after Buyer receives the appraisal, and in any case before closing, and the deposit is returned. If Buyer does not give that notice in time, this condition is waived.
 
 {{/if}}{{#if saleContingency}}6. BUYER'S OTHER HOME
-This Agreement depends on Buyer selling another property and closing on that sale by the closing date below.
+This Agreement depends on Buyer selling another property and closing on that sale before closing under this Agreement. If that sale has not closed by the time set for closing here, Buyer may cancel by written notice given within 3 days after that time, and the deposit is returned; otherwise this condition is waived.
 
 {{/if}}7. TITLE
-At closing Seller delivers {{#if deedType=general}}a general warranty deed{{else}}a special warranty deed{{/if}} conveying good and merchantable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
+At closing Seller delivers {{#if deedType=general}}a general warranty deed{{else}}a special warranty deed{{/if}} conveying good and merchantable title (title that a title insurer will insure at regular rates), free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
 
 8. CLOSING, POSSESSION AND COSTS
-Closing takes place {{#if closingMode=date}}on {{closingDate}}{{else}}within {{closingDays}} days after the conditions in this Agreement that protect Buyer have been met or waived{{/if}}. Buyer takes possession {{#if possession=closing}}at closing{{else}}on {{possessionDate}}{{/if}}, with the Property clean and in the condition it was in at the inspection, normal wear excepted. Transfer and recordation taxes are paid {{#if transferTaxes=split}}equally by Buyer and Seller{{/if}}{{#if transferTaxes=buyer}}by Buyer{{/if}}{{#if transferTaxes=seller}}by Seller{{/if}}. All other closing costs, including recording fees, title search and insurance, survey and loan charges, are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}. Property taxes, water and sewer charges and any association fees are adjusted as of the closing date.
+Closing takes place {{#if closingMode=date}}on {{closingDate}}{{else}}within {{closingDays}} days after the conditions in this Agreement that protect Buyer have been met or waived{{/if}}. Buyer takes possession {{#if possession=closing}}at closing{{else}}on {{possessionDate}}{{/if}}. Seller delivers the Property vacant and free of tenants and other occupants, broom-clean, in the same condition as when this Agreement was signed (normal wear excepted), with the heating, cooling, plumbing and electrical systems in working order. Buyer may walk through the Property within 48 hours before closing.{{#if possession=date}} Until Buyer takes possession, Seller stays responsible for the Property's upkeep, utilities and insurance.{{/if}} Transfer and recordation taxes are paid {{#if transferTaxes=split}}equally by Buyer and Seller{{/if}}{{#if transferTaxes=buyer}}by Buyer{{/if}}{{#if transferTaxes=seller}}by Seller{{/if}}. All other closing costs, including recording fees, title search and insurance, survey and loan charges, are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}. Property taxes, water and sewer charges and any association fees are adjusted as of the closing date.
 
 9. DISCLOSURES
-Seller will give Buyer the disclosures the law requires for this sale. {{#if disclosureType=disclosure}}Seller will deliver the Maryland Residential Property Disclosure Statement, completed to the best of Seller's knowledge.{{/if}}{{#if disclosureType=disclaimer}}Seller will deliver the Maryland Residential Property Disclaimer Statement, stating that Seller makes no representations about the Property's condition and Buyer is relying on Buyer's own inspection.{{/if}}{{#if disclosureType=exempt}}The parties state that no Maryland residential disclosure or disclaimer statement is required for this sale.{{/if}}{{#if preYear78}} Because the home was built before 1978, Seller will give Buyer the federal lead-based paint disclosure and the opportunity to test for lead-based paint.{{/if}}
+Seller will give Buyer the disclosures the law requires for this sale. {{#if disclosureType=disclosure}}Buyer acknowledges receiving the Maryland Residential Property Disclosure Statement, completed to the best of Seller's knowledge, before signing this Agreement (Buyer's initials: ________  date: ______________).{{/if}}{{#if disclosureType=disclaimer}}Buyer acknowledges receiving the Maryland Residential Property Disclaimer Statement before signing this Agreement (Buyer's initials: ________  date: ______________). In it Seller discloses any latent defects Seller actually knows about that a careful visual inspection would not reveal and that threaten the health or safety of the people living there, makes no other statement about the Property's condition, and Buyer takes the Property as-is, with all defects including latent defects, except as this Agreement provides.{{/if}}{{#if disclosureType=exempt}}The parties state that no Maryland disclosure or disclaimer statement is required for this sale because {{exemptReason}}.{{/if}}{{#if preYear78=yes}} Because the home was built before 1978, Seller has given or will give Buyer, before Buyer is bound by this Agreement, the EPA pamphlet "Protect Your Family From Lead in Your Home" and a signed Lead-Based Paint Disclosure (the federal Lead Warning Statement, Seller's disclosure of any known lead-based paint or hazards, and a list of any lead records), which is attached and part of this Agreement. Buyer has 10 days after signing, unless the parties agree otherwise in writing or Buyer waives it, to test the Property for lead-based paint and lead-based paint hazards, and may cancel by written notice and receive the deposit back if the test shows hazards Buyer is not willing to accept.{{/if}}
 
-10. RISK OF LOSS
-Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged before closing, Buyer may cancel and the deposit is returned.
+10. MARYLAND NOTICES
+(a) TRANSFER AND RECORDATION TAXES ARE PAID AS STATED IN THE CLOSING, POSSESSION AND COSTS SECTION OF THIS AGREEMENT. UNLESS THE PARTIES AGREE OTHERWISE, MARYLAND LAW PROVIDES THAT THEY ARE SHARED EQUALLY BETWEEN BUYER AND SELLER.
+(b) THE PROPERTY MAY BE LOCATED IN THE CHESAPEAKE AND ATLANTIC COASTAL BAYS CRITICAL AREA, GENERALLY THE LAND WITHIN 1,000 FEET OF TIDAL WATERS OR TIDAL WETLANDS, WHERE SPECIAL LAND-USE RULES MAY APPLY. A SEPARATE NOTICE SHEET IS ATTACHED.
+(c) IF BUYER WILL LIVE IN THE PROPERTY AS BUYER'S PRINCIPAL RESIDENCE, BUYER MAY QUALIFY FOR THE MARYLAND HOMESTEAD PROPERTY TAX CREDIT. INFORMATION IS AVAILABLE FROM THE STATE DEPARTMENT OF ASSESSMENTS AND TAXATION.
+(d) Buyer should ask the county planning and zoning office about current and planned land uses, public facilities and school plans that may affect the Property.
+Buyer's initials: ________
 
-11. DEFAULT
-If Buyer defaults, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
+11. RISK OF LOSS
+Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged before closing, Buyer may cancel and the deposit is returned. Until closing Seller will keep the Property in its present condition and will not lease it, sell it again or place any new lien on it without Buyer's written consent.
+
+12. DEFAULT
+If either party fails to do what this Agreement requires, the other party will give written notice, and the party in default has 5 days after the notice to fix it before the other party may use a remedy. If Buyer defaults and does not fix it, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults and does not fix it, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
 
 {{#if brokerUsed}}0. BROKERS AND COMMISSION
 {{#if brokerName}}{{brokerName}} acted as agent in this sale. {{/if}}The real-estate commission is paid by {{#if commissionPaidBy=seller}}Seller{{/if}}{{#if commissionPaidBy=buyer}}Buyer{{/if}}{{#if commissionPaidBy=split}}Buyer and Seller equally{{/if}} at closing. Each party will protect the other from any other broker's claim based on that party's own dealings.{{else}}0. BROKERS AND COMMISSION
@@ -1515,11 +1579,11 @@ Each party states that it has not used a real-estate broker or agent in this tra
 {{#if hoa}}0. ASSOCIATION
 The Property is in an association. Seller will give Buyer the association's governing documents, current fees and any resale information the law requires, and Buyer may cancel within the period the law allows after receiving them. Association fees and assessments are adjusted as of the closing date.
 
-{{/if}}0. REPORTING TO THE IRS
-Buyer and Seller will give the settlement agent the information needed to file the report the Internal Revenue Code requires for real-estate sales (Form 1099-S). This promise continues after closing.
+{{/if}}0. TAX WITHHOLDING AND REPORTING
+If Seller is not a Maryland resident, or is a foreign person for federal tax purposes, the settlement agent may withhold from Seller's proceeds the amounts Maryland and federal law require, and Seller will sign the certifications and forms needed. Buyer and Seller will also give the settlement agent the information needed to file the report the Internal Revenue Code requires for real-estate sales (Form 1099-S). These promises continue after closing.
 
-12. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Time is of the essence. This Agreement binds the parties and their heirs, representatives and permitted assigns, and may be signed in counterparts, including electronically, which together form one agreement.
+13. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Time is of the essence. Buyer may not assign this Agreement without Seller's written consent. If any part of this Agreement is not enforceable, the rest remains in effect. This Agreement binds the parties and their heirs, representatives and permitted assigns, and may be signed in counterparts, including electronically, which together form one agreement.
 
 SELLER: {{seller}}
 Signature: ______________________________   Date: ______________
@@ -1529,18 +1593,20 @@ Signature: ______________________________   Date: ______________`,
   },
   {
     key: "property_sale_commercial", title: "Commercial Property Sale Agreement", category: REAL_ESTATE,
-    description: "A seller and buyer agree on the sale of a commercial building or land: price, due-diligence period, tenants, zoning, environmental and closing.",
-    reviewNote: "Commercial sales carry large tax, zoning, environmental and lease consequences — have a real-estate attorney review this, and a title company handle the closing.",
+    description: "A seller and buyer agree on the sale of a commercial building or land: price, due-diligence period, tenants, zoning, environmental, closing deliveries and closing.",
+    reviewNote: "Commercial sales carry large tax, zoning, environmental and lease consequences — have a real-estate attorney review this, and a title company handle the closing. This agreement sells real property and the personal property you list; it does not sell a business or transfer licenses (tobacco, alcohol, sales-tax) — a store sale usually needs a separate business sale agreement and the buyer's own licenses; confirm any bulk-sale or tax-clearance steps with an attorney. If part of the property is a home or apartment, Maryland's residential disclosure statement and contract notices may also apply (Real Property Article 10-702 and 14-117): check the current statute and MREC addenda. Withholding wording is in plain words: check it against Tax-General 10-912 and federal FIRPTA rules. Confirm with an attorney: whether the environmental assessment you order meets the standard needed for any federal liability protection, and the seller-statement survival period you chose. The buyer's and seller's company officers must sign with their titles; collect authority documents for the title company.",
     steps: [
-      { title: "Seller and buyer", questions: [text("seller", "Seller — full legal name", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer — full legal name", { required: true }), text("buyerAddress", "Buyer's address"), effective(), state()] },
+      { title: "Seller and buyer", questions: [text("seller", "Seller — full legal name", { required: true }), text("sellerAddress", "Seller's address (for notices)", { required: true }), text("buyer", "Buyer — full legal name", { required: true }), text("buyerAddress", "Buyer's address (for notices)", { required: true }), effective(), state()] },
       { title: "The property", questions: [text("propertyAddress", "Property address", { required: true }), text("county", "County", { required: true }), text("parcelId", "Tax account / parcel number"), text("idNumbers", "Ward / section / block / lot (Baltimore City) or other property ID"), area("legalDescription", "Legal description (from the deed)"),
-        text("use", "Current use", { required: true, placeholder: "e.g. Retail store with upstairs apartment" }), text("zoning", "Zoning (if known)"),
-        area("included", "Included with the sale", { default: "The land, the building and improvements, fixtures attached to them, and the personal property listed below." }), area("personalProperty", "Equipment, inventory or other personal property included"), area("excluded", "Items the seller keeps")] },
+        text("use", "Current use", { required: true, placeholder: "e.g. Retail store with upstairs apartment" }), text("zoning", "Zoning (if known)"), text("intendedUse", "The use the buyer plans (optional)", { placeholder: "e.g. Convenience store and deli", help: "If filled in, the buyer may cancel during due diligence if zoning or permits will not allow it." }),
+        yesno("dwellings", "Part of the property is a home or apartment"),
+        area("included", "Included with the sale", { default: "The land, the building and improvements, and fixtures attached to them." }), area("personalProperty", "Equipment, inventory or other personal property included"), area("excluded", "Items the seller keeps")] },
       { title: "Tenants", questions: [yesno("tenants", "Part of the property is leased to tenants"), area("tenantList", "Tenants, rents and lease end dates", { showIf: { id: "tenants", equals: true }, required: true, placeholder: "e.g. Unit A — Corner Deli LLC, $3,200/month, ends June 30, 2028" }), yesno("assumeLeases", "The buyer takes over the existing leases and deposits", { showIf: { id: "tenants", equals: true }, default: true })] },
       { title: "Price and due diligence", questions: [money("price", "Purchase price", { required: true }), money("deposit", "Earnest-money deposit", { required: true }), text("depositHolder", "Deposit held by", { required: true, placeholder: "Title company or escrow agent" }),
         pick("financing", "How will the buyer pay?", [["cash", "Cash — no financing"], ["mortgage", "A commercial loan"], ["seller", "Financing from the seller"]], { required: true, default: "mortgage" }),
         money("loanAmount", "Loan amount", { showIf: { id: "financing", equals: "mortgage" }, required: true }), num("loanDays", "Days to get loan approval", { showIf: { id: "financing", equals: "mortgage" }, default: "45", required: true }), text("sellerFinanceTerms", "Seller-financing terms", { showIf: { id: "financing", equals: "seller" }, required: true }),
         num("dueDiligenceDays", "Due-diligence period (days)", { default: "30", required: true }), yesno("environmental", "Buyer may order an environmental assessment", { default: true }), yesno("exchange1031", "Seller or buyer may complete the sale as part of a 1031 exchange"),
+        num("survivalMonths", "Months the seller's statements stay in force after closing (0 for none)", { default: "12", required: true }),
         pick("closingMode", "Closing happens", [["date", "On a set date"], ["days", "Within a number of days after the buyer's conditions are met"]], { required: true, default: "date" }), date("closingDate", "Closing date", { showIf: { id: "closingMode", equals: "date" }, required: true }), num("closingDays", "Days after the conditions are met", { showIf: { id: "closingMode", equals: "days" }, default: "30", required: true }),
         pick("deedType", "Deed", [["special", "Special warranty deed"], ["general", "General warranty deed"]], { required: true, default: "special" }),
         pick("transferTaxes", "Transfer and recordation taxes are paid", [["split", "Split equally"], ["buyer", "By the buyer"], ["seller", "By the seller"]], { required: true, default: "split" }),
@@ -1550,7 +1616,7 @@ Signature: ______________________________   Date: ______________`,
     ],
     body: `COMMERCIAL PROPERTY SALE AGREEMENT
 
-This Agreement is made on {{effectiveDate}} between {{seller}}{{#if sellerAddress}} of {{sellerAddress}}{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}} of {{buyerAddress}}{{/if}} ("Buyer").
+This Agreement is made on {{effectiveDate}} between {{seller}} of {{sellerAddress}} ("Seller") and {{buyer}} of {{buyerAddress}} ("Buyer").
 
 1. THE PROPERTY
 Seller agrees to sell and Buyer agrees to buy the commercial property at {{propertyAddress}}, {{county}} County{{#if parcelId}}, tax account {{parcelId}}{{/if}}{{#if idNumbers}}, {{idNumbers}}{{/if}} (the "Property"){{#if legalDescription}}, described as:
@@ -1558,34 +1624,40 @@ Seller agrees to sell and Buyer agrees to buy the commercial property at {{prope
 Current use: {{use}}.{{#if zoning}} Zoning: {{zoning}}.{{/if}}
 Included: {{included}}
 {{#if personalProperty}}Personal property included: {{personalProperty}}
+The personal property is sold by bill of sale, free of liens, at no added price.
 {{/if}}{{#if excluded}}Excluded: {{excluded}}
-{{/if}}
+{{/if}}This Agreement covers the real property and the personal property listed only. It does not transfer any business, license or permit (including tobacco, alcohol and sales-tax licenses); Buyer obtains those in Buyer's own name.
+
 2. PRICE AND DEPOSIT
-The purchase price is {{price}}. Buyer pays an earnest-money deposit of {{deposit}} to be held by {{depositHolder}} and credited to the price at closing. The balance is paid at closing in certified funds or by wire transfer.
+The purchase price is {{price}}. Buyer pays an earnest-money deposit of {{deposit}} to {{depositHolder}} within 2 business days after both parties sign this Agreement. The holder keeps the deposit in escrow and releases it only as this Agreement provides, on the written agreement of both parties, or by court order; if the parties disagree about who is entitled to it, the holder may keep it until the disagreement is resolved or pay it into court. The deposit is credited to the price at closing. The balance is paid at closing in certified funds or by wire transfer.
 
 3. FINANCING
-{{#if financing=cash}}Buyer is paying cash. This Agreement does not depend on financing, and Buyer will show proof of funds within 5 days of signing.{{/if}}{{#if financing=mortgage}}Buyer will apply for a commercial loan of {{loanAmount}} and pursue it in good faith. If Buyer cannot obtain loan approval within {{loanDays}} days after signing despite good-faith effort, Buyer may cancel by written notice and the deposit is returned.{{/if}}{{#if financing=seller}}Seller will finance part of the price on these terms: {{sellerFinanceTerms}} The terms will be put in a promissory note and a mortgage or deed of trust signed at closing.{{/if}}
+{{#if financing=cash}}Buyer is paying cash. This Agreement does not depend on financing, and Buyer will show proof of funds within 5 days after signing.{{/if}}{{#if financing=mortgage}}Buyer will apply for a commercial loan of {{loanAmount}} within 5 days after signing, will pursue it in good faith, and will give Seller a copy of the lender's decision. If Buyer cannot obtain loan approval within {{loanDays}} days after signing despite good-faith effort, Buyer may cancel by written notice given no later than the last day of that period, and the deposit is returned. If Buyer does not give that notice in time, this financing condition is waived.{{/if}}{{#if financing=seller}}Seller will finance part of the price on these terms: {{sellerFinanceTerms}}
+The terms will be put in a promissory note and a mortgage or deed of trust signed at closing.{{/if}}
 
 4. DUE DILIGENCE
-For {{dueDiligenceDays}} days after signing, Buyer may inspect the Property and its records, including leases, income and expense statements, permits, surveys and the title commitment. Seller will provide these on request and give Buyer reasonable access. {{#if environmental}}Buyer may order an environmental assessment at Buyer's cost. {{/if}}If Buyer is not satisfied for any reason, Buyer may cancel by written notice before the period ends and the deposit is returned. If Buyer does not cancel in time, Buyer accepts the Property's condition and the deposit becomes at risk under the Default section.
+The due-diligence period is {{dueDiligenceDays}} days. It starts on the later of the day both parties sign and the day Seller has delivered the leases, rent roll, income and expense statements, permits, surveys, environmental reports and service contracts in Seller's possession. During that period Buyer may inspect the Property and its records, including those papers and the title commitment, and Seller will give Buyer reasonable access and answer reasonable requests. {{#if environmental}}Buyer may order an environmental assessment at Buyer's cost. {{/if}}{{#if intendedUse}}Buyer plans to use the Property for {{intendedUse}}. Buyer may also cancel during this period if zoning or required permits will not allow that use. {{/if}}If Buyer is not satisfied for any reason, Buyer may cancel by written notice before the period ends and the deposit is returned. If Buyer does not cancel in time, Buyer accepts the Property's condition (the Property is sold as-is except as this Agreement states) and the deposit is at risk under the Default section.
 
 {{#if tenants}}5. TENANTS AND LEASES
-The Property is leased to the following tenants: {{tenantList}} Seller states that the leases are in effect, the rents shown are correct, and no tenant is more than 30 days late except as disclosed in writing. {{#if assumeLeases}}At closing Buyer takes over the leases and the security deposits, which Seller transfers or credits to Buyer, and rents and expenses are adjusted as of the closing date.{{else}}Seller will give each tenant the notices the leases and the law require.{{/if}}
+The Property is leased to the following tenants: {{tenantList}} Seller states that the leases are in effect, the rents shown are correct, and no tenant is more than 30 days late except as disclosed in writing. {{#if assumeLeases}}At closing Buyer takes over the leases. Seller hands over every tenant's security deposit and prepaid rent with a written accounting (or credits Buyer for them), and until that is done Seller stays responsible to the tenants for their deposits. Rents and expenses are adjusted as of the closing date. Before closing Seller will ask each tenant to sign a statement confirming its lease, rent and deposit, and will give Buyer the signed statements.{{else}}Seller will give each tenant the notices the leases and the law require.{{/if}}
 
-{{/if}}6. TITLE AND SURVEY
-At closing Seller delivers {{#if deedType=general}}a general warranty deed{{else}}a special warranty deed{{/if}} conveying good and merchantable title, free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
+{{/if}}{{#if dwellings}}6. HOMES ON THE PROPERTY
+Because part of the Property is a home or apartment, Seller will give Buyer, to the extent the law requires, the Maryland Residential Property Disclosure or Disclaimer Statement and the other notices Maryland law requires in residential sales, and, if any dwelling was built before 1978, the federal lead-based paint disclosure and the opportunity to test for lead-based paint.
 
-7. SELLER'S STATEMENTS
-Seller states that, to Seller's knowledge, there are no pending lawsuits, condemnation proceedings or unpaid assessments affecting the Property, no violations of law have been received in writing that have not been fixed, and Seller has disclosed all known environmental problems.
+{{/if}}7. TITLE AND SURVEY
+At closing Seller delivers {{#if deedType=general}}a general warranty deed{{else}}a special warranty deed{{/if}} conveying good and merchantable title (title that a title insurer will insure at regular rates), free of liens and claims other than those Buyer agrees to accept. {{#if titleCompany}}{{titleCompany}} will act as settlement agent and provide the title search. {{/if}}If a title problem cannot be fixed before closing, Buyer may cancel and the deposit is returned.
 
-8. CLOSING AND COSTS
-Closing takes place {{#if closingMode=date}}on {{closingDate}}{{else}}within {{closingDays}} days after due diligence and the other conditions in this Agreement that protect Buyer have been met or waived{{/if}}, and Buyer takes possession then, free of occupants other than the tenants listed. Transfer and recordation taxes are paid {{#if transferTaxes=split}}equally by Buyer and Seller{{/if}}{{#if transferTaxes=buyer}}by Buyer{{/if}}{{#if transferTaxes=seller}}by Seller{{/if}}. All other closing costs, including recording fees, title search and insurance, survey and loan charges, are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}. Property taxes, utilities, rents and operating expenses are adjusted as of the closing date.{{#if exchange1031}} Each party will reasonably cooperate if the other wishes to complete the sale as part of a tax-deferred exchange, at no added cost or delay to the cooperating party.{{/if}}
+8. SELLER'S STATEMENTS
+Seller states that, to Seller's knowledge, there are no pending lawsuits, condemnation proceedings or unpaid assessments affecting the Property, no violation notices have been received in writing that have not been fixed, and Seller has disclosed all known environmental problems. "To Seller's knowledge" means the actual knowledge of Seller (for a company, of its owner or manager). These statements are true when this Agreement is signed and at closing. {{#if survivalMonths}}They remain in force for {{survivalMonths}} months after closing.{{else}}They do not remain in force after closing.{{/if}} Until closing Seller will operate the Property as it has been operated, and will not sign or change any lease, place any new lien on the Property or make any new contract binding the Property without Buyer's written consent.
 
-9. RISK OF LOSS
+9. CLOSING, DELIVERIES AND COSTS
+Closing takes place {{#if closingMode=date}}on {{closingDate}}{{else}}within {{closingDays}} days after due diligence and the other conditions in this Agreement that protect Buyer have been met or waived{{/if}}, and Buyer takes possession then, free of occupants other than the tenants listed. At closing Seller delivers the deed, a bill of sale for any personal property, {{#if tenants}}an assignment of the leases, {{/if}}proof of Seller's authority to sell, and the certifications needed for tax withholding; Buyer delivers the balance of the price and proof of Buyer's authority to buy. Transfer and recordation taxes are paid {{#if transferTaxes=split}}equally by Buyer and Seller{{/if}}{{#if transferTaxes=buyer}}by Buyer{{/if}}{{#if transferTaxes=seller}}by Seller{{/if}}. All other closing costs, including recording fees, title search and insurance, survey and loan charges, are paid {{#if closingCosts=split}}equally by Buyer and Seller{{/if}}{{#if closingCosts=buyer}}by Buyer{{/if}}{{#if closingCosts=seller}}by Seller{{/if}}. Property taxes, utilities, rents and operating expenses are adjusted as of the closing date.{{#if exchange1031}} Each party will reasonably cooperate if the other wishes to complete the sale as part of a tax-deferred exchange, at no added cost or delay to the cooperating party.{{/if}}
+
+10. RISK OF LOSS
 Seller bears the risk of loss or damage to the Property until closing. If the Property is substantially damaged or taken before closing, Buyer may cancel and the deposit is returned.
 
-10. DEFAULT
-If Buyer defaults, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
+11. DEFAULT
+If either party fails to do what this Agreement requires, the other party will give written notice, and the party in default has 5 days after the notice to fix it before the other party may use a remedy. If Buyer defaults and does not fix it, Seller may keep the deposit as Seller's sole remedy unless the law allows more. If Seller defaults and does not fix it, Buyer may recover the deposit and pursue the remedies the law allows, including asking a court to require the sale.
 
 {{#if brokerUsed}}0. BROKERS AND COMMISSION
 {{#if brokerName}}{{brokerName}} acted as agent in this sale. {{/if}}The real-estate commission is paid by {{#if commissionPaidBy=seller}}Seller{{/if}}{{#if commissionPaidBy=buyer}}Buyer{{/if}}{{#if commissionPaidBy=split}}Buyer and Seller equally{{/if}} at closing. Each party will protect the other from any other broker's claim based on that party's own dealings.{{else}}0. BROKERS AND COMMISSION
@@ -1594,90 +1666,101 @@ Each party states that it has not used a real-estate broker or agent in this tra
 {{#if hoa}}0. ASSOCIATION
 The Property is in an association. Seller will give Buyer the association's governing documents, current fees and any resale information the law requires, and Buyer may cancel within the period the law allows after receiving them. Association fees and assessments are adjusted as of the closing date.
 
-{{/if}}0. REPORTING TO THE IRS
-Buyer and Seller will give the settlement agent the information needed to file the report the Internal Revenue Code requires for real-estate sales (Form 1099-S). This promise continues after closing.
+{{/if}}0. TAX WITHHOLDING AND REPORTING
+If Seller is not a Maryland resident, or is a foreign person for federal tax purposes, the settlement agent may withhold from Seller's proceeds the amounts Maryland and federal law require, and Seller will sign the certifications and forms needed. Buyer and Seller will also give the settlement agent the information needed to file the report the Internal Revenue Code requires for real-estate sales (Form 1099-S). These promises continue after closing.
 
-11. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Time is of the essence. This Agreement binds the parties and their heirs, representatives and permitted assigns, and may be signed in counterparts, including electronically, which together form one agreement. Buyer may assign this Agreement only with Seller's written consent.
+12. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}. Notices must be in writing and sent to the addresses above. Time is of the essence. This Agreement binds the parties and their heirs, representatives, successors and permitted assigns, and may be signed in counterparts, including electronically, which together form one agreement. If any part is not enforceable, the rest remains in effect. Buyer may assign this Agreement only with Seller's written consent. Each person who signs for a company states that he or she is authorized to do so.
 
 SELLER: {{seller}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 BUYER: {{buyer}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
   },
   {
     key: "lease_residential", title: "Residential Lease Agreement", category: REAL_ESTATE,
-    description: "A landlord rents a home or apartment to one or more tenants: term, rent, deposit, rules, repairs and move-out.",
-    reviewNote: "Check current Maryland and local rules before using it: the security deposit may not exceed two months' rent, a late fee may not exceed 5% of the monthly rent, most rental properties need a city or county rental license, and homes built before 1978 have lead-paint registration and disclosure duties. Have an attorney review it.",
+    description: "A landlord rents a home or apartment to one or more tenants: term, rent, deposit, rules, repairs, lead-paint notices and move-out.",
+    reviewNote: "Check current Maryland and local rules before using it: the security deposit may not exceed one month's rent (Real Property Article 8-203), a late fee may not exceed 5% of the unpaid rent (8-208), the lease must be given with a copy of the current Maryland Tenants' Bill of Rights attached, most rental properties need a city or county rental license, and homes built before 1978 need the lead registration, lead inspection certificate, EPA pamphlet and Maryland Notice of Tenant's Rights given on or before move-in, plus the federal Lead Warning Statement. The security-deposit wording and the notice periods are in plain words: check them against the current statute. Confirm with an attorney: whether the 60-day landlord notice also applies when a fixed term simply expires, whether a monthly pet charge is allowed, and your local license rules (for example Baltimore City). Not checked by the app: that the deposit is no more than one month's rent and that any late fee is no more than 5% of the rent. Have an attorney review it.",
     steps: [
-      { title: "Landlord and tenants", questions: [text("landlord", "Landlord (owner or manager)", { required: true }), text("landlordAddress", "Landlord's address for notices"), text("landlordPhone", "Landlord's phone"),
+      { title: "Landlord and tenants", questions: [text("landlord", "Landlord (owner or manager)", { required: true }), text("landlordAddress", "Landlord's address for notices", { required: true }), text("landlordPhone", "Landlord's phone", { required: true }),
         list("tenants", "Tenants who sign the lease", [text("name", "Full name", { required: true })], { required: true, addLabel: "Add a tenant" }), text("occupants", "Other people who will live there (names, optional)"), effective(), state()] },
       { title: "The home", questions: [text("propertyAddress", "Address (include unit number)", { required: true }), text("county", "County or city", { required: true }),
         pick("homeType", "Type of home", [["house", "House"], ["apartment", "Apartment"], ["condo", "Condominium"], ["room", "Room in a shared home"]], { required: true, default: "apartment" }),
-        text("licenseNumber", "Rental license / registration number (if required where it is)"), yesno("preYear78", "The home was built before 1978"),
+        text("licenseNumber", "Rental license / registration number", { required: true, placeholder: "Write N/A only if none is required where the home is" }),
+        pick("preYear78", "Was the home built before 1978?", [["yes", "Yes — built before 1978"], ["no", "No — built in 1978 or later"]], { required: true, help: "If you do not know, check the tax records. Pre-1978 homes need Maryland lead registration, a lead certificate and the lead papers on or before move-in." }),
         area("included", "Appliances and furnishings included", { placeholder: "e.g. Refrigerator, stove, dishwasher, washer and dryer" }), text("parking", "Parking", { placeholder: "e.g. One assigned space" })] },
       { title: "Term and rent", questions: [
         pick("termType", "Lease type", [["fixed", "Fixed term (set start and end)"], ["monthly", "Month to month"]], { required: true, default: "fixed" }),
         date("startDate", "Starts", { required: true }), date("endDate", "Ends", { showIf: { id: "termType", equals: "fixed" }, required: true }),
-        num("noticeDays", "Days' written notice to end a month-to-month tenancy", { showIf: { id: "termType", equals: "monthly" }, default: "60", required: true }),
         money("rent", "Monthly rent", { required: true }), num("rentDay", "Rent is due on day", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
-        yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true, help: "Maryland caps a residential late fee at 5% of the monthly rent." }),
+        yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true, help: "Maryland caps a residential late fee at 5% of the unpaid rent. Enter no more than that." }),
         text("payHow", "How rent is paid", { default: "Check, money order or bank transfer to the landlord's address or account" }),
-        money("deposit", "Security deposit", { required: true, help: "Maryland caps the deposit at two months' rent." })] },
+        money("deposit", "Security deposit", { required: true, help: "Maryland caps the deposit at one month's rent. Enter no more than the monthly rent." })] },
       { title: "Rules", questions: [
-        pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }), text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true }),
-        yesno("pets", "Pets are allowed"), text("petTerms", "Which pets, and any pet fee or deposit", { showIf: { id: "pets", equals: true }, required: true }),
+        pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }), text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true, placeholder: "Name heat, gas, electricity, and water and sewer separately" }),
+        yesno("pets", "Pets are allowed"), text("petTerms", "Which pets, and any rules", { showIf: { id: "pets", equals: true }, required: true, help: "Do not add a pet deposit or fee here: Maryland limits what a landlord may require to start a lease to the security deposit and the first month's rent." }),
         yesno("noSmoking", "No smoking anywhere in the home", { default: true }), num("entryHours", "Hours' notice before the landlord enters", { default: "24", required: true }),
-        yesno("subletAllowed", "Tenant may sublet or take roommates only with written consent", { default: true }),
+        yesno("subletAllowed", "Tenant may sublet or take roommates with the landlord's written consent (switch off to forbid it completely)", { default: true }),
       ] },
     ],
     body: `RESIDENTIAL LEASE AGREEMENT
 
-This Lease is made on {{effectiveDate}} between {{landlord}}{{#if landlordAddress}}, {{landlordAddress}}{{/if}}{{#if landlordPhone}}, phone {{landlordPhone}}{{/if}} ("Landlord"), and the following tenant(s), together "Tenant":
+This Lease is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}}, phone {{landlordPhone}} ("Landlord"), and the following tenant(s), together "Tenant":
 {{#list tenants}}• {{name}}
 {{/list}}
 1. THE HOME
-Landlord rents to Tenant the {{homeType}} at {{propertyAddress}}, {{county}} (the "Home"){{#if parking}}, with {{parking}}{{/if}}.{{#if included}} Included: {{included}}.{{/if}}{{#if occupants}} Other permitted occupants: {{occupants}}.{{/if}} Only the people named in this Lease may live in the Home.{{#if licenseNumber}} Rental license / registration: {{licenseNumber}}.{{/if}}
+Landlord rents to Tenant the {{#if homeType=house}}house{{/if}}{{#if homeType=apartment}}apartment{{/if}}{{#if homeType=condo}}condominium unit{{/if}}{{#if homeType=room}}room in a shared home{{/if}} at {{propertyAddress}}, {{county}} (the "Home"){{#if parking}}, with {{parking}}{{/if}}.{{#if included}} Included: {{included}}.{{/if}}{{#if occupants}} Other permitted occupants: {{occupants}}.{{/if}} Only the people named in this Lease may live in the Home. Rental license / registration: {{licenseNumber}}. Each person who signs as Tenant is responsible, together with the others, for the whole rent and all of Tenant's other duties.
 
 2. TERM
-{{#if termType=fixed}}This Lease runs from {{startDate}} to {{endDate}}. It ends on that date unless the parties sign a new lease or extension.{{else}}This tenancy begins on {{startDate}} and continues month to month. Either party may end it by giving at least {{noticeDays}} days' written notice before the end of a rental month.{{/if}}
+{{#if termType=fixed}}This Lease runs from {{startDate}} to {{endDate}}. If Landlord does not intend to renew it, Landlord will give Tenant at least 60 days' written notice before the end date. If Tenant stays after the end date with Landlord's consent, the tenancy continues month to month on the same terms, unless the parties sign a new lease or extension.{{else}}This tenancy begins on {{startDate}} and continues month to month. Landlord may end it by giving at least 60 days' written notice, and Tenant may end it by giving at least 30 days' written notice, in each case before the end of a rental month.{{/if}}
 
 3. RENT
-Tenant pays {{rent}} per month, due on day {{rentDay}} of each month, by {{payHow}}. {{#if lateFee}}Rent not received within {{graceDays}} days after the due date is subject to a late fee of {{lateFeeAmount}}. {{/if}}Landlord may not charge more than the law allows for late payment.
+Tenant pays {{rent}} per month, due on day {{rentDay}} of each month, by {{payHow}}. {{#if lateFee}}Rent not received within {{graceDays}} days after the due date is subject to a late fee of {{lateFeeAmount}}, which will never be more than 5% of the unpaid rent. {{/if}}Landlord may not charge more than the law allows for late payment. To start this Lease Tenant pays only the first month's rent and the security deposit; no other payment is required to move in.
 
 4. SECURITY DEPOSIT
-Tenant pays a security deposit of {{deposit}}. Landlord holds it as the law requires and returns it, with an itemized list of any deductions for unpaid rent or damage beyond normal wear, within 45 days after the Lease ends and Tenant has moved out and given a forwarding address. Tenant may ask in writing, at least 15 days before moving out, to be present when Landlord inspects the Home. The deposit is not a limit on what Tenant owes.
+Tenant pays a security deposit of {{deposit}}, which is not more than one month's rent. Landlord keeps it in a federally insured Maryland account used only for security deposits and pays Tenant the simple interest Maryland law requires. This section is Landlord's receipt for the deposit. Tenant's rights are:
+(a) Within 15 days after moving in, Tenant may ask Landlord by certified mail to inspect the Home with Tenant present and list any existing damage.
+(b) To be present at the move-out inspection, Tenant sends Landlord a certified-mail notice at least 15 days before moving, stating the move date and the new address. Landlord will inspect within 5 days before or after that date and tell Tenant the inspection date in writing.
+(c) Within 45 days after the tenancy ends, Landlord will mail Tenant, by first-class mail, an itemized list of any deductions with their actual costs, and return the rest of the deposit.
+(d) A landlord who does not follow the security-deposit law may owe Tenant up to three times the amount wrongly withheld, plus reasonable attorney's fees.
+The deposit may be used only for unpaid rent, damage beyond normal wear, and other breaches of this Lease. It is not a limit on what Tenant owes.
 
 5. UTILITIES
-{{#if utilities=tenant}}Tenant pays all utilities for the Home.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Home.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
+{{#if utilities=tenant}}Tenant pays all utilities for the Home, including heat, gas, electricity, water and sewer.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Home, including heat, gas, electricity, water and sewer.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
 
-6. USE AND RULES
-Tenant uses the Home only as a private home, obeys the law and any building or association rules, and keeps the Home clean and free of nuisance. {{#if noSmoking}}Smoking is not allowed anywhere in the Home. {{/if}}{{#if pets}}Pets are allowed on these terms: {{petTerms}}. {{else}}No pets are allowed without Landlord's written consent. {{/if}}{{#if subletAllowed}}Tenant may not sublet, assign or take in roommates without Landlord's written consent.{{/if}}
+6. CONDITION AND LANDLORD'S DUTIES
+Landlord is providing the Home in a habitable condition. Who pays for heat, gas, electricity and water is stated in the Utilities section. Landlord keeps the heating, plumbing, wiring and structure of the Home in working order and makes repairs as the Repairs section says. A copy of the current Maryland Tenants' Bill of Rights is attached, and Tenant confirms receiving it.
 
-7. REPAIRS AND CONDITION
-Landlord keeps the Home fit to live in and repairs problems Tenant reports in writing, except those caused by Tenant or Tenant's guests. Tenant tells Landlord promptly about leaks, pests, broken heat or other problems, and pays for damage caused by Tenant or guests. Tenant makes no alterations, locks or paint changes without Landlord's written consent.
+7. USE AND RULES
+Tenant uses the Home only as a private home, obeys the law and any building or association rules, and keeps the Home clean and free of nuisance. {{#if noSmoking}}Smoking is not allowed anywhere in the Home. {{/if}}{{#if pets}}Pets are allowed on these terms: {{petTerms}}. {{else}}No pets are allowed without Landlord's written consent. {{/if}}Tenant may not sublet, assign or take in roommates {{#if subletAllowed}}without Landlord's written consent{{else}}under any circumstances{{/if}}.
 
-8. LANDLORD'S ENTRY
+8. REPAIRS AND CONDITION
+Landlord repairs problems Tenant reports in writing, except those caused by Tenant or Tenant's guests. Tenant tells Landlord promptly about leaks, pests, broken heat or other problems, and pays for damage caused by Tenant or guests. Tenant makes no alterations, locks or paint changes without Landlord's written consent.
+
+9. LANDLORD'S ENTRY
 Landlord may enter the Home to inspect, repair or show it after giving at least {{entryHours}} hours' notice, except in an emergency.
 
-{{#if preYear78}}9. LEAD-BASED PAINT
-The Home was built before 1978. Landlord has given Tenant the federal lead-based paint disclosure and the lead hazard pamphlet, and will meet the lead registration, inspection and notice requirements that apply to the Home.
+{{#if preYear78=yes}}10. LEAD-BASED PAINT
+The Home was built before 1978. Landlord has registered it with the Maryland Department of the Environment and, on or before move-in, has given Tenant the federal lead-based paint disclosure and Lead Warning Statement, the EPA pamphlet on lead, the Maryland Notice of Tenant's Rights and a copy of the current lead inspection certificate (certificate no. ______________). Tenant confirms receiving them. Landlord will meet the lead inspection and notice requirements that apply to the Home each time it is re-rented.
 
-{{/if}}10. INSURANCE AND LIABILITY
+{{/if}}11. INSURANCE AND LIABILITY
 Landlord is not responsible for loss of Tenant's belongings unless caused by Landlord's negligence. Tenant is encouraged to carry renter's insurance.
 
-11. DEFAULT AND ENDING EARLY
-If Tenant does not pay rent when due or breaks another term, Landlord may give the written notice the law requires and then pursue the remedies the law allows, including ending the tenancy through the court. If Tenant leaves early, Tenant remains responsible for rent until the Home is re-rented or the Lease ends, but Landlord will make reasonable efforts to re-rent it.
+12. DEFAULT AND ENDING EARLY
+If Tenant does not pay rent when due or breaks another term, Landlord may give the written notice, and the time to pay or fix it, that Maryland law requires and then pursue the remedies the law allows, including ending the tenancy through the court. If Tenant leaves early, Tenant remains responsible for rent until the Home is re-rented or the Lease ends, but Landlord will make reasonable efforts to re-rent it.
 
-12. MOVING OUT
+13. MOVING OUT
 At the end of the tenancy Tenant returns all keys, removes belongings, and leaves the Home clean and in the condition it was in at move-in, normal wear excepted.
 
-13. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by Landlord and Tenant, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above or to the Home. If any part is not enforceable, the rest remains in effect.
+14. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by Landlord and Tenant, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above or to the Home, and notices and legal papers for Landlord may be delivered to Landlord's address above. Nothing in this Lease waives any right or remedy Tenant has under Maryland law. If any part is not enforceable, the rest remains in effect.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 {{#list tenants}}TENANT: {{name}}
 Signature: ______________________________   Date: ______________
@@ -1686,19 +1769,20 @@ Signature: ______________________________   Date: ______________
   },
   {
     key: "lease_commercial", title: "Commercial Lease Agreement", category: REAL_ESTATE,
-    description: "A full commercial lease for a store, office or warehouse: rent and increases, who pays taxes and upkeep, improvements, insurance, default and renewal.",
-    reviewNote: "A commercial lease can bind the parties for years and for large sums. Have an attorney review it before signing — especially the rent type (gross vs. net), personal guarantee, renewal and default sections.",
+    description: "A full commercial lease for a store, office or warehouse: rent and increases, who pays taxes and upkeep, improvements, insurance, default, guarantee and renewal.",
+    reviewNote: "A commercial lease can bind the parties for years and for large sums. Have an attorney review it before signing — especially the rent type (gross vs. net), personal guarantee, renewal and default sections. A renewal written as 'rent at market' needs a way to set that rent. If the term including renewals is over seven years the memorandum of lease should be signed and recorded (Real Property Article 3-101 — confirm with an attorney). Confirm with an attorney: the late-interest rate you choose, how licenses for tobacco or alcohol affect the use clause, and any local licensing rules. Companies must sign through an officer with a title; collect authority documents for both sides.",
     steps: [
-      { title: "Parties", questions: [text("landlord", "Landlord", { required: true }), text("landlordAddress", "Landlord's address for notices"), text("tenant", "Tenant (business name)", { prefill: "clientName", required: true }), text("tenantAddress", "Tenant's address for notices", { prefill: "clientAddress" }), effective(), state()] },
+      { title: "Parties", questions: [text("landlord", "Landlord", { required: true }), text("landlordAddress", "Landlord's address for notices", { required: true }), text("tenant", "Tenant (business name)", { prefill: "clientName", required: true }), text("tenantAddress", "Tenant's address for notices", { prefill: "clientAddress", required: true }), effective(), state()] },
       { title: "The space and its use", questions: [text("premises", "Address of the space (include suite)", { required: true }), text("county", "County or city", { required: true }), text("size", "Size", { placeholder: "e.g. About 2,400 square feet" }),
         text("use", "Permitted use", { required: true, placeholder: "e.g. Retail convenience store and deli" }), text("parkingText", "Parking and common areas included", { placeholder: "e.g. Six reserved spaces and shared loading area" }), yesno("signage", "Tenant may install its own sign, subject to law and landlord's approval", { default: true })] },
       { title: "Term and rent", questions: [
         date("startDate", "Lease starts", { required: true }), date("endDate", "Lease ends", { required: true }), money("rent", "Monthly base rent", { required: true }), num("rentDay", "Rent due on day", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
         num("increasePercent", "Rent increases each year by (%, 0 for none)", { default: "3", required: true }),
+        num("interestPercent", "Interest on unpaid amounts (% per year, 0 for none)", { default: "6", required: true, help: "The lease says never more than the law allows. Ask an attorney if you want a higher rate." }),
         pick("rentType", "Who pays property taxes, insurance and common-area costs?", [["gross", "Landlord pays them (gross lease)"], ["nnn", "Tenant pays its share on top of rent (triple net)"], ["modified", "Shared as listed below (modified gross)"]], { required: true, default: "gross" }),
         text("costNote", "How costs are shared", { showIf: { id: "rentType", equals: "modified" }, required: true }), num("sharePercent", "Tenant's share of the building's costs (%)", { showIf: { id: "rentType", equals: "nnn" }, default: "100", required: true }),
         money("deposit", "Security deposit", { required: true }), yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }),
-        yesno("renewal", "Tenant has the option to renew"), text("renewalTerms", "Renewal terms", { showIf: { id: "renewal", equals: true }, required: true, placeholder: "e.g. One 3-year renewal, 6 months' notice, rent at market" }),
+        yesno("renewal", "Tenant has the option to renew"), text("renewalTerms", "Renewal terms", { showIf: { id: "renewal", equals: true }, required: true, placeholder: "e.g. One 3-year renewal, 6 months' notice, rent increased by 3% a year" }),
       ] },
       { title: "Upkeep, insurance, guarantee", questions: [
         pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }), text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true }),
@@ -1711,7 +1795,7 @@ Signature: ______________________________   Date: ______________
     ],
     body: `COMMERCIAL LEASE AGREEMENT
 
-This Lease is made on {{effectiveDate}} between {{landlord}}{{#if landlordAddress}}, {{landlordAddress}}{{/if}} ("Landlord") and {{tenant}}{{#if tenantAddress}}, {{tenantAddress}}{{/if}} ("Tenant").
+This Lease is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}} ("Landlord") and {{tenant}}, {{tenantAddress}} ("Tenant").
 
 1. PREMISES
 Landlord leases to Tenant the space at {{premises}}, {{county}}{{#if size}} ({{size}}){{/if}} (the "Premises"){{#if parkingText}}, together with {{parkingText}}{{/if}}.
@@ -1719,62 +1803,67 @@ Landlord leases to Tenant the space at {{premises}}, {{county}}{{#if size}} ({{s
 2. USE
 Tenant will use the Premises only for {{use}}, in compliance with all laws and with every license and permit the use requires, and will not create a nuisance or a hazard.{{#if signage}} Tenant may install a sign with Landlord's written approval, which will not be unreasonably withheld, at Tenant's cost and in compliance with local law; Tenant removes it and repairs any damage at the end of the Lease.{{/if}}
 
-3. TERM
-The Lease runs from {{startDate}} to {{endDate}}.{{#if renewal}} Renewal: {{renewalTerms}}.{{/if}}
+3. CONDITION, LICENSES AND QUIET USE
+Landlord delivers the Premises in their present condition, and Tenant has the quiet use of them as long as Tenant is not in default. Landlord does not promise that zoning or any other law allows Tenant's use; Tenant is responsible for confirming this and for obtaining every license and permit its business needs, including tobacco, alcohol and sales-tax licenses. Tenant is responsible for accessibility (ADA) requirements inside the Premises and for its own work; Landlord is responsible for the common areas. Tenant will not use or store hazardous materials except ordinary retail products, and will pay for any contamination it causes.
 
-4. RENT
-Tenant pays base rent of {{rent}} per month, due on day {{rentDay}} of each month. {{#if increasePercent}}Each year on the anniversary of the start date, base rent increases by {{increasePercent}}% of the rent in effect. {{/if}}Rent not received within {{graceDays}} days after the due date is {{#if lateFee}}subject to a late fee of {{lateFeeAmount}} and {{/if}}late; Landlord may also charge interest at the highest rate the law allows on unpaid amounts.
+4. TERM
+The Lease runs from {{startDate}} to {{endDate}}.{{#if renewal}} Renewal: {{renewalTerms}}.{{/if}} If the term, including any renewal, is longer than seven years, the parties will sign a memorandum of lease that either of them may record in the land records.
 
-5. TAXES, INSURANCE AND COMMON-AREA COSTS
-{{#if rentType=gross}}Landlord pays property taxes, building insurance and common-area costs; they are included in the rent.{{/if}}{{#if rentType=nnn}}In addition to base rent, Tenant pays {{sharePercent}}% of the building's property taxes, building insurance and common-area maintenance costs, in monthly estimates adjusted after each year ends. Landlord shows Tenant the records on request.{{/if}}{{#if rentType=modified}}Property taxes, building insurance and common-area costs are shared as follows: {{costNote}}{{/if}}
+5. RENT
+Tenant pays base rent of {{rent}} per month, due on day {{rentDay}} of each month. {{#if increasePercent}}Each year on the anniversary of the start date, base rent increases by {{increasePercent}}% of the rent in effect. {{/if}}Rent not received within {{graceDays}} days after the due date is {{#if lateFee}}subject to a late fee of {{lateFeeAmount}} and {{/if}}late.{{#if interestPercent}} Unpaid amounts also bear simple interest at {{interestPercent}}% per year from the due date, but never more than the law allows.{{/if}}
 
-6. SECURITY DEPOSIT
-Tenant pays a security deposit of {{deposit}}, held by Landlord and returned within 45 days after the Lease ends and Tenant has surrendered the Premises, less amounts needed for unpaid rent or for damage beyond normal wear.
+6. TAXES, INSURANCE AND COMMON-AREA COSTS
+{{#if rentType=gross}}Landlord pays property taxes, building insurance and common-area costs; they are included in the rent.{{/if}}{{#if rentType=nnn}}In addition to base rent, Tenant pays {{sharePercent}}% of the building's property taxes, building insurance and common-area maintenance costs, in monthly estimates adjusted after each year ends. Landlord gives Tenant a written statement of the actual costs within 120 days after each year ends, any difference is paid or credited within 30 days, and Landlord shows Tenant the records on request.{{/if}}{{#if rentType=modified}}Property taxes, building insurance and common-area costs are shared as follows: {{costNote}}{{/if}}
 
-7. UTILITIES
+7. SECURITY DEPOSIT
+Tenant pays a security deposit of {{deposit}}, held by Landlord and returned within 45 days after the Lease ends and Tenant has surrendered the Premises, less amounts needed for unpaid rent or for damage beyond normal wear. The deposit is not a limit on what Tenant owes.
+
+8. UTILITIES
 {{#if utilities=tenant}}Tenant pays all utilities for the Premises.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Premises.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
 
-8. REPAIRS AND MAINTENANCE
+9. REPAIRS AND MAINTENANCE
 {{#if repairs=standard}}Landlord repairs and maintains the roof, structure, foundation and building systems serving the Premises, except damage caused by Tenant. Tenant keeps the inside of the Premises clean and in good repair, including fixtures, windows, doors and Tenant's equipment.{{else}}Tenant repairs and maintains the entire Premises, including the roof, structure and building systems serving them, except for the cost of replacing major structural elements, which Landlord bears.{{/if}}
 
-9. ALTERATIONS
+10. ALTERATIONS
 Tenant makes no structural changes or alterations without Landlord's written consent. Improvements Tenant makes become Landlord's property at the end of the Lease unless the parties agree otherwise in writing, and Tenant keeps the Premises free of liens for work Tenant orders.
 
-10. INSURANCE AND INDEMNITY
-Tenant carries commercial general liability insurance of at least {{liabilityAmount}} per occurrence, naming Landlord as an additional insured, plus insurance on Tenant's own property, and gives Landlord proof on request. Tenant protects Landlord from claims arising from Tenant's use of the Premises, except those caused by Landlord's negligence.
+11. INSURANCE AND INDEMNITY
+Tenant carries commercial general liability insurance of at least {{liabilityAmount}} per occurrence, naming Landlord as an additional insured, plus insurance on Tenant's own property, and gives Landlord proof on request. Tenant protects Landlord from claims arising from Tenant's use of the Premises, except those caused by Landlord's negligence. Each party waives claims against the other for loss that its own property insurance covers, to the extent its insurer allows this.
 
-11. DAMAGE AND CONDEMNATION
-If the Premises are damaged and cannot be used, rent is reduced until they are repaired; if repairs would take more than 120 days, either party may end the Lease by written notice. If a government takes all or a substantial part of the Premises, the Lease ends on the date of the taking.
+12. DAMAGE AND CONDEMNATION
+If the Premises are damaged and cannot be used, rent is reduced until they are repaired. Landlord will repair the damage within 120 days if insurance money is available; if repairs would take more than 120 days or the insurance money is not available, either party may end the Lease by written notice. If a government takes all or a substantial part of the Premises, the Lease ends on the date of the taking.
 
-12. ASSIGNMENT AND SUBLETTING
+13. ASSIGNMENT AND SUBLETTING
 Tenant may not assign this Lease or sublet any part of the Premises without Landlord's written consent, which will not be unreasonably withheld. A transfer of control of Tenant counts as an assignment. Tenant stays responsible after an assignment unless Landlord releases it in writing.
 
-13. LANDLORD'S ENTRY
+14. LANDLORD'S ENTRY
 Landlord may enter the Premises at reasonable times on reasonable notice to inspect, repair or show it to buyers, lenders or new tenants, and at any time in an emergency.
 
-14. DEFAULT AND REMEDIES
+15. DEFAULT AND REMEDIES
 Tenant is in default if it does not pay rent within 10 days after written notice, or breaks another term and does not fix it within 30 days after written notice. Landlord may then end the Lease or Tenant's right to possession, re-enter as the law allows, and recover unpaid rent, damages and reasonable collection and legal costs, giving credit for amounts received from re-renting. Landlord defaults if it does not fix a failure within 30 days after written notice from Tenant.
 
-15. SUBORDINATION AND ESTOPPEL
+16. SUBORDINATION AND ESTOPPEL
 This Lease is subject to any mortgage on the building, provided the lender agrees not to disturb Tenant while Tenant is not in default. Within 15 days of a request, each party will confirm in writing the Lease's terms and whether any default exists.
 
-16. END OF LEASE AND HOLDING OVER
-At the end of the Lease Tenant returns the Premises clean and in good condition, normal wear and approved alterations excepted, and removes its own property. If Tenant stays after the end date without a new written lease, rent is {{holdoverPercent}}% of the last monthly rent, prorated by day, and the tenancy continues month to month.
+17. END OF LEASE AND HOLDING OVER
+At the end of the Lease Tenant returns the Premises clean and in good condition, normal wear and approved alterations excepted, and removes its own property. If Tenant stays after the end date without a new written lease, Tenant is a holdover tenant and this is not a renewal: rent is {{holdoverPercent}}% of the last monthly rent, prorated by day, Tenant owes Landlord's resulting damages, and Landlord may recover possession.
 
-{{#if guarantee}}17. GUARANTEE
-{{guarantor}} personally guarantees that Tenant will pay all rent and perform all obligations under this Lease, and signs below to confirm it. Landlord need not first pursue Tenant before asking the guarantor to pay.
+{{#if guarantee}}18. GUARANTEE
+{{guarantor}} personally and unconditionally guarantees that Tenant will pay all rent and perform all obligations under this Lease, as amended or renewed, and signs below to confirm it. The guarantee continues despite any change to the Lease, any release of Tenant or any delay by Landlord. Guarantor gives up any right to notice and any defense available to a guarantor, Landlord need not first pursue Tenant, and Guarantor will pay Landlord's reasonable costs of collecting from Guarantor.
 
-{{/if}}{{#if brokerUsed}}18. BROKER
+{{/if}}{{#if brokerUsed}}19. BROKER
 {{brokerName}} acted in this Lease. Each party will protect the other from any other broker's claim based on its own dealings.
 
-{{/if}}19. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, binds their heirs, successors and permitted assigns, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above. Time is of the essence. If any part is not enforceable, the rest remains in effect. This Lease may be signed in counterparts, including electronically.
+{{/if}}20. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, binds their heirs, successors and permitted assigns, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above. Time is of the essence. If any part is not enforceable, the rest remains in effect. This Lease may be signed in counterparts, including electronically. Each person who signs for a company states that he or she is authorized to do so.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 TENANT: {{tenant}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 {{#if guarantee}}
 GUARANTOR: {{guarantor}}
 Signature: ______________________________   Date: ______________
@@ -2114,8 +2203,9 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "lease_amendment", title: "Lease Amendment / Renewal", category: REAL_ESTATE,
     description: "Extends a lease, changes the rent, or changes other terms, while everything else stays as in the original lease.",
+    reviewNote: "Use this only if at least one change below is filled in; an amendment with no change is meaningless (the app does not check this yet). If the lease has a guarantor, the guarantor should sign too. If there are several tenants, add each one below. For a home built before 1978, re-deliver the lead-paint materials Maryland requires, and keep the security deposit within the legal limit if the rent goes up (Real Property Article 8-203; MDE rules) — confirm with an attorney. A landlord's rent-increase notice rules are separate from this agreement.",
     steps: [
-      { title: "The lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), text("premises", "Premises address", { required: true }), date("leaseDate", "Date of the original lease", { required: true }), effective(), state()] },
+      { title: "The lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), list("otherTenants", "Other tenants who also sign (if any)", [text("name", "Full name", { required: true })], { addLabel: "Add a tenant" }), text("guarantor", "Guarantor of the lease (if any)"), text("premises", "Premises address", { required: true }), date("leaseDate", "Date of the original lease", { required: true }), effective(), state()] },
       { title: "What changes", questions: [
         yesno("extend", "Extend the lease term", { default: true }), date("newEnd", "New ending date", { showIf: { id: "extend", equals: true }, required: true }),
         yesno("rentChange", "Change the rent", { default: false }), money("newRent", "New monthly rent", { showIf: { id: "rentChange", equals: true }, required: true }), date("rentFrom", "New rent starts on", { showIf: { id: "rentChange", equals: true }, required: true }),
@@ -2126,7 +2216,7 @@ Signature: ______________________________   Date: ______________`,
 
 Date: {{effectiveDate}}
 
-This amendment is between {{landlord}} ("Landlord") and {{tenant}} ("Tenant") and changes the lease dated {{leaseDate}} for the premises at {{premises}} ("the Lease").
+This amendment is between {{landlord}} ("Landlord") and {{tenant}}{{#list otherTenants}}, {{name}}{{/list}} ("Tenant") and changes the lease dated {{leaseDate}} for the premises at {{premises}}, as that lease may already have been amended ("the Lease").
 
 {{#if extend}}1. TERM
 The Lease term is extended and now ends on {{newEnd}}, unless ended earlier under the Lease.
@@ -2138,24 +2228,36 @@ Beginning {{rentFrom}}, the monthly rent is {{newRent}}, payable on the same dat
 {{other}}
 
 {{/if}}4. NOTHING ELSE CHANGES
-All other terms of the Lease stay in full force. If this amendment and the Lease disagree, this amendment controls. This amendment is governed by the laws of the State of {{state}} and may be signed in copies, including electronically.
+All other terms of the Lease stay in full force. If this amendment and the Lease disagree, this amendment controls. Each party confirms that the Lease is in effect and that, to its knowledge, the other party is not in default. The security deposit now held stays with the Lease.{{#if guarantor}} {{guarantor}} consents to this amendment and confirms that the guarantee of the Lease continues for the Lease as amended.{{/if}} This amendment is governed by the laws of the State of {{state}} and may be signed in copies, including electronically. Each person who signs for a company states that he or she is authorized to do so.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
 
 TENANT: {{tenant}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+{{#list otherTenants}}TENANT: {{name}}
+Signature: ______________________________   Date: ______________
+
+{{/list}}{{#if guarantor}}GUARANTOR: {{guarantor}}
+Signature: ______________________________   Date: ______________
+{{/if}}`,
   },
   {
     key: "gift_letter", title: "Gift Letter", category: FAMILY,
-    description: "States that money given to someone — usually for a home purchase — is a gift and does not have to be repaid.",
-    reviewNote: "A mortgage lender may require its own form, the donor's bank statement showing the funds, and proof of the transfer. Large gifts can have gift-tax filing rules; ask the tax preparer.",
+    description: "States that money given to someone — usually for a home purchase — is a gift and does not have to be repaid, with the details a mortgage lender asks for.",
+    reviewNote: "A mortgage lender may require its own form, the donor's bank statement showing the funds, and proof of the transfer (wire, check or deposit record). Lenders usually accept gifts only from relatives or people in a family-like relationship, and not from anyone with an interest in the sale — a friend or the seller is often not accepted, so check with the lender first. Gifts above the federal annual exclusion may require the donor to file a gift tax return (Form 709); ask the tax preparer for the current amount. The recipient does not pay gift tax.",
     steps: [
-      { title: "People", questions: [text("donor", "Donor (person giving the gift)", { required: true }), text("donorAddress", "Donor's address"), text("donorPhone", "Donor's phone"), text("recipient", "Recipient (person receiving it)", { prefill: "clientName", required: true }), text("relationship", "Donor's relationship to the Recipient", { required: true, placeholder: "e.g. Father, Sister, Friend" }), effective()] },
+      { title: "People", questions: [text("donor", "Donor (person giving the gift)", { required: true }), text("donorAddress", "Donor's address", { required: true }), text("donorPhone", "Donor's phone", { required: true }), text("recipient", "Recipient (person receiving it)", { prefill: "clientName", required: true }), text("recipientAddress", "Recipient's address"),
+        text("relationship", "Donor's relationship to the Recipient", { required: true, placeholder: "e.g. Father, Sister, Fiancé" }),
+        pick("relationType", "The Donor is", [["family", "A relative — by blood, marriage, adoption or legal guardianship"], ["partner", "The Recipient's spouse, domestic partner or fiancé(e)"], ["familylike", "Someone in a long-standing family-like relationship with the Recipient"], ["other", "Someone else"]], { required: true }), effective()] },
       { title: "The gift", questions: [
-        money("amount", "Amount of the gift", { required: true }), date("giftDate", "Date given or to be given"),
+        money("amount", "Amount of the gift", { required: true }), date("giftDate", "Date the gift was paid or will be paid", { required: true }),
+        text("transferMethod", "How it is paid", { required: true, placeholder: "e.g. Wire from the Donor's account at ABC Bank to the Recipient's account" }),
         pick("purpose", "What it is for", [["home", "A down payment or closing costs on a home"], ["other", "Another purpose"]], { required: true, default: "home" }),
-        text("property", "Address of the home being bought", { showIf: { id: "purpose", equals: "home" } }), text("lender", "Mortgage lender (if known)", { showIf: { id: "purpose", equals: "home" } }),
+        text("property", "Address of the home being bought", { showIf: { id: "purpose", equals: "home" }, required: true }), text("lender", "Mortgage lender (if known)", { showIf: { id: "purpose", equals: "home" } }),
         text("source", "Where the money comes from", { placeholder: "e.g. The Donor's savings account at ABC Bank" }),
       ] },
     ],
@@ -2163,22 +2265,24 @@ Signature: ______________________________   Date: ______________`,
 
 Date: {{effectiveDate}}
 
-I, {{donor}}{{#if donorAddress}} of {{donorAddress}}{{/if}}{{#if donorPhone}} (telephone {{donorPhone}}){{/if}}, the Donor, state:
+I, {{donor}}, of {{donorAddress}}, telephone {{donorPhone}}, the Donor, state:
 
-1. I am giving {{recipient}}, my {{relationship}}, the sum of {{amount}}{{#if giftDate}} on or about {{giftDate}}{{/if}}.
+1. I am giving {{recipient}}{{#if recipientAddress}}, of {{recipientAddress}}{{/if}} (the "Recipient"), my {{relationship}}, the sum of {{amount}}. The gift is paid, or will be paid, on {{giftDate}} by {{transferMethod}}.
 
 2. This is a gift. I do not expect it to be repaid in money, property or services, now or in the future, and no loan is involved.
 
 3. {{#if purpose=home}}The gift is to help with the down payment or closing costs for the purchase of the home at {{property}}{{#if lender}}, financed by {{lender}}{{/if}}.{{else}}The gift is for the Recipient's own use.{{/if}}
 
-4. {{#if source}}The money comes from {{source}}.{{else}}The money comes from my own funds.{{/if}} It does not come from the seller, a real estate agent, a builder, or anyone else who has an interest in the sale of the home.
+4. {{#if source}}The money comes from {{source}}.{{else}}The money comes from my own funds.{{/if}} It is not borrowed, and it gives me no lien or claim on the Recipient's property.{{#if purpose=home}} I have no interest in the sale or financing of the home, and I am not connected with the builder, the seller, the real estate agent or any other party to the transaction.{{/if}}
 
-5. I understand that I may be asked to give my bank records to show where the money came from.
+5. {{#if relationType=family}}I am related to the Recipient by blood, marriage, adoption or legal guardianship.{{/if}}{{#if relationType=partner}}I am the Recipient's spouse, domestic partner or fiancé(e).{{/if}}{{#if relationType=familylike}}I have a long-standing family-like relationship with the Recipient.{{/if}}{{#if relationType=other}}My relationship to the Recipient is as stated above.{{/if}}
+
+6. I understand that I may be asked to give my bank records to show where the money came from, and that a federal gift tax return (Form 709) may be required of me if my gifts to the Recipient in a year are more than the annual exclusion. Any gift tax is my responsibility, not the Recipient's.
 
 DONOR: {{donor}}
 Signature: ______________________________   Date: ______________
 
-RECIPIENT (acknowledging): {{recipient}}
+RECIPIENT (acknowledging that this is a gift and will not be repaid): {{recipient}}
 Signature: ______________________________   Date: ______________`,
   },
   {

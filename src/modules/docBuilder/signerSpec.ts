@@ -16,7 +16,7 @@ const SPEC: Record<string, Spec[]> = {
   demand_letter: [{ role: "Sender", nameId: "sender" }],
   promissory_note: [{ role: "Borrower", nameId: "borrower" }, { role: "Lender", nameId: "lender" }],
   nda_mutual: [{ role: "First party", nameId: "partyA" }, { role: "Second party", nameId: "partyB" }],
-  commercial_lease_short: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }],
+  commercial_lease_short: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Guarantor", nameId: "guarantor", onlyIf: "guarantee" }],
   single_member_llc_agreement: [{ role: "Member", nameId: "member" }],
   corporate_resolution: [{ role: "Approver", listId: "signers", listNameId: "name" }],
   annual_meeting_minutes: [{ role: "Chairperson", nameId: "chair" }, { role: "Secretary", nameId: "secretary" }],
@@ -31,7 +31,7 @@ const SPEC: Record<string, Spec[]> = {
   resignation_letter: [{ role: "Employee", nameId: "employee" }],
   service_agreement: [{ role: "Provider", nameId: "provider" }, { role: "Customer", nameId: "customer" }],
   consulting_agreement: [{ role: "Company", nameId: "client" }, { role: "Consultant", nameId: "consultant" }],
-  lease_termination_agreement: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }],
+  lease_termination_agreement: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Guarantor", nameId: "guarantor" }],
   workplace_incident_report: [{ role: "Person involved", nameId: "person" }],
   affidavit_general: [{ role: "Affiant", nameId: "affiant" }],
   child_travel_consent: [{ role: "Parent / guardian", nameId: "parent" }, { role: "Second parent / guardian", nameId: "parent2", onlyIf: "secondParent" }],
@@ -46,7 +46,7 @@ const SPEC: Record<string, Spec[]> = {
   ownership_transfer: [{ role: "Transferor", nameId: "assignor" }, { role: "Transferee", nameId: "assignee" }, { role: "Company", nameId: "companySigner" }, { role: "Consenting owner", listId: "consenters", listNameId: "name" }],
   personal_guaranty: [{ role: "Guarantor", nameId: "guarantor" }, { role: "Creditor", nameId: "creditor" }],
   non_compete: [{ role: "Company", nameId: "company" }, { role: "Person", nameId: "person" }],
-  lease_amendment: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }],
+  lease_amendment: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Tenant", listId: "otherTenants", listNameId: "name" }, { role: "Guarantor", nameId: "guarantor" }],
   gift_letter: [{ role: "Donor", nameId: "donor" }, { role: "Recipient", nameId: "recipient" }],
 };
 
