@@ -82,7 +82,7 @@ export function drawLegalBody(doc: PDFDocument, font: PDFFont, bold: PDFFont, bo
   const formHeight = (b: (typeof blocks)[number] | undefined) => (b && b.t === "form" ? drawForm(b.items, ML, TW, true, 0) + 40 : 0);
   for (let bi = 0; bi < blocks.length; bi++) {
     const b = blocks[bi];
-    if (b.t === "break") { newPage(); continue; }
+    if (b.t === "break") { newPage(); formsSeen = 0; continue; }
     if ("rtl" in b && b.rtl) { skipArabic(); continue; }
     if (b.t === "title") {
       lastTitle = b.text; ensure(60); for (const ln of wrap(b.text, bold, 15.5, TW)) { text(ln, ML + (TW - bold.widthOfTextAtSize(pdfSafeText(ln), 15.5)) / 2, y + 15, bold, 15.5); y += 21; }
@@ -106,7 +106,7 @@ export function drawLegalBody(doc: PDFDocument, font: PDFFont, bold: PDFFont, bo
       // keep the whole signing section (every party's block) together on one page when it fits
       let group = 0;
       for (let j = bi; j < blocks.length && blocks[j].t === "form" && !(blocks[j] as any).notary; j++) group += drawForm((blocks[j] as any).items, ML, TW, true, 0) + 18;
-      ensure(Math.min(group + 50, 560)); y += 16;
+      ensure(Math.min(group + 22, 560)); y += 16;
       if (!b.notary) { const lab = "SIGNATURES"; text(lab, ML + (TW - bold.widthOfTextAtSize(lab, 10.5)) / 2, y + 10, bold, 10.5); y += 16; line(ML, y, ML + TW, 0.6, GRAY); y += 4; if (lastTitle) { const sp = `Signature page — ${lastTitle}`; const w2 = font.widthOfTextAtSize(pdfSafeText(sp), 8.5); text(sp, ML + (TW - Math.min(w2, TW)) / 2, y + 11, font, 8.5, GRAY); y += 14; } }
     }
     if (b.notary) {

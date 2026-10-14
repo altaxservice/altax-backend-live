@@ -22,7 +22,7 @@ export type Block =
 const ARABIC_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 const HEADING = /^\d+\.\s+[A-Z؀-ۿ][A-Z؀-ۿ0-9 &,'\/()\-،]+$/;
 const ROLE_LINE = /^[A-Z][A-Z ()'\/&.,-]{2,}(:.*)?$/;
-const NOTARY_RE = /^(ACKNOWLEDGMENT|NOTARY\b|Notary\b|إقرار أمام كاتب العدل|كاتب العدل)/;
+const NOTARY_RE = /notary|كاتب العدل/i;
 const FILL = /_{4,}/;
 
 /** A line like "Signature: ____   Date: ____" → its labelled fields; null when it is really a sentence with a blank in it. */
@@ -49,7 +49,7 @@ function parseRow(line: string): FormItem | null {
 export function parseBlocks(body: string): Block[] {
   const blocks: Block[] = [];
   const lines = body.replace(/\r/g, "").split("\n");
-  let i = 0, blankRun = 0, first = true;
+  let i = 0, blankRun = 0, first = true, afterBreak = false;
   let cur: string[] = [];
   const flush = () => {
     if (!cur.length) return;
@@ -62,7 +62,7 @@ export function parseBlocks(body: string): Block[] {
         if (row) items.push(row);
         else items.push({ k: "text", text: l });
       }
-      blocks.push({ t: "form", items, notary: NOTARY_RE.test(cur[0]), rtl });
+      blocks.push({ t: "form", items, notary: NOTARY_RE.test(cur[0]) && /^(ACKNOWLEDGMENT|NOTARY|Notary|إقرار|كاتب)/.test(cur[0]), rtl });
     } else {
       for (const l of cur) {
         if (/^• /.test(l)) blocks.push({ t: "bullet", text: l.slice(2), rtl: ARABIC_RE.test(l) });
@@ -76,9 +76,11 @@ export function parseBlocks(body: string): Block[] {
   for (i = 0; i < lines.length; i++) {
     const line = lines[i].replace(/\s+$/, "");
     if (!line.trim()) { flush(); blankRun += 1; continue; }
+    if (line.trim() === "[page break]") { flush(); blocks.push({ t: "break" }); afterBreak = true; blankRun = 0; continue; }
     const rtl = ARABIC_RE.test(line);
+    if (afterBreak && !cur.length) { blocks.push({ t: "title", text: line, rtl }); afterBreak = false; blankRun = 0; continue; }
     if (first) { blocks.push({ t: "title", text: line, rtl }); first = false; blankRun = 0; continue; }
-    if (!cur.length && blocks.length === 1 && blocks[0].t === "title" && /^\(.{3,120}\)$/.test(line)) { blocks.push({ t: "subtitle", text: line.slice(1, -1), rtl }); blankRun = 0; continue; }
+    if (!cur.length && blocks[blocks.length - 1]?.t === "title" && /^\(.{3,120}\)$/.test(line)) { blocks.push({ t: "subtitle", text: line.slice(1, -1), rtl }); blankRun = 0; continue; }
     if (blankRun >= 2 && rtl && !cur.length) { blocks.push({ t: "break" }); blocks.push({ t: "title", text: line, rtl }); blankRun = 0; continue; }
     // A heading line and the sentence under it are separate lines of the same paragraph; forms keep all their lines together.
     cur.push(line); blankRun = 0;

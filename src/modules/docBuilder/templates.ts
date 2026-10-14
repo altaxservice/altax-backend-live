@@ -1702,46 +1702,57 @@ If a company — By: ______________________________   Name: ____________________
   },
   {
     key: "lease_residential", title: "Residential Lease Agreement", category: REAL_ESTATE,
-    description: "A landlord rents a home or apartment to one or more tenants: term, rent, deposit, rules, repairs, lead-paint notices and move-out.",
-    reviewNote: "Check current Maryland and local rules before using it: the security deposit may not exceed one month's rent (Real Property Article 8-203), a late fee may not exceed 5% of the unpaid rent (8-208), the lease must be given with a copy of the current Maryland Tenants' Bill of Rights attached, most rental properties need a city or county rental license, and homes built before 1978 need the lead registration, lead inspection certificate, EPA pamphlet and Maryland Notice of Tenant's Rights given on or before move-in, plus the federal Lead Warning Statement. The security-deposit wording and the notice periods are in plain words: check them against the current statute. Confirm with an attorney: whether the 60-day landlord notice also applies when a fixed term simply expires, whether a monthly pet charge is allowed, and your local license rules (for example Baltimore City). Not checked by the app: that the deposit is no more than one month's rent and that any late fee is no more than 5% of the rent. Have an attorney review it.",
+    description: "A landlord rents a home or apartment to one or more tenants: term, rent, deposit, rules, repairs, lead-paint notices and move-out — with a signed security-deposit receipt and, for older homes, a lead-paint disclosure page attached.",
+    reviewNote: "Check current Maryland and local rules before using it: the security deposit may not exceed one month's rent (Real Property Article 8-203), a late fee may not exceed 5% of the unpaid rent (8-208), the lease must be given with a copy of the current Maryland Tenants' Bill of Rights attached, most rental properties need a city or county rental license, and homes built before 1978 need the lead registration, lead inspection certificate, EPA pamphlet and Maryland Notice of Tenant's Rights given on or before move-in, plus the federal lead-based paint disclosure attached to this lease. The security-deposit wording and the notice periods are in plain words: check them against the current statute. Confirm with an attorney: whether the 60-day landlord notice also applies when a fixed term simply expires, whether a returned-payment fee, a monthly pet charge, a mutual attorney's-fee clause or mediation clause is appropriate, and your local license rules (for example Baltimore City). Binding arbitration is deliberately not included — ask an attorney before adding it to a residential lease. Not checked by the app: that the deposit is no more than one month's rent and that any late fee is no more than 5% of the rent. Have an attorney review it.",
     steps: [
-      { title: "Landlord and tenants", questions: [text("landlord", "Landlord (owner or manager)", { required: true }), text("landlordAddress", "Landlord's address for notices", { required: true }), text("landlordPhone", "Landlord's phone", { required: true }),
-        list("tenants", "Tenants who sign the lease", [text("name", "Full name", { required: true })], { required: true, addLabel: "Add a tenant" }), text("occupants", "Other people who will live there (names, optional)"), effective(), state()] },
+      { title: "Landlord and tenants", questions: [text("landlord", "Landlord (owner or manager)", { required: true }), text("landlordAddress", "Landlord's address for notices", { required: true }), text("landlordPhone", "Landlord's phone", { required: true }), text("landlordEmail", "Landlord's email (optional)"),
+        list("tenants", "Tenants who sign the lease", [text("name", "Full name", { required: true })], { required: true, addLabel: "Add a tenant" }), text("tenantPhone", "Tenant's phone (optional)"), text("tenantEmail", "Tenant's email (optional)"), text("occupants", "Other people who will live there (names, optional)"), effective(), state()] },
       { title: "The home", questions: [text("propertyAddress", "Address (include unit number)", { required: true }), text("county", "County or city", { required: true }),
         pick("homeType", "Type of home", [["house", "House"], ["apartment", "Apartment"], ["condo", "Condominium"], ["room", "Room in a shared home"]], { required: true, default: "apartment" }),
         text("licenseNumber", "Rental license / registration number", { required: true, placeholder: "Write N/A only if none is required where the home is" }),
         pick("preYear78", "Was the home built before 1978?", [["yes", "Yes — built before 1978"], ["no", "No — built in 1978 or later"]], { required: true, help: "If you do not know, check the tax records. Pre-1978 homes need Maryland lead registration, a lead certificate and the lead papers on or before move-in." }),
+        pick("leadKnown", "Landlord's knowledge of lead-based paint or lead hazards", [["none", "Landlord has no knowledge of any"], ["known", "Landlord knows of lead-based paint or lead hazards"]], { showIf: { id: "preYear78", equals: "yes" }, required: true }),
+        area("leadKnownDetails", "What is known (location and condition)", { showIf: { id: "leadKnown", equals: "known" }, required: true }),
+        pick("leadRecords", "Lead records and reports about the home", [["none", "Landlord has none"], ["provided", "Landlord has some and is giving copies to the tenant"]], { showIf: { id: "preYear78", equals: "yes" }, required: true }),
+        text("leadRecordsList", "List the records or reports given", { showIf: { id: "leadRecords", equals: "provided" }, required: true }),
         area("included", "Appliances and furnishings included", { placeholder: "e.g. Refrigerator, stove, dishwasher, washer and dryer" }), text("parking", "Parking", { placeholder: "e.g. One assigned space" })] },
       { title: "Term and rent", questions: [
         pick("termType", "Lease type", [["fixed", "Fixed term (set start and end)"], ["monthly", "Month to month"]], { required: true, default: "fixed" }),
-        date("startDate", "Starts", { required: true }), date("endDate", "Ends", { showIf: { id: "termType", equals: "fixed" }, required: true }),
+        date("startDate", "Starts", { required: true }), date("endDate", "Ends", { showIf: { id: "termType", equals: "fixed" }, required: true }), date("possessionDate", "Tenant may move in earlier, on (optional)", { help: "Use this if the tenant gets the keys before the lease start date." }),
         money("rent", "Monthly rent", { required: true }), num("rentDay", "Rent is due on day", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
         yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true, help: "Maryland caps a residential late fee at 5% of the unpaid rent. Enter no more than that." }),
+        money("nsfFee", "Fee for a payment returned unpaid by the bank (optional)", { help: "Leave empty for none. Confirm with an attorney before charging one." }),
         text("payHow", "How rent is paid", { default: "Check, money order or bank transfer to the landlord's address or account" }),
         money("deposit", "Security deposit", { required: true, help: "Maryland caps the deposit at one month's rent. Enter no more than the monthly rent." })] },
       { title: "Rules", questions: [
         pick("utilities", "Utilities", [["tenant", "Tenant pays all utilities"], ["landlord", "Landlord pays all utilities"], ["split", "As listed below"]], { required: true, default: "tenant" }), text("utilitiesNote", "Which utilities, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true, placeholder: "Name heat, gas, electricity, and water and sewer separately" }),
         yesno("pets", "Pets are allowed"), text("petTerms", "Which pets, and any rules", { showIf: { id: "pets", equals: true }, required: true, help: "Do not add a pet deposit or fee here: Maryland limits what a landlord may require to start a lease to the security deposit and the first month's rent." }),
-        yesno("noSmoking", "No smoking anywhere in the home", { default: true }), num("entryHours", "Hours' notice before the landlord enters", { default: "24", required: true }),
+        yesno("noSmoking", "No smoking or vaping anywhere in the home", { default: true }), yesno("guestsLimit", "No guest may stay longer than 7 days without the landlord's written consent", { default: true }),
+        pick("yardCare", "Yard and snow", [["none", "Not applicable"], ["tenant", "Tenant keeps the yard tidy and clears snow and ice from the tenant's area"], ["landlord", "Landlord keeps the yard and clears snow and ice"]], { required: true, default: "none" }),
+        yesno("rentersInsurance", "Tenant must carry renter's liability insurance", { default: false }), yesno("absenceInspection", "Tenant arranges a check if the home will be empty for 4 days or more", { default: false }),
+        yesno("moveInReport", "Landlord and tenant sign a written condition report at move-in and move-out", { default: true }),
+        num("entryHours", "Hours' notice before the landlord enters", { default: "24", required: true }),
         yesno("subletAllowed", "Tenant may sublet or take roommates with the landlord's written consent (switch off to forbid it completely)", { default: true }),
+        yesno("mediation", "Disagreements go to mediation before court (court is still available where the law gives that right)", { default: false }), yesno("attorneyFees", "The winner of a court case about this lease recovers reasonable attorney's fees, to the extent the law allows", { default: false }),
+        area("extraClauses", "Additional clauses (optional — one per line)", { placeholder: "e.g. Tenant opens the gas and electric accounts in Tenant's own name before move-in" }),
       ] },
     ],
     body: `RESIDENTIAL LEASE AGREEMENT
 
-This Lease is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}}, phone {{landlordPhone}} ("Landlord"), and the following tenant(s), together "Tenant":
+This Lease is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}}, phone {{landlordPhone}}{{#if landlordEmail}}, email {{landlordEmail}}{{/if}} ("Landlord"), and the following tenant(s), together "Tenant":
 {{#list tenants}}• {{name}}
 {{/list}}
 1. THE HOME
-Landlord rents to Tenant the {{#if homeType=house}}house{{/if}}{{#if homeType=apartment}}apartment{{/if}}{{#if homeType=condo}}condominium unit{{/if}}{{#if homeType=room}}room in a shared home{{/if}} at {{propertyAddress}}, {{county}} (the "Home"){{#if parking}}, with {{parking}}{{/if}}.{{#if included}} Included: {{included}}.{{/if}}{{#if occupants}} Other permitted occupants: {{occupants}}.{{/if}} Only the people named in this Lease may live in the Home. Rental license / registration: {{licenseNumber}}. Each person who signs as Tenant is responsible, together with the others, for the whole rent and all of Tenant's other duties.
+Landlord rents to Tenant the {{#if homeType=house}}house{{/if}}{{#if homeType=apartment}}apartment{{/if}}{{#if homeType=condo}}condominium unit{{/if}}{{#if homeType=room}}room in a shared home{{/if}} at {{propertyAddress}}, {{county}} (the "Home"){{#if parking}}, with {{parking}}{{/if}}.{{#if included}} Included: {{included}}.{{/if}}{{#if occupants}} Other permitted occupants: {{occupants}}.{{/if}} Only the people named in this Lease may live in the Home.{{#if guestsLimit}} No guest may stay longer than 7 days without Landlord's written consent.{{/if}} Rental license / registration: {{licenseNumber}}. Each person who signs as Tenant is responsible, together with the others, for the whole rent and all of Tenant's other duties.
 
 2. TERM
-{{#if termType=fixed}}This Lease runs from {{startDate}} to {{endDate}}. If Landlord does not intend to renew it, Landlord will give Tenant at least 60 days' written notice before the end date. If Tenant stays after the end date with Landlord's consent, the tenancy continues month to month on the same terms, unless the parties sign a new lease or extension.{{else}}This tenancy begins on {{startDate}} and continues month to month. Landlord may end it by giving at least 60 days' written notice, and Tenant may end it by giving at least 30 days' written notice, in each case before the end of a rental month.{{/if}}
+{{#if termType=fixed}}This Lease runs from {{startDate}} to {{endDate}}. If Landlord does not intend to renew it, Landlord will give Tenant at least 60 days' written notice before the end date. If Tenant stays after the end date with Landlord's consent, the tenancy continues month to month on the same terms, unless the parties sign a new lease or extension.{{else}}This tenancy begins on {{startDate}} and continues month to month. Landlord may end it by giving at least 60 days' written notice, and Tenant may end it by giving at least 30 days' written notice, in each case before the end of a rental month.{{/if}}{{#if possessionDate}} Tenant may take possession of the Home on {{possessionDate}}; the rent for the term begins on {{startDate}}.{{/if}}
 
 3. RENT
-Tenant pays {{rent}} per month, due on day {{rentDay}} of each month, by {{payHow}}. {{#if lateFee}}Rent not received within {{graceDays}} days after the due date is subject to a late fee of {{lateFeeAmount}}, which will never be more than 5% of the unpaid rent. {{/if}}Landlord may not charge more than the law allows for late payment. To start this Lease Tenant pays only the first month's rent and the security deposit; no other payment is required to move in.
+Tenant pays {{rent}} per month, due on day {{rentDay}} of each month, by {{payHow}}. {{#if lateFee}}Rent not received within {{graceDays}} days after the due date is subject to a late fee of {{lateFeeAmount}}, which will never be more than 5% of the unpaid rent. {{/if}}Landlord may not charge more than the law allows for late payment.{{#if nsfFee}} A fee of {{nsfFee}} applies to a payment that the bank returns unpaid.{{/if}} Landlord may raise the rent only after giving the notice the law requires, and the new rent starts only after that notice period ends. To start this Lease Tenant pays only the first month's rent and the security deposit; no other payment is required to move in.
 
 4. SECURITY DEPOSIT
-Tenant pays a security deposit of {{deposit}}, which is not more than one month's rent. Landlord keeps it in a federally insured Maryland account used only for security deposits and pays Tenant the simple interest Maryland law requires. This section is Landlord's receipt for the deposit. Tenant's rights are:
+Tenant pays a security deposit of {{deposit}}, which is not more than one month's rent. Landlord keeps it in a federally insured Maryland account used only for security deposits and pays Tenant the simple interest Maryland law requires. A signed receipt for the deposit is attached to this Lease. Tenant's rights are:
 (a) Within 15 days after moving in, Tenant may ask Landlord by certified mail to inspect the Home with Tenant present and list any existing damage.
 (b) To be present at the move-out inspection, Tenant sends Landlord a certified-mail notice at least 15 days before moving, stating the move date and the new address. Landlord will inspect within 5 days before or after that date and tell Tenant the inspection date in writing.
 (c) Within 45 days after the tenancy ends, Landlord will mail Tenant, by first-class mail, an itemized list of any deductions with their actual costs, and return the rest of the deposit.
@@ -1752,22 +1763,22 @@ The deposit may be used only for unpaid rent, damage beyond normal wear, and oth
 {{#if utilities=tenant}}Tenant pays all utilities for the Home, including heat, gas, electricity, water and sewer.{{/if}}{{#if utilities=landlord}}Landlord pays all utilities for the Home, including heat, gas, electricity, water and sewer.{{/if}}{{#if utilities=split}}{{utilitiesNote}}{{/if}}
 
 6. CONDITION AND LANDLORD'S DUTIES
-Landlord is providing the Home in a habitable condition. Who pays for heat, gas, electricity and water is stated in the Utilities section. Landlord keeps the heating, plumbing, wiring and structure of the Home in working order and makes repairs as the Repairs section says. A copy of the current Maryland Tenants' Bill of Rights is attached, and Tenant confirms receiving it.
+Landlord is providing the Home in a habitable condition. Who pays for heat, gas, electricity and water is stated in the Utilities section. Landlord keeps the heating, plumbing, wiring and structure of the Home in working order and makes repairs as the Repairs section says. A copy of the current Maryland Tenants' Bill of Rights is attached, and Tenant confirms receiving it.{{#if moveInReport}} At the start and at the end of the tenancy, Landlord and Tenant will complete, sign and date a written condition report of the Home.{{/if}}
 
 7. USE AND RULES
-Tenant uses the Home only as a private home, obeys the law and any building or association rules, and keeps the Home clean and free of nuisance. {{#if noSmoking}}Smoking is not allowed anywhere in the Home. {{/if}}{{#if pets}}Pets are allowed on these terms: {{petTerms}}. {{else}}No pets are allowed without Landlord's written consent. {{/if}}Tenant may not sublet, assign or take in roommates {{#if subletAllowed}}without Landlord's written consent{{else}}under any circumstances{{/if}}.
+Tenant uses the Home only as a private home, obeys the law and any building or association rules, and keeps the Home clean and free of nuisance. Tenant does not carry on any illegal activity at the Home and follows Landlord's reasonable written rules about the Home that are given to Tenant. {{#if noSmoking}}Smoking and vaping are not allowed anywhere in the Home, and Tenant will not allow guests to smoke or vape there. {{/if}}{{#if pets}}Pets are allowed on these terms: {{petTerms}}. {{else}}No pets are allowed without Landlord's written consent. {{/if}}Tenant may not sublet, assign or take in roommates {{#if subletAllowed}}without Landlord's written consent{{else}}under any circumstances{{/if}}.
 
 8. REPAIRS AND CONDITION
-Landlord repairs problems Tenant reports in writing, except those caused by Tenant or Tenant's guests. Tenant tells Landlord promptly about leaks, pests, broken heat or other problems, and pays for damage caused by Tenant or guests. Tenant makes no alterations, locks or paint changes without Landlord's written consent.
+Landlord repairs problems Tenant reports in writing, except those caused by Tenant or Tenant's guests. Tenant tells Landlord promptly about leaks, pests, broken heat or other problems, and pays for damage caused by Tenant or guests. Both parties will take reasonable steps to prevent moisture and mold; Tenant tells Landlord in writing promptly about any moisture or visible mold, and Landlord responds promptly. Without Landlord's written consent Tenant will not paint or wallpaper, put more than two small picture hooks in any one wall, add or remove walls, install a waterbed, add wiring or heating units, put up signs, or change the locks.{{#if yardCare=tenant}} Tenant keeps the yard assigned to the Home clean and tidy, including routine lawn care and trash removal, and clears snow and ice from that area and its walkways.{{/if}}{{#if yardCare=landlord}} Landlord keeps the yard tidy and clears snow and ice from the yard and its walkways.{{/if}}{{#if absenceInspection}} If the Home will be empty for 4 days or more, Tenant will arrange for someone to check it regularly and will give Landlord that person's name and phone number.{{/if}}
 
 9. LANDLORD'S ENTRY
-Landlord may enter the Home to inspect, repair or show it after giving at least {{entryHours}} hours' notice, except in an emergency.
+Landlord may enter the Home to inspect, repair or show it after giving at least {{entryHours}} hours' notice, except in an emergency. During the last 30 days of the tenancy Landlord may show the Home to prospective tenants and put up a "for rent" sign.
 
 {{#if preYear78=yes}}10. LEAD-BASED PAINT
-The Home was built before 1978. Landlord has registered it with the Maryland Department of the Environment and, on or before move-in, has given Tenant the federal lead-based paint disclosure and Lead Warning Statement, the EPA pamphlet on lead, the Maryland Notice of Tenant's Rights and a copy of the current lead inspection certificate (certificate no. ______________). Tenant confirms receiving them. Landlord will meet the lead inspection and notice requirements that apply to the Home each time it is re-rented.
+The Home was built before 1978. Landlord has registered it with the Maryland Department of the Environment and, on or before move-in, has given Tenant the Lead-Based Paint Disclosure attached to this Lease, the federal Lead Warning Statement, the EPA pamphlet on lead, the Maryland Notice of Tenant's Rights and a copy of the current lead inspection certificate (certificate no. ______________). Tenant confirms receiving them. Landlord will meet the lead inspection and notice requirements that apply to the Home each time it is re-rented.
 
 {{/if}}11. INSURANCE AND LIABILITY
-Landlord is not responsible for loss of Tenant's belongings unless caused by Landlord's negligence. Tenant is encouraged to carry renter's insurance.
+Landlord is not responsible for loss of Tenant's belongings unless caused by Landlord's negligence. {{#if rentersInsurance}}Tenant will carry renter's liability insurance for the Home and give Landlord proof of it on request.{{else}}Tenant is encouraged to carry renter's insurance.{{/if}}
 
 12. DEFAULT AND ENDING EARLY
 If Tenant does not pay rent when due or breaks another term, Landlord may give the written notice, and the time to pay or fix it, that Maryland law requires and then pursue the remedies the law allows, including ending the tenancy through the court. If Tenant leaves early, Tenant remains responsible for rent until the Home is re-rented or the Lease ends, but Landlord will make reasonable efforts to re-rent it.
@@ -1775,8 +1786,17 @@ If Tenant does not pay rent when due or breaks another term, Landlord may give t
 13. MOVING OUT
 At the end of the tenancy Tenant returns all keys, removes belongings, and leaves the Home clean and in the condition it was in at move-in, normal wear excepted.
 
-14. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by Landlord and Tenant, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above or to the Home, and notices and legal papers for Landlord may be delivered to Landlord's address above. Nothing in this Lease waives any right or remedy Tenant has under Maryland law. If any part is not enforceable, the rest remains in effect.
+{{#if mediation}}14. DISAGREEMENTS
+If Landlord and Tenant disagree about this Lease, they will first try to settle it by talking and then by mediation with a neutral mediator they both accept, sharing the cost equally. This does not stop either party from going to court where the law gives that right, including to collect rent or recover possession.
+
+{{/if}}{{#if attorneyFees}}15. ATTORNEY'S FEES
+In a court case about this Lease, the party who wins recovers reasonable attorney's fees from the other party, to the extent the law allows. This applies equally to Landlord and Tenant.
+
+{{/if}}{{#if extraClauses}}16. ADDITIONAL CLAUSES
+{{extraClauses}}
+
+{{/if}}17. NOTICES AND GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by Landlord and Tenant, and is governed by the laws of the State of {{state}}. Notices must be in writing and delivered to the addresses above or to the Home, and notices and legal papers for Landlord may be delivered to Landlord's address above.{{#if tenantPhone}} Tenant may also be reached at {{tenantPhone}}.{{/if}}{{#if tenantEmail}} Tenant's email is {{tenantEmail}}.{{/if}} Nothing in this Lease waives any right or remedy Tenant has under Maryland law, and if a term conflicts with Maryland law, the law controls. This Lease may be signed in counterparts, including electronically. If any part is not enforceable, the rest remains in effect.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
@@ -1785,7 +1805,50 @@ If a company — By: ______________________________   Name: ____________________
 {{#list tenants}}TENANT: {{name}}
 Signature: ______________________________   Date: ______________
 
-{{/list}}`,
+{{/list}}ACKNOWLEDGMENT OF RECEIPT
+Tenant acknowledges receiving a copy of this Lease signed by both parties on ______________{{#if termType=fixed}}, and understands that after the end date the tenancy continues month to month unless it is ended by notice as this Lease says{{/if}}.
+Tenant: ______________________________   Date: ______________
+
+[page break]
+RECEIPT FOR SECURITY DEPOSIT
+(Maryland)
+
+Property: {{propertyAddress}}, {{county}}
+Landlord: {{landlord}}
+
+Landlord acknowledges receiving a security deposit of {{deposit}} from Tenant for the Home. The deposit is not more than one month's rent. Landlord will hold it in a federally insured Maryland account used only for security deposits, and Tenant's rights to a move-in inspection, to be present at the move-out inspection, to an itemized list of deductions and the return of the unused part within 45 days, and to interest are those stated in the Security Deposit section of the Lease. A landlord who does not follow the security-deposit law may owe up to three times the amount wrongly withheld plus reasonable attorney's fees.
+
+Received by Landlord or property manager: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+{{#if preYear78=yes}}
+[page break]
+LEAD-BASED PAINT DISCLOSURE
+(Housing built before 1978)
+
+Property: {{propertyAddress}}, {{county}}
+Landlord: {{landlord}}
+
+LEAD WARNING STATEMENT
+Housing built before 1978 may contain lead-based paint. Lead from paint, paint chips, and dust can pose health hazards if not managed properly. Lead exposure is especially harmful to young children and pregnant women. Before renting pre-1978 housing, lessors must disclose the presence of known lead-based paint and/or lead-based paint hazards in the dwelling. Lessees must also receive a federally approved pamphlet on lead poisoning prevention.
+
+LANDLORD'S DISCLOSURE
+(a) Presence of lead-based paint and/or lead-based paint hazards: {{#if leadKnown=known}}Landlord knows of lead-based paint and/or lead-based paint hazards in the Home. {{leadKnownDetails}}{{else}}Landlord has no knowledge of lead-based paint and/or lead-based paint hazards in the Home.{{/if}}
+(b) Records and reports: {{#if leadRecords=provided}}Landlord has given Tenant copies of all available records and reports about lead-based paint and/or lead-based paint hazards in the Home: {{leadRecordsList}}.{{else}}Landlord has no records or reports about lead-based paint and/or lead-based paint hazards in the Home.{{/if}}
+
+TENANT'S ACKNOWLEDGMENT
+Tenant has received the information listed above, including any records and reports, and the pamphlet Protect Your Family From Lead in Your Home (or an equivalent pamphlet approved by the EPA).
+
+CERTIFICATION OF ACCURACY
+Landlord and Tenant have reviewed the information above and certify, to the best of their knowledge, that the information they have provided is true and accurate.
+
+Landlord: {{landlord}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+{{#list tenants}}Tenant: {{name}}
+Signature: ______________________________   Date: ______________
+
+{{/list}}{{/if}}`,
   },
   {
     key: "lease_commercial", title: "Commercial Lease Agreement", category: REAL_ESTATE,
