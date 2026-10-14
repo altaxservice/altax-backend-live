@@ -12,6 +12,7 @@ import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
 import { pdfSafeText } from "../../common/pdfText";
+import { drawLegalBody } from "../docBuilder/legalPdf";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -116,11 +117,15 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   const logo = legal ? null : await embedFirmLogo(doc, profile);
   const foot = (cc: Cursor, n: number) => { if (!legal) drawFooter(cc, profile.firmName, data.contractId, `Page ${n}`); };
 
-  let { page, c } = newPage(doc, font, bold, legal);
+  let page: PDFPage, c: Cursor, y = 48, pageNum = 1;
   const L = 48, R = PAGE_W - 48;
-  let y = 48;
+  if (legal) {
+    // Clean legal layout (one-inch margins, real signature lines, boxed notary block) lives in docBuilder/legalPdf.ts.
+    const r = drawLegalBody(doc, font, bold, data.renderedBody);
+    page = r.page; c = new Cursor(page, font, bold, PAGE_H); y = r.y; pageNum = r.pageNum;
+  } else { ({ page, c } = newPage(doc, font, bold, false)); }
   let textL = L;
-  if (legal) { y = 64; } else {
+  if (!legal) {
   if (logo) {
     const logoH = 30;
     const logoW = (logo.width / logo.height) * logoH;
@@ -147,10 +152,8 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   c.text(R - 12, y + 50, `Status: ${data.status}`, { size: 8, bold: true, color: TEAL, align: "right" });
   y += 76;
 
-  }
 
   foot(c, 1);
-  let pageNum = 1;
   const maxWidth = R - L;
 
   // Standard PDF fonts (Helvetica) can only encode WinAnsi characters — drawing
@@ -207,8 +210,10 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     }
     y += legal ? 7 : 9; // paragraph gap
   }
+  }
 
   // Signature block
+  if (legal && !(data.signers && data.signers.length)) return finish();
   if (y > PAGE_H - 140) {
     pageNum += 1;
     ({ page, c } = newPage(doc, font, bold, legal));
@@ -294,7 +299,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     const pages = doc.getPages();
     pages.forEach((pg, i) => {
       const label = `Page ${i + 1} of ${pages.length}`;
-      pg.drawText(label, { x: PAGE_W / 2 - font.widthOfTextAtSize(label, 9) / 2, y: 30, size: 9, font, color: MUTED });
+      pg.drawText(label, { x: PAGE_W / 2 - font.widthOfTextAtSize(label, 9) / 2, y: 40, size: 9, font, color: MUTED });
     });
   }
   return doc.save();

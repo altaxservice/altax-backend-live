@@ -12,6 +12,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { escapeHtml } from "../../common/html";
 import { substitutePlaceholders } from "../templates/templates.routes";
 import { buildDocumentDocx } from "../docBuilder/docx";
+import { renderDocumentHtml } from "../docBuilder/htmlDoc";
 import { generateContractPdf } from "./contractPdf";
 import {
   FIRM_SERVICES, SERVICE_LABEL, GENERAL_TERMS_KEY, GENERAL_TERMS_TITLE, GENERAL_TERMS_BODY,
@@ -277,6 +278,15 @@ contractsRouter.get("/:contractId/docx", requireAuth, asyncHandler(async (req: A
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   res.setHeader("Content-Disposition", `attachment; filename="${contract.contract_id}.docx"`);
   res.send(buf);
+}));
+
+/** Printable page (HTML) of a saved document — Arabic and bilingual documents print through the browser. Add ?print=1 to open the print dialog straight away. */
+contractsRouter.get("/:contractId/html", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const contract = await loadContractForUser(req, req.params.contractId);
+  if (contract === null) return res.status(404).json({ error: "Contract not found." });
+  if (contract === "forbidden") return res.status(403).json({ error: "You do not have access to this contract." });
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(renderDocumentHtml({ title: contract.title, body: contract.rendered_body, autoPrint: String(req.query.print || "") === "1" }));
 }));
 
 contractsRouter.get("/:contractId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {

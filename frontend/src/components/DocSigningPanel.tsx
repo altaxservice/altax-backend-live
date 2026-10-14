@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Send } from "lucide-react";
-import { api, ApiError, viewFile } from "../api/client";
+import { api, ApiError, printFile, viewFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "./ConfirmProvider";
 import { useToast } from "./Toast";
-import { printText } from "../utils/printDocument";
 
 interface Signer { signerId: string; role: string; name: string; email: string | null; phone: string | null; delivery: string; status: string; sentAt: string | null; viewedAt: string | null; signedAt: string | null; declinedAt: string | null; declineReason: string | null; reminders: number; link: string | null }
 interface Info {
@@ -136,7 +135,7 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
           {sent && !done && <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={cancel}>Cancel signing request</button>}
           {sent && <button type="button" className="btn btn-sm" onClick={() => viewFile(`/doc-builder/docs/${docId}/signed-pdf`)}>{done ? "Signed copy (PDF)" : "Current copy (PDF)"}</button>}
           {info.file && <button type="button" className="btn btn-sm" onClick={() => viewFile(`/doc-builder/docs/${docId}/file`)}>View the uploaded PDF{info.file.pages ? ` (${info.file.pages} pages)` : ""}</button>}
-          {sent && info.doc.lang !== "en" && <button type="button" className="btn btn-sm" onClick={() => printText(info.doc.title, info.doc.body)}>Print / Save as PDF (Arabic text)</button>}
+          {sent && info.doc.lang !== "en" && <button type="button" className="btn btn-sm" onClick={() => printFile(`/contracts/${info.doc.contractId}/html`)}>Print / Save as PDF (Arabic text)</button>}
         </div>
         {info.doc.lang !== "en" && <div className="muted" style={{ fontSize: 12 }}>For Arabic and bilingual documents, the PDF above shows the signatures but leaves out the Arabic paragraphs — signers read the full Arabic text on their signing page, and "Print / Save as PDF" prints it.</div>}
       </div>

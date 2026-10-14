@@ -1,64 +1,124 @@
 /**
  * Word (.docx) edition of a Document Builder document: the same rendered text as the PDF, laid out like a legal document —
- * centered title, numbered clauses in bold, signature lines kept together, "Page X of Y" in the footer. Arabic paragraphs are set
- * right-to-left (Word shapes Arabic itself, which the server's PDF writer cannot), and "English + Arabic" documents start the Arabic
- * edition on a new page. Editable, so staff or an attorney can adjust it before it is signed.
+ * centered title, numbered clauses in bold, an uncrowded signing section (real signature lines with the label underneath, a boxed
+ * notary acknowledgment with a seal area) and "Page X of Y" in the footer. Arabic paragraphs and tables are set right-to-left (Word
+ * shapes Arabic itself, which the server's PDF writer cannot), and "English + Arabic" documents start the Arabic edition on a new page.
+ * Editable, so staff or an attorney can adjust it before it is signed.
  */
-import { AlignmentType, Document, Footer, Packer, PageBreak, PageNumber, Paragraph, TextRun } from "docx";
+import {
+  AlignmentType, BorderStyle, Document, Footer, HeightRule, Packer, PageBreak, PageNumber, Paragraph, ShadingType, Table, TableCell, TableLayoutType,
+  TableRow, TextRun, VerticalAlign, WidthType,
+} from "docx";
+import { parseBlocks, type Block, type FormItem } from "./layout";
 
 const FONT = "Times New Roman";
-const ARABIC_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
-const HEADING = /^\d+\.\s+[A-Z؀-ۿ][A-Z؀-ۿ0-9 &,'\/()\-،]+$/;
-const ROLE_LINE = /^[A-Z][A-Z ()'\/&.,-]{2,}(:.*)?$/;
 const SIZE = 24; // 12 pt, in half-points
+const FULL = 9360; // text width in DXA (6.5in)
+const NONE = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+const NO_BORDERS = { top: NONE, bottom: NONE, left: NONE, right: NONE, insideHorizontal: NONE, insideVertical: NONE };
+const LINE = { style: BorderStyle.SINGLE, size: 6, color: "333333" };
 
 export interface DocxSigner { role: string; name: string; status: string; signedAt: string | null }
 export interface DocxInput { title: string; body: string; footerNote?: string; signers?: DocxSigner[] }
 
-function runs(text: string, o: { bold?: boolean; size?: number; rtl?: boolean }): TextRun[] {
+function run(text: string, o: { bold?: boolean; size?: number; rtl?: boolean; color?: string } = {}): TextRun {
   const size = o.size ?? SIZE;
-  const base = { font: { ascii: FONT, hAnsi: FONT, cs: FONT, eastAsia: FONT }, size, sizeComplexScript: size, bold: o.bold, boldComplexScript: o.bold, rightToLeft: o.rtl };
-  // English sub-clauses such as "A. BANKING. At any bank…" get their label in bold.
+  return new TextRun({ text, font: { ascii: FONT, hAnsi: FONT, cs: FONT, eastAsia: FONT }, size, sizeComplexScript: size, bold: o.bold, boldComplexScript: o.bold, rightToLeft: o.rtl, color: o.color });
+}
+/** Text with English sub-clause labels ("A. BANKING.") in bold; underscore runs shown as lines. */
+function textRuns(text: string, o: { bold?: boolean; size?: number; rtl?: boolean }): TextRun[] {
   const m = !o.rtl && !o.bold ? /^([A-Z]\.\s+[A-Z][A-Z ,&'-]+\.)(\s.*)$/.exec(text) : null;
-  if (m) return [new TextRun({ ...base, text: m[1], bold: true, boldComplexScript: true }), new TextRun({ ...base, text: m[2] })];
-  return [new TextRun({ ...base, text })];
+  const parts = m ? [{ t: m[1], b: true }, { t: m[2], b: false }] : [{ t: text, b: Boolean(o.bold) }];
+  return parts.flatMap((p) => p.t.split(/(_{4,})/).filter(Boolean).map((seg) => (/^_{4,}$/.test(seg) ? run("______________", { ...o, bold: false }) : run(seg, { ...o, bold: p.b }))));
+}
+
+function para(text: string, o: { bold?: boolean; size?: number; rtl?: boolean; align?: (typeof AlignmentType)[keyof typeof AlignmentType]; before?: number; after?: number; keepNext?: boolean; pageBreakBefore?: boolean; indent?: { left: number; hanging?: number } } = {}): Paragraph {
+  return new Paragraph({
+    pageBreakBefore: o.pageBreakBefore, bidirectional: o.rtl, keepNext: o.keepNext, keepLines: true,
+    alignment: o.align ?? (o.rtl ? AlignmentType.START : AlignmentType.LEFT),
+    spacing: { before: o.before ?? 0, after: o.after ?? 120, line: 276 }, indent: o.indent,
+    children: textRuns(text, o),
+  });
+}
+
+/** A signature row: a fixed-width table whose top row is the lines to write on and whose bottom row holds the small labels. */
+function signatureRow(it: Extract<FormItem, { k: "row" }>, width: number, rtl: boolean): Table[] {
+  const n = it.fields.length; const gap = 360;
+  const weights = it.fields.map((f) => (/signature|seal|التوقيع|ختم/i.test(f.label) ? 2.3 : /date|التاريخ/i.test(f.label) ? 1 : 1.5));
+  const sum = weights.reduce((a, b) => a + b, 0); const avail = width - gap * (n - 1);
+  const widths: number[] = []; const cols: { w: number; gap: boolean }[] = [];
+  it.fields.forEach((_, i) => { const w = Math.round((avail * weights[i]) / sum); cols.push({ w, gap: false }); if (i < n - 1) cols.push({ w: gap, gap: true }); });
+  cols.forEach((c) => widths.push(c.w));
+  const lineRow = new TableRow({ cantSplit: true, height: { value: 640, rule: HeightRule.ATLEAST }, children: cols.map((c) => new TableCell({ width: { size: c.w, type: WidthType.DXA }, borders: c.gap ? { top: NONE, bottom: NONE, left: NONE, right: NONE } : { top: NONE, left: NONE, right: NONE, bottom: LINE }, children: [new Paragraph({ children: [] })] })) });
+  const labelRow = new TableRow({ cantSplit: true, children: cols.map((c, i) => { const fi = i / 2; const f = c.gap ? null : it.fields[fi]; const lab = f ? `${f.label}${fi === n - 1 && it.note ? ` ${it.note}` : ""}`.trim() : ""; return new TableCell({ width: { size: c.w, type: WidthType.DXA }, borders: { top: NONE, bottom: NONE, left: NONE, right: NONE }, children: [new Paragraph({ bidirectional: rtl, spacing: { before: 30, after: 0 }, children: lab ? [run(lab, { size: 17, color: "666666", rtl })] : [] })] }); }) });
+  const out: Table[] = [];
+  out.push(new Table({ width: { size: width, type: WidthType.DXA }, columnWidths: widths, layout: TableLayoutType.FIXED, visuallyRightToLeft: rtl, borders: NO_BORDERS, rows: [lineRow, labelRow] }));
+  return out;
+}
+
+function formChildren(items: FormItem[], width: number, rtl: boolean): (Paragraph | Table)[] {
+  const out: (Paragraph | Table)[] = [];
+  for (const it of items) {
+    if (it.k === "text") out.push(para(it.text, { bold: it.bold, rtl, after: 40, keepNext: true, size: 22 }));
+    else {
+      if (it.caption) out.push(para(it.caption, { rtl, after: 0, keepNext: true, size: 22 }));
+      out.push(...signatureRow(it, width, rtl));
+      out.push(new Paragraph({ spacing: { after: 60 }, children: [] }));
+    }
+  }
+  return out;
+}
+
+function notaryBox(items: FormItem[], rtl: boolean): Table {
+  const innerW = FULL - 560; const sealW = 1800; const leftW = innerW - sealW - 240;
+  const textItems = items.filter((i) => i.k !== "row").map((it, i) => (i === 0 && it.k === "text" ? { ...it, bold: true } : it)) as FormItem[];
+  const rowItems = items.filter((i) => i.k === "row");
+  const layout = new Table({
+    width: { size: innerW, type: WidthType.DXA }, columnWidths: [leftW, 240, sealW], layout: TableLayoutType.FIXED, visuallyRightToLeft: rtl, borders: NO_BORDERS,
+    rows: [new TableRow({ cantSplit: true, children: [
+      new TableCell({ width: { size: leftW, type: WidthType.DXA }, borders: { top: NONE, bottom: NONE, left: NONE, right: NONE }, children: formChildren(rowItems, leftW, rtl) }),
+      new TableCell({ width: { size: 240, type: WidthType.DXA }, borders: { top: NONE, bottom: NONE, left: NONE, right: NONE }, children: [new Paragraph({ children: [] })] }),
+      new TableCell({ width: { size: sealW, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, borders: { top: { style: BorderStyle.DASHED, size: 6, color: "999999" }, bottom: { style: BorderStyle.DASHED, size: 6, color: "999999" }, left: { style: BorderStyle.DASHED, size: 6, color: "999999" }, right: { style: BorderStyle.DASHED, size: 6, color: "999999" } }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [run(rtl ? "الختم" : "Seal", { size: 18, color: "999999", rtl })] })] }),
+    ] })],
+  });
+  const box = { style: BorderStyle.SINGLE, size: 6, color: "888888" };
+  return new Table({
+    width: { size: FULL, type: WidthType.DXA }, columnWidths: [FULL], layout: TableLayoutType.FIXED, visuallyRightToLeft: rtl,
+    rows: [new TableRow({ cantSplit: true, children: [new TableCell({ width: { size: FULL, type: WidthType.DXA }, borders: { top: box, bottom: box, left: box, right: box }, shading: { type: ShadingType.CLEAR, fill: "F7F7F7", color: "auto" }, margins: { top: 200, bottom: 200, left: 280, right: 280 }, children: [...formChildren(textItems, innerW, rtl), layout, new Paragraph({ children: [] })] })] })],
+  });
+}
+
+function blockChildren(blocks: Block[]): (Paragraph | Table)[] {
+  const out: (Paragraph | Table)[] = [];
+  let forms = 0;
+  for (const b of blocks) {
+    switch (b.t) {
+      case "break": forms = 0; break; // the next title carries the page break
+      case "title": out.push(new Paragraph({ pageBreakBefore: out.length > 0, bidirectional: b.rtl, alignment: AlignmentType.CENTER, keepNext: true, spacing: { after: 280 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 8 } }, children: [run(b.text, { bold: true, size: 32, rtl: b.rtl })] })); break;
+      case "heading": out.push(para(b.text, { bold: true, rtl: b.rtl, before: 280, after: 100, keepNext: true })); break;
+      case "subheading": out.push(para(b.text, { bold: true, size: 22, rtl: b.rtl, before: 240, after: 100, keepNext: true })); break;
+      case "bullet": out.push(para(`•\t${b.text}`, { rtl: b.rtl, align: AlignmentType.JUSTIFIED, indent: { left: 540, hanging: 300 }, after: 80 })); break;
+      case "para": out.push(para(b.text, { rtl: b.rtl, align: AlignmentType.JUSTIFIED })); break;
+      case "form":
+        forms += 1;
+        if (forms === 1 && !b.notary) out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 360, after: 160 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } }, children: [run(b.rtl ? "التوقيعات" : "SIGNATURES", { bold: true, size: 22, rtl: b.rtl })] }));
+        if (b.notary) { out.push(new Paragraph({ spacing: { before: 240 }, children: [] })); out.push(notaryBox(b.items, b.rtl)); out.push(new Paragraph({ spacing: { after: 120 }, children: [] })); }
+        else { out.push(new Paragraph({ spacing: { before: 160 }, keepNext: true, children: [] })); out.push(...formChildren(b.items, FULL, b.rtl)); }
+        break;
+    }
+  }
+  return out;
 }
 
 export async function buildDocumentDocx(input: DocxInput): Promise<Buffer> {
-  const children: Paragraph[] = [];
-  const lines = input.body.replace(/\r/g, "").split("\n");
-  let blankRun = 0;
-  let first = true;
-  let prevSignature = false;
-  for (const raw of lines) {
-    const line = raw.replace(/\s+$/, "");
-    if (!line.trim()) { blankRun += 1; continue; }
-    const rtl = ARABIC_RE.test(line);
-    const newEdition = !first && blankRun >= 2 && rtl;
-    const isTitle = first || newEdition;
-    const isSignature = /_{6,}/.test(line);
-    const isHeading = !isTitle && HEADING.test(line);
-    const isRole = !isTitle && !isSignature && !isHeading && !rtl && line.length < 90 && ROLE_LINE.test(line);
-    const align = isTitle ? AlignmentType.CENTER : isSignature || isRole || isHeading ? (rtl ? AlignmentType.START : AlignmentType.LEFT) : AlignmentType.JUSTIFIED;
-    children.push(new Paragraph({
-      pageBreakBefore: newEdition,
-      bidirectional: rtl,
-      alignment: align,
-      keepNext: isTitle || isHeading || isRole,
-      keepLines: true,
-      spacing: { before: isTitle ? 0 : isHeading ? 280 : isSignature && !prevSignature ? 360 : blankRun > 0 ? 160 : 0, after: isTitle ? 240 : isSignature ? 120 : 120, line: 276 },
-      children: runs(line, { bold: isTitle || isHeading || isRole, size: isTitle ? 32 : SIZE, rtl }),
-    }));
-    prevSignature = isSignature;
-    blankRun = 0; first = false;
-  }
+  const children: (Paragraph | Table)[] = blockChildren(parseBlocks(input.body));
 
   if (input.signers?.length) {
     children.push(new Paragraph({ children: [new PageBreak()] }));
-    children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: runs("SIGNATURE RECORD", { bold: true, size: 28 }) }));
+    children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [run("SIGNATURE RECORD", { bold: true, size: 28 })] }));
     for (const s of input.signers) {
       const when = s.signedAt ? new Date(s.signedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "";
-      children.push(new Paragraph({ spacing: { after: 120 }, children: runs(`${s.role}: ${s.name} — ${s.status}${when ? `, ${when}` : ""}`, { size: 22 }) }));
+      children.push(para(`${s.role}: ${s.name} — ${s.status}${when ? `, ${when}` : ""}`, { size: 22 }));
     }
   }
 

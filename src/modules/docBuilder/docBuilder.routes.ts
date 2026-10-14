@@ -9,6 +9,7 @@ import { getFirmProfile } from "../../common/firmProfile";
 import { decryptClientPii } from "../../common/encryption";
 import { generateContractPdf } from "../contracts/contractPdf";
 import { buildDocumentDocx } from "./docx";
+import { renderDocumentHtml } from "./htmlDoc";
 import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
 import { canAccessDoc } from "./access";
@@ -131,6 +132,15 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${p.t.key}.pdf"`);
   res.send(Buffer.from(bytes));
+}));
+
+/** A printable page (HTML, same layout as the PDF/Word file) of the document as it stands — Arabic and bilingual documents print through the browser. */
+docBuilderRouter.post("/html", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const p = prep(req, res); if (!p) return;
+  const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
+  if (client === undefined) return;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(renderDocumentHtml({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), autoPrint: Boolean(req.body?.print) }));
 }));
 
 /** A Word (.docx) copy of the document as it stands, without saving anything. */

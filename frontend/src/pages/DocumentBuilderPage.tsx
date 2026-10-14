@@ -5,7 +5,6 @@ import { api, ApiError, downloadFile, downloadFilePost, printFile, printFilePost
 import type { Client } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
 import { DocSigningPanel } from "../components/DocSigningPanel";
-import { printText } from "../utils/printDocument";
 import { DateInput } from "../components/DateInput";
 import { useToast } from "../components/Toast";
 import { useConfirm } from "../components/ConfirmProvider";
@@ -320,7 +319,10 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
                 <button type="button" className="btn" onClick={() => downloadFile(`/contracts/${done.contractId}/pdf`, `${tpl.title}.pdf`)}><Download size={14} aria-hidden="true" /> Download PDF</button>
               </>
             ) : (
-              <button type="button" className="btn" onClick={() => printText(tpl.title, done.body)}><Printer size={14} aria-hidden="true" /> View / Print / Save as PDF</button>
+              <>
+                <button type="button" className="btn" onClick={() => viewFile(`/contracts/${done.contractId}/html`)}>View</button>
+                <button type="button" className="btn" onClick={() => printFile(`/contracts/${done.contractId}/html`)}><Printer size={14} aria-hidden="true" /> Print / Save as PDF</button>
+              </>
             )}
             <button type="button" className="btn" onClick={() => downloadFile(`/contracts/${done.contractId}/docx`, `${tpl.title}.docx`).catch((e) => toast(e instanceof ApiError ? e.message : "Could not download the Word file."))}><Download size={14} aria-hidden="true" /> Download Word</button>
           </div>
@@ -391,7 +393,12 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
                       <button type="button" className="btn" onClick={() => draftPdf(true)}><Printer size={14} aria-hidden="true" /> Print</button>
                       <button type="button" className="btn" onClick={() => downloadFilePost("/doc-builder/pdf", body, `${tpl.title}.pdf`).catch((e) => toast(e instanceof ApiError ? e.message : "Could not download the PDF."))}><Download size={14} aria-hidden="true" /> Download PDF</button>
                     </>
-                  ) : <button type="button" className="btn" onClick={() => printText(tpl.title, preview.body)}><Printer size={14} aria-hidden="true" /> View / Print / Save as PDF</button>}
+                  ) : (
+                    <>
+                      <button type="button" className="btn" onClick={() => viewFilePost("/doc-builder/html", body).catch((e) => toast(e instanceof ApiError ? e.message : "Could not open the document."))}>View</button>
+                      <button type="button" className="btn" onClick={() => printFilePost("/doc-builder/html", body).catch((e) => toast(e instanceof ApiError ? e.message : "Could not print the document."))}><Printer size={14} aria-hidden="true" /> Print / Save as PDF</button>
+                    </>
+                  )}
                   <button type="button" className="btn" onClick={() => downloadFilePost("/doc-builder/docx", body, `${tpl.title}.docx`).catch((e) => toast(e instanceof ApiError ? e.message : "Could not download the Word file."))}><Download size={14} aria-hidden="true" /> Download Word</button>
                 </div>
               </div>
