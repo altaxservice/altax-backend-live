@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Receipt } from "lucide-react";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import { DateInput } from "./DateInput";
 import { NON_TAXABLE_CATEGORY, blocksToPayload, stateFromBlocks } from "./SalesBlocksEditor";
 import { enterAsTab } from "../utils/enterAsTab";
@@ -34,11 +34,30 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const idem = useRef<string | null>(null);
+  // Many POS reports (Square, Toast…) list the tax collected at each rate rather than the sales; this mode works the sales out from the tax.
+  const [taxMode, setTaxMode] = useState(false);
+  const [uploads, setUploads] = useState<{ upload_id: string; file_name: string; uploaded_at: string }[]>([]);
+  const [viewing, setViewing] = useState<{ id: string; name: string; url: string; isPdf: boolean } | null>(null);
+  const [viewErr, setViewErr] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<{ uploads: { upload_id: string; file_name: string; uploaded_at: string }[] }>(`/documents/uploads?clientId=${encodeURIComponent(clientId)}`)
+      .then((r) => setUploads((r.uploads || []).filter((u) => /\.(png|jpe?g|webp|gif|pdf|heic)$/i.test(u.file_name)).slice(0, 12))).catch(() => setUploads([]));
+  }, [clientId]);
+  useEffect(() => () => { if (viewing) URL.revokeObjectURL(viewing.url); }, [viewing]);
+  async function openUpload(u: { upload_id: string; file_name: string }) {
+    setViewErr(null);
+    try { const blob = await fetchAuthedBlob(`/documents/uploads/${u.upload_id}/download`); setViewing({ id: u.upload_id, name: u.file_name, url: URL.createObjectURL(blob), isPdf: /\.pdf$/i.test(u.file_name) }); }
+    catch { setViewErr("Could not open that file."); }
+  }
+  const rateOf = (c: Cat) => Number(/\((\d+(?:\.\d+)?)\s*%\)/.exec(c.category_name)?.[1]) || 0;
 
-  const taxableTotal = r2(Object.values(taxable).reduce((s, v) => s + num(v), 0));
+  const salesFor = (c: Cat) => (taxMode && rateOf(c) > 0 ? r2(num(taxable[c.category_id] || "") / (rateOf(c) / 100)) : num(taxable[c.category_id] || ""));
+  const taxableTotal = r2(taxableCats.reduce((s, c) => s + salesFor(c), 0));
+  const typedTaxTotal = r2(taxableCats.reduce((s, c) => s + (taxMode && rateOf(c) > 0 ? num(taxable[c.category_id] || "") : 0), 0));
+  const taxAmount = taxMode && tax === "" ? typedTaxTotal : num(tax);
   const nonTaxable = r2(num(noTax) + num(removed));
   const pretax = r2(taxableTotal + nonTaxable);
-  const expected = r2(pretax + num(tax));
+  const expected = r2(pretax + taxAmount);
   const card = r2(num(debit) + num(credit));
   const cash = cashTyped !== "" ? num(cashTyped) : Math.max(0, r2(expected - card - num(ebt)));
   const paid = r2(cash + card + num(ebt));
@@ -50,12 +69,12 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
     if (pretax <= 0) { setAlloc(null); return; }
     const t = window.setTimeout(() => {
       api.post<Allocation>("/sales-input-import/pos/allocate", {
-        clientId, taxable: Object.entries(taxable).map(([categoryId, amount]) => ({ categoryId, amount: num(amount) })), nonTaxable, cash, card, ebt: num(ebt), taxCollected: num(tax),
+        clientId, taxable: taxableCats.map((c) => ({ categoryId: c.category_id, amount: salesFor(c) })).filter((t) => t.amount > 0), nonTaxable, cash, card, ebt: num(ebt), taxCollected: taxAmount,
       }).then(setAlloc).catch(() => setAlloc(null));
     }, 350);
     return () => window.clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, JSON.stringify(taxable), nonTaxable, cash, card, ebt, tax]);
+  }, [clientId, JSON.stringify(taxable), taxMode, nonTaxable, cash, card, ebt, taxAmount]);
 
   async function save() {
     if (!alloc) return;
@@ -65,7 +84,7 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
       await api.post("/accounting/sales", {
         clientId, saleDate, grossSales: 0, blocks: blocksToPayload(stateFromBlocks(alloc.blocks)),
         adjustments: Math.abs(alloc.suggestedAdjustment) >= 0.005 ? alloc.suggestedAdjustment : 0,
-        notes: `From POS reports: ${money(paid)} collected (cash ${money(cash)}, card ${money(card)}, EBT ${money(num(ebt))}); sales tax collected ${money(num(tax))}.`,
+        notes: `From POS reports: ${money(paid)} collected (cash ${money(cash)}, card ${money(card)}, EBT ${money(num(ebt))}); sales tax collected ${money(taxAmount)}.`,
         idempotencyKey: idem.current,
       });
       idem.current = null;
@@ -86,32 +105,49 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
   return (
     <div className="command-panel">
       <div className="command-panel-header">
-        <div><h3 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><Receipt size={16} aria-hidden="true" /> Enter from the POS reports</h3>
-          <div className="command-panel-note">Type the numbers as they appear on the Clover receipts. Cash is worked out for you; press Save when the check line is green.</div></div>
+        <div><h3 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><Receipt size={16} aria-hidden="true" /> Enter month from the POS reports</h3>
+          <div className="command-panel-note">Works with any POS (Clover, Square, Toast…): type the monthly numbers from its sales / tax / payments report. Cash is worked out for you; press Save when the check line is green.</div></div>
         <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
+      {uploads.length > 0 && (
+        <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
+          <b>Reports they sent — open beside the form:</b>
+          {uploads.map((u) => <button key={u.upload_id} type="button" className={`tpl-chip${viewing?.id === u.upload_id ? " on" : ""}`} onClick={() => openUpload(u)} title={new Date(u.uploaded_at).toLocaleDateString()}>{u.file_name.length > 28 ? `${u.file_name.slice(0, 26)}…` : u.file_name}</button>)}
+          {viewing && <button type="button" className="btn btn-sm" onClick={() => setViewing(null)}>Hide</button>}
+          {viewErr && <span style={{ color: "var(--red)" }}>{viewErr}</span>}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: viewing ? "minmax(0, 1fr) minmax(0, 1.25fr)" : "minmax(0, 1fr)", alignItems: "start" }} className="pos-split">
+      {viewing && (
+        <div style={{ padding: 12, position: "sticky", top: 8, maxHeight: "92vh", overflow: "auto", borderRight: "1px solid var(--line)" }}>
+          {viewing.isPdf
+            ? <iframe title={viewing.name} src={viewing.url} style={{ width: "100%", height: "80vh", border: 0 }} />
+            : <a href={viewing.url} target="_blank" rel="noreferrer" title="Open full size"><img src={viewing.url} alt={viewing.name} style={{ width: "100%", height: "auto", display: "block" }} /></a>}
+        </div>
+      )}
       <form onKeyDown={enterAsTab} onSubmit={(e) => e.preventDefault()} style={{ padding: 16, display: "grid", gap: 12 }}>
         <label className="field" style={{ margin: 0, maxWidth: 260 }}>Month — report ends on <span className="muted">(becomes the sale date)</span><DateInput value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></label>
 
-        <div className="muted" style={{ fontSize: 12.5 }}><b>Taxes report</b> — Applicable Sales for each heading</div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}><div className="muted" style={{ fontSize: 12.5 }}><b>Tax report</b> — {taxMode ? "tax collected at each rate (the sales are worked out from it)" : "sales before tax for each tax rate"}</div>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={taxMode} onChange={(e) => { setTaxMode(e.target.checked); setTaxable({}); }} /> My report shows tax amounts, not sales (Square, Toast…)</label></div>
         <div style={grid}>
-          {taxableCats.map((c) => box(c.category_name, taxable[c.category_id] || "", (v) => setTaxable((t) => ({ ...t, [c.category_id]: v }))))}
+          {taxableCats.map((c) => box(taxMode && rateOf(c) > 0 ? `Tax collected at ${rateOf(c)}%` : c.category_name, taxable[c.category_id] || "", (v) => setTaxable((t) => ({ ...t, [c.category_id]: v })), taxMode && rateOf(c) > 0 && num(taxable[c.category_id] || "") > 0 ? `= ${money(salesFor(c))} of sales` : undefined))}
           {box("No Tax (0%)", noTax, setNoTax)}
-          {box("Tax Removed (0%)", removed, setRemoved, "Leave empty if the report has none")}
-          {box("Total tax collected", tax, setTax, "“Net Amount” in the Total block")}
+          {box("Tax-exempt / removed (0%)", removed, setRemoved, "Leave empty if the report has none")}
+          {box("Total tax collected", tax, setTax, taxMode ? "Leave empty to add up the taxes above" : "The month's tax total (Clover: “Net Amount” in the Total block)")}
         </div>
 
-        <div className="muted" style={{ fontSize: 12.5 }}><b>Sales Overview</b> — how customers paid <span>(leave empty if you only have the Taxes report — it's entered as cash)</span></div>
+        <div className="muted" style={{ fontSize: 12.5 }}><b>Payments report</b> — how customers paid <span>(leave empty if you only have the Taxes report — it's entered as cash)</span></div>
         <div style={grid}>
-          {box("Debit Card", debit, setDebit)}
-          {box("Credit Card", credit, setCredit)}
+          {box("Card (debit, or all cards)", debit, setDebit, "If the report shows one card total, type it here")}
+          {box("Credit card (if listed separately)", credit, setCredit)}
           {box("EBT", ebt, setEbt)}
           {box("Cash", cashTyped, setCashTyped, cashTyped === "" && expected > 0 ? `Calculated: ${money(cash)}` : "Typed from the report")}
         </div>
 
         {pretax > 0 && (
           <div className="tender-warn" style={{ background: Math.abs(diff) <= 1 ? "var(--green-soft, #e8f6ee)" : undefined }}>
-            Sales {money(pretax)} + tax {money(num(tax))} = <b>{money(expected)}</b> · paid {money(paid)} ·{" "}
+            Sales {money(pretax)} + tax {money(taxAmount)} = <b>{money(expected)}</b> · paid {money(paid)} ·{" "}
             {Math.abs(diff) <= 1 ? <b>✓ adds up{Math.abs(diff) >= 0.005 ? ` (off by ${money(Math.abs(diff))})` : ""}</b> : <b style={{ color: "var(--red)" }}>⚠ off by {money(Math.abs(diff))} — check the numbers</b>}
           </div>
         )}
@@ -128,6 +164,7 @@ export function PosEntryPanel({ clientId, categories, onSaved, onClose }: { clie
           {!ready && pretax > 0 && <span className="muted" style={{ fontSize: 12 }}>The numbers need to add up before you can save.</span>}
         </div>
       </form>
+      </div>
     </div>
   );
 }
