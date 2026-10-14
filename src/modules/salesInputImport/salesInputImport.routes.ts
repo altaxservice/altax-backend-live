@@ -6,9 +6,7 @@ import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { readWorkbookSheetByName } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
-import { extractPdfText } from "../../common/pdfBankReader";
-import { allocatePos, mergeReadings, parseCloverText, summarizeClover } from "../../common/posSummary";
-import { extractPdfImages, isImage, normalizeOcrText, ocrImageVariants } from "../../common/ocr";
+import { allocatePos } from "../../common/posSummary";
 import { parseSalesInputSheet, SALES_INPUT_SHEET_NAME, type ParsedSalesInputRow } from "./salesInputParser";
 import { createSalesInputRecord, computeCategoryLinesTax, deleteSalesInputRecord, type SalesCategoryLineInput } from "../accounting/accounting.routes";
 
@@ -340,63 +338,6 @@ salesInputImportRouter.post("/batches/:batchId/undo", requireAuth, requireRole("
   res.json({ ok: true, rowsRemoved: rows.length, glLinesRemoved });
 }));
 
-
-/**
- * POS report import (Clover Sales Overview + Taxes PDFs). Read-only: it reads the PDFs and returns the numbers for the form to show.
- * Nothing is saved until staff review the filled-in Sales Input and press Save.
- */
-salesInputImportRouter.post("/pos/parse", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const loaded = await loadClient(req, String(body.clientId || "").trim());
-  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-  const files: { fileBase64: string; name?: string }[] = Array.isArray(body.files) ? body.files.slice(0, 4) : [];
-  if (!files.length) return res.status(400).json({ error: "Add the Clover Sales Overview and/or Taxes report (PDF or screenshot)." });
-  const parsed = [];
-  let fromPicture = false;
-  for (const f of files) {
-    const decoded = decodeUpload(f.fileBase64);
-    if ("error" in decoded) return res.status(400).json({ error: decoded.error });
-    const isPdf = decoded.buffer.subarray(0, 5).toString("latin1") === "%PDF-";
-    if (!isPdf && !isImage(decoded.buffer)) return res.status(400).json({ error: `${f.name || "That file"} isn't a PDF or a picture (PNG, JPG or WebP).` });
-    const scan = await scanFileForMalware(decoded.buffer, f.name || "pos-report");
-    if (scan.scanned && !scan.clean) return res.status(400).json({ error: "This file was flagged by malware scanning and was not read." });
-    // Work out what to read: a PDF with real text is read directly; a picture, or a PDF that is really a picture (a phone photo saved as PDF),
-    // is read with the on-server text reader (no outside service involved).
-    let pictures: Buffer[] = [];
-    let text = "";
-    if (isPdf) {
-      try { text = await extractPdfText(decoded.buffer); } catch { return res.status(400).json({ error: `${f.name || "That PDF"} could not be read.` }); }
-      if (text.replace(/\s/g, "").length < 40) {
-        pictures = await extractPdfImages(decoded.buffer).catch(() => []);
-        if (!pictures.length) return res.status(400).json({ error: `${f.name || "That PDF"} has no readable text or picture. Type the numbers instead.` });
-        text = "";
-      }
-    } else pictures = [decoded.buffer];
-    if (pictures.length) {
-      fromPicture = true;
-      for (const pic of pictures) {
-        try {
-          const readings = (await ocrImageVariants(pic)).map(normalizeOcrText).map(parseCloverText);
-          const merged = mergeReadings(readings);
-          if (merged.foundOverview || merged.foundTaxes) parsed.push(merged);
-        } catch { /* nothing readable in this picture */ }
-      }
-      continue;
-    }
-    parsed.push(parseCloverText(text));
-  }
-  const summary = summarizeClover(parsed);
-  if (fromPicture && !summary.foundOverview && !summary.foundTaxes) {
-    return res.status(422).json({ error: "This picture couldn't be read — it's probably too small, tilted, curved or dark. For the best result use the report's PDF from Clover, or take a flat, close, well-lit photo of just the report (your phone's \"Scan document\" does this well), then upload that. Or type the numbers." });
-  }
-  const rateMap = await loadCategoryRateMap(loaded.client.state);
-  const taxable = summary.taxable.map((t) => {
-    const cat = rateMap.get(Math.round(t.rate));
-    return { rate: t.rate, amount: t.amount, name: t.name, categoryId: cat?.category_id || null, categoryName: cat?.category_name || null };
-  });
-  const warnings = [...(fromPicture ? ["Read from a picture by text recognition, which can miss lines on a tilted or crumpled receipt — compare each number with the report before saving. The check line below turns green only when everything adds up."] : []), ...summary.warnings, ...taxable.filter((t) => !t.categoryId).map((t) => `No ${loaded.client.state || ""} tax category matches ${t.rate}% ($${t.amount.toFixed(2)}) — choose one in the form.`)];
-  res.json({ summary: { ...summary, taxable, warnings, reader: fromPicture ? "ocr" : "pdf" } });
-}));
 
 /** Splits the POS totals into Cash / Card / SNAP blocks and works out what the tax adjustment should be so tax due equals what was really collected. */
 salesInputImportRouter.post("/pos/allocate", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
