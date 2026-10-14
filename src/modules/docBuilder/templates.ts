@@ -632,14 +632,17 @@ Signature: ______________________________
   {
     key: "promissory_note", title: "Promissory Note", category: LENDING,
     description: "A written promise to repay a loan, with interest, payments and what happens if payments are missed.",
-    reviewNote: "Interest rates and fees on loans are limited by law; confirm the rate is allowed before signing.",
+    reviewNote: "Maryland limits interest and fees on loans — generally 8% a year on a written loan, with exceptions for some corporate and large commercial loans — so confirm the rate with an attorney before signing. Real estate or a vehicle as security needs a separate recorded document. If the lender makes loans as a business, licensing rules may apply. A below-market loan between related people or companies can create taxable imputed interest (IRC §7872) — ask the tax preparer. Check that the number of payments, the first payment date and the final due date agree.",
     steps: [
       { title: "Parties", questions: [text("lender", "Lender", { required: true }), text("lenderAddress", "Lender's address"), text("borrower", "Borrower", { required: true }), text("borrowerAddress", "Borrower's address"), effective(), state()] },
       { title: "Loan", questions: [
-        money("principal", "Amount borrowed", { required: true }), num("rate", "Annual interest rate (%)", { required: true, default: "0" }),
+        money("principal", "Amount borrowed", { required: true }),
+        num("rate", "Annual interest rate (%)", { required: true, default: "0", help: "Enter 0 for no interest. Maryland limits interest on many loans (generally 8% a year on a written loan; some corporate and large commercial loans are exempt). Confirm the rate with the attorney before using more than 8%." }),
         pick("schedule", "Repayment", [["monthly", "Equal monthly payments"], ["lump", "One payment on the due date"]], { required: true, default: "monthly" }),
-        num("months", "Number of monthly payments", { showIf: { id: "schedule", equals: "monthly" }, required: true }), date("firstPayment", "First payment due", { showIf: { id: "schedule", equals: "monthly" }, required: true }),
-        date("dueDate", "Final due date", { required: true }),
+        num("months", "Number of monthly payments", { showIf: { id: "schedule", equals: "monthly" }, required: true }),
+        money("paymentAmount", "Amount of each monthly payment", { showIf: { id: "schedule", equals: "monthly" }, required: true, help: "Principal plus interest, spread over the payments. Ask the firm to calculate it if there is interest." }),
+        date("firstPayment", "First payment due", { showIf: { id: "schedule", equals: "monthly" }, required: true }),
+        date("dueDate", "Final due date", { required: true, help: "For monthly payments this is the date of the last payment." }),
         yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }),
         yesno("secured", "The loan is secured by property"), text("collateral", "Describe the property", { showIf: { id: "secured", equals: true }, required: true }),
         yesno("prepay", "Borrower may repay early without penalty", { default: true }),
@@ -651,35 +654,38 @@ Date: {{effectiveDate}}
 Principal: {{principal}}
 
 1. PROMISE TO PAY
-For value received, {{borrower}}{{#if borrowerAddress}} of {{borrowerAddress}}{{/if}} ("Borrower") promises to pay {{lender}}{{#if lenderAddress}} of {{lenderAddress}}{{/if}} ("Lender") {{principal}}, with interest at {{rate}}% per year on the unpaid balance.
+For value received, {{borrower}}{{#if borrowerAddress}} of {{borrowerAddress}}{{/if}} ("Borrower") promises to pay {{lender}}{{#if lenderAddress}} of {{lenderAddress}}{{/if}} ("Lender") {{principal}}{{#if rate}}, with simple interest at {{rate}}% per year (365-day year) on the unpaid balance{{else}}, without interest{{/if}}. Interest and fees together will never exceed the maximum the law allows; any excess is applied to principal or refunded to Borrower.
 
 2. PAYMENTS
-{{#if schedule=monthly}}Borrower will make {{months}} equal monthly payments of principal and interest, beginning {{firstPayment}}, with the final payment due {{dueDate}}.{{else}}Borrower will pay the full principal and accrued interest in one payment on {{dueDate}}.{{/if}} Payments are applied first to interest, then to principal.
+{{#if schedule=monthly}}Borrower will pay {{months}} monthly installments of {{paymentAmount}} each, on the same day of each month beginning {{firstPayment}}, and will pay all remaining principal{{#if rate}} and interest{{/if}} on {{dueDate}} (the "Maturity Date").{{else}}Borrower will pay the full principal{{#if rate}} and accrued interest{{/if}} in one payment on {{dueDate}} (the "Maturity Date").{{/if}} Payments are made by check or bank transfer to Lender{{#if lenderAddress}} at {{lenderAddress}}{{/if}}, or as Lender later directs in writing. Each payment is applied first to costs and late fees, then {{#if rate}}to interest, then {{/if}}to principal.
 
-3. LATE PAYMENT
-{{#if lateFee}}A payment more than 10 days late is subject to a late fee of {{lateFeeAmount}}. {{/if}}If any payment is more than 30 days late, Lender may declare the whole unpaid balance due immediately.
+3. LATE PAYMENT AND DEFAULT
+{{#if lateFee}}If a payment is received more than 10 days after its due date, Borrower will pay a one-time late fee of {{lateFeeAmount}} for that payment. {{/if}}Each of the following is a default: (a) a payment is not made within 10 days after Lender gives written notice that it is past due; (b) the whole balance is not paid on the Maturity Date; (c) Borrower becomes insolvent or files for bankruptcy; {{#if secured}}(d) Borrower gives Lender false information in connection with this note; or (e) the collateral is lost, damaged beyond use, or transferred without Lender's written consent.{{else}}or (d) Borrower gives Lender false information in connection with this note.{{/if}} On default, Lender may declare the whole unpaid balance due immediately.
 
 4. PREPAYMENT
 {{#if prepay}}Borrower may pay all or part of the balance early at any time without penalty.{{else}}Early payment requires Lender's written consent.{{/if}}
 
 {{#if secured}}5. SECURITY
-This note is secured by: {{collateral}}. If Borrower defaults, Lender may exercise the rights the law gives a secured lender.
+To secure this note, Borrower grants Lender a security interest in: {{collateral}}, and authorizes Lender to file financing statements. Real property and titled vehicles require a separate recorded document. If Borrower defaults, Lender may exercise the rights the law gives a secured lender.
 
-{{/if}}6. GENERAL
-If Lender must collect this note, Borrower pays reasonable collection costs. This note is governed by the laws of the State of {{state}}.
+{{/if}}6. COSTS AND GENERAL TERMS
+If Borrower defaults, Borrower pays Lender's reasonable costs of collection, including attorney's fees actually incurred, to the extent the law allows. Borrower waives presentment, demand and protest. If more than one person signs as Borrower, each is responsible for the whole debt. Notices must be in writing and sent to the parties' addresses in this note or to a new address given in writing. If any term cannot be enforced, the rest stays in force. This note may be changed only in writing signed by both parties and is governed by the laws of the State of {{state}}.
 
 BORROWER: {{borrower}}
 Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________
 
 LENDER: {{lender}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "nda_mutual", title: "Mutual Non-Disclosure Agreement", category: LENDING,
     description: "Two parties agree to keep each other's confidential information private.",
+    reviewNote: "Choose a confidentiality period that fits the information; trade secrets stay protected as long as they remain secret. If one party is an individual contractor or consultant, confirm the wording with an attorney. Agreements like this cannot stop a person from reporting a suspected legal violation to the government.",
     steps: [
       { title: "Parties", questions: [text("partyA", "First party", { prefill: "clientName", required: true }), text("partyAAddress", "First party's address", { prefill: "clientAddress" }), text("partyB", "Second party", { required: true }), text("partyBAddress", "Second party's address"), effective(), state()] },
-      { title: "Terms", questions: [area("purpose", "Why information is being shared", { required: true, placeholder: "e.g. Discussing a possible purchase of the business" }), num("years", "Confidentiality lasts (years)", { default: "3", required: true })] },
+      { title: "Terms", questions: [area("purpose", "Why information is being shared", { required: true, placeholder: "e.g. Discussing a possible purchase of the business" }), num("years", "Confidentiality lasts (years)", { default: "3", required: true, help: "Counted from the last time information is shared. Trade secrets stay protected as long as they remain secret." })] },
     ],
     body: `MUTUAL NON-DISCLOSURE AGREEMENT
 
@@ -689,25 +695,30 @@ This Agreement is made on {{effectiveDate}} between {{partyA}}{{#if partyAAddres
 The Parties will share confidential information for this purpose: {{purpose}} (the "Purpose").
 
 2. CONFIDENTIAL INFORMATION
-"Confidential Information" is non-public information one Party gives the other, in any form, that is marked confidential or that a reasonable person would understand to be confidential, including financial, customer, pricing and business-plan information.
+"Confidential Information" is non-public information one Party gives the other, in any form, that is marked confidential or that a reasonable person would understand to be confidential, including financial, customer, pricing and business-plan information. A Party's "Representatives" are its owners, employees, lawyers, accountants, lenders and other advisors who need the information for the Purpose.
 
 3. WHAT EACH PARTY AGREES TO DO
-The receiving Party will use the Confidential Information only for the Purpose, keep it as secure as its own confidential information (and at least with reasonable care), and share it only with people who need it for the Purpose and are bound to keep it confidential.
+The receiving Party will use the Confidential Information only for the Purpose, keep it as secure as its own confidential information (and at least with reasonable care), and share it only with its Representatives who need it for the Purpose and are bound to keep it confidential. Each Party is responsible for any breach by its Representatives. A Party will tell the other promptly if it learns of an unauthorized use or disclosure.
 
 4. WHAT IS NOT COVERED
 This Agreement does not cover information that is or becomes public without a breach, was already known to the receiving Party, was independently developed, or was received lawfully from someone else. A Party may disclose information when the law requires, after giving prompt notice where allowed.
 
-5. TERM
-These obligations last {{years}} years from {{effectiveDate}}. On request, each Party will return or destroy the other's Confidential Information.
+5. TERM AND RETURN OF INFORMATION
+These obligations last {{years}} years after the later of the date of this Agreement and the date of the last disclosure; for information that is a trade secret, they last as long as it remains one. On request, each Party will return or destroy the other's Confidential Information, except copies it must keep by law or in routine backups, which stay confidential.
 
-6. REMEDIES AND GENERAL
-Because a breach could cause harm money cannot fix, a Party may ask a court for an order stopping a breach. This is the Parties' entire agreement on its subject, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+6. OWNERSHIP AND NO OBLIGATION
+All Confidential Information stays the property of the Party that discloses it, and no license is granted. Neither Party must enter any transaction, and information is provided as is, without warranty.
+
+7. REMEDIES AND GENERAL
+Because a breach could cause harm money cannot fix, a Party may ask a court for an order stopping a breach. In a lawsuit to enforce this Agreement, the winning Party may recover its reasonable attorney's fees, to the extent the law allows. Any lawsuit must be brought in the courts of the State of {{state}}. Nothing in this Agreement prevents a person from confidentially disclosing a trade secret to a government official or an attorney solely to report or investigate a suspected violation of law. This is the Parties' entire agreement on its subject, may be changed only in writing signed by both, may be signed in counterparts and electronically, and is governed by the laws of the State of {{state}}. If a term cannot be enforced, the rest stays in force.
 
 {{partyA}}
 Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________
 
 {{partyB}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "commercial_lease_short", title: "Short-Form Commercial Lease", category: LENDING,
@@ -882,13 +893,19 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "shareholder_loan_agreement", title: "Owner / Shareholder Loan Agreement", category: LENDING,
     description: "Documents money an owner lends to their own business (or the business lends to an owner) so it is a loan, not income or equity.",
-    reviewNote: "Documenting an owner loan matters for tax: without a written agreement and real repayments it can be treated as capital or as pay.",
+    reviewNote: "Documenting an owner loan matters for tax: without a written agreement, real repayments and a fair interest rate it can be treated as capital, pay or a distribution. Interest below the IRS applicable federal rate (AFR) can create taxable imputed interest (IRC §7872) when the loans between the owner and the business total more than $10,000 — ask the tax preparer for the AFR and keep the books and repayments consistent with this agreement. A loan from a company to its owner can be treated as a distribution or pay; for an S corporation also ask about basis. The other owners or the board should approve it. Confirm any rate above 8% and any security terms with an attorney.",
     steps: [
-      { title: "Parties", questions: [text("company", "Business", { prefill: "clientName", required: true }), text("owner", "Owner / shareholder", { required: true }), pick("direction", "Who is lending?", [["toBusiness", "The owner lends money to the business"], ["toOwner", "The business lends money to the owner"]], { required: true, default: "toBusiness" }), effective(), state()] },
-      { title: "Loan", questions: [money("principal", "Amount", { required: true }), num("rate", "Annual interest rate (%)", { required: true, default: "0", help: "A 0% owner loan can have tax consequences — ask your tax preparer for the minimum rate." }),
+      { title: "Parties", questions: [text("company", "Business", { prefill: "clientName", required: true }), text("owner", "Owner / shareholder", { required: true }), pick("direction", "Who is lending?", [["toBusiness", "The owner lends money to the business"], ["toOwner", "The business lends money to the owner"]], { required: true, default: "toBusiness" }),
+        text("companySigner", "Person signing for the business", { required: true, help: "Often the same person as the owner, signing in a business role." }), text("companyTitle", "Their title", { required: true, placeholder: "e.g. Managing Member, President" }),
+        text("approvedBy", "Who approved this loan for the business", { required: true, placeholder: "e.g. the other members, or the board of directors" }), effective(), state()] },
+      { title: "Loan", questions: [money("principal", "Amount", { required: true }),
+        num("rate", "Annual interest rate (%)", { required: true, help: "Choose a rate at least equal to the IRS applicable federal rate (AFR) for the loan's term in the month the loan is made; the tax preparer can look it up (the IRS publishes it monthly). Total loans of $10,000 or less between the owner and the business are generally exempt, but confirm that with the tax preparer. Enter 0 only if you have confirmed that no interest is acceptable." }),
         pick("schedule", "Repayment", [["monthly", "Monthly payments"], ["demand", "Repayable on demand"], ["date", "One payment on a date"]], { required: true, default: "monthly" }),
-        num("months", "Number of monthly payments", { showIf: { id: "schedule", equals: "monthly" }, required: true }), date("repayBy", "Repay by", { showIf: { id: "schedule", equals: "date" }, required: true }),
-        yesno("secured", "Secured by business assets"), text("collateral", "Assets", { showIf: { id: "secured", equals: true }, required: true })] },
+        num("months", "Number of monthly payments", { showIf: { id: "schedule", equals: "monthly" }, required: true }),
+        money("paymentAmount", "Amount of each monthly payment", { showIf: { id: "schedule", equals: "monthly" }, required: true }),
+        date("firstPayment", "First payment due", { showIf: { id: "schedule", equals: "monthly" }, required: true }),
+        date("repayBy", "Repay by", { showIf: { id: "schedule", equals: "date" }, required: true }),
+        yesno("secured", "Secured by property"), text("collateral", "Property pledged", { showIf: { id: "secured", equals: true }, required: true })] },
     ],
     body: `{{#if direction=toBusiness}}SHAREHOLDER LOAN AGREEMENT{{else}}LOAN FROM COMPANY TO OWNER{{/if}}
 
@@ -898,19 +915,26 @@ This Agreement is made on {{effectiveDate}} between {{company}} (the "Company") 
 {{#if direction=toBusiness}}The Owner lends the Company {{principal}}. The Company records this as a loan from the Owner and not as capital, income or pay.{{else}}The Company lends the Owner {{principal}}. The Company records this as a loan receivable and not as pay or a distribution.{{/if}}
 
 2. INTEREST
-Interest accrues at {{rate}}% per year on the unpaid balance.
+{{#if rate}}Interest accrues at {{rate}}% per year, as simple interest on the unpaid balance, and is paid as part of the repayment described below.{{else}}No interest is charged on this loan.{{/if}}
 
 3. REPAYMENT
-{{#if schedule=monthly}}The loan is repaid in {{months}} equal monthly payments of principal and interest.{{/if}}{{#if schedule=demand}}The loan is repayable on demand with reasonable written notice.{{/if}}{{#if schedule=date}}The loan, with accrued interest, is repaid in full by {{repayBy}}.{{/if}} Payments are recorded in the Company's books when made.
+{{#if schedule=monthly}}The loan is repaid in {{months}} equal monthly payments of {{paymentAmount}}, each covering principal{{#if rate}} and interest{{/if}}, on the same day of each month beginning {{firstPayment}}.{{/if}}{{#if schedule=demand}}The loan is repayable within 30 days after written demand by the party that made the loan.{{/if}}{{#if schedule=date}}The loan{{#if rate}}, with accrued interest,{{/if}} is repaid in full by {{repayBy}}.{{/if}} The party that received the loan may repay all or part of it early at any time without penalty. The Company keeps a written record of all advances and repayments.
 
-{{#if secured}}4. SECURITY
-The loan is secured by: {{collateral}}.
+4. DEFAULT
+If a payment is not made within 10 days after written notice that it is past due, or the party that received the loan becomes insolvent or files for bankruptcy, the party that made the loan may declare the whole unpaid balance due immediately.
 
-{{/if}}5. GENERAL
-This Agreement may be changed only in writing signed by both parties and is governed by the laws of the State of {{state}}.
+{{#if secured}}5. SECURITY
+To secure repayment, {{#if direction=toBusiness}}the Company grants the Owner{{else}}the Owner grants the Company{{/if}} a security interest in: {{collateral}}.{{#if direction=toBusiness}} The Owner will sign a subordination agreement if the Company's bank or another lender reasonably requires one.{{/if}}
+
+{{/if}}6. INTENT AND APPROVAL
+The parties intend this to be a genuine loan that will be repaid. {{approvedBy}} approved this loan for the Company. {{#if direction=toBusiness}}While any balance is unpaid, the Company will not make distributions to owners that would impair its ability to repay this loan.{{else}}The Company will not forgive any part of this loan except by a written decision recorded in its records.{{/if}}
+
+7. GENERAL
+Notices must be in writing. This Agreement is the parties' entire agreement on this loan, may be changed only in writing signed by both parties, and is governed by the laws of the State of {{state}}. If any term cannot be enforced, the rest stays in force.
 
 COMPANY: {{company}}
 Signature: ______________________________   Date: ______________
+Printed name: {{companySigner}}   Title: {{companyTitle}}
 
 OWNER: {{owner}}
 Signature: ______________________________   Date: ______________`,
@@ -918,34 +942,38 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "payment_agreement", title: "Payment Plan Agreement", category: LENDING,
     description: "An agreed schedule for paying an overdue balance in installments — for invoices, rent or a debt.",
+    reviewNote: "If the person owing the money is an individual and the balance is for personal or household services, Maryland late-fee and debt-collection rules can apply — keep late fees reasonable and confirm with an attorney. A tax practitioner must return client records on request even when fees are unpaid (31 CFR §10.28), so the pause option says so. By signing, the debtor acknowledges the debt; ask an attorney whether that extends the time limit for suing on it. Check that the installments add up to the balance by the final date.",
     steps: [
       { title: "Parties", questions: [text("creditor", "Owed to", { prefill: "firmName", required: true }), text("debtor", "Owed by", { prefill: "clientName", required: true }), effective(), state()] },
-      { title: "The plan", questions: [text("reason", "What the balance is for", { required: true, placeholder: "e.g. Unpaid invoices for bookkeeping services" }), money("total", "Total owed", { required: true }), money("down", "Paid today (optional)"),
+      { title: "The plan", questions: [text("reason", "What the balance is for", { required: true, placeholder: "e.g. Unpaid invoices for bookkeeping services" }), money("total", "Total owed", { required: true }), money("down", "Paid on the date of the agreement (optional)"),
         money("installment", "Installment amount", { required: true }), pick("frequency", "Paid", [["weekly", "Every week"], ["biweekly", "Every two weeks"], ["monthly", "Every month"]], { required: true, default: "monthly" }), date("firstDue", "First installment due", { required: true }),
+        date("finalDue", "Balance paid in full by", { required: true, help: "The last installment is whatever remains, due by this date." }),
         yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }),
-        yesno("pauseWork", "Services may be paused if a payment is missed", { default: false })] },
+        yesno("pauseWork", "New work may be paused if a payment is missed", { default: false })] },
     ],
     body: `PAYMENT PLAN AGREEMENT
 
 This Agreement is made on {{effectiveDate}} between {{creditor}} ("Creditor") and {{debtor}} ("Debtor").
 
 1. THE BALANCE
-Debtor owes Creditor {{total}} for: {{reason}}. Debtor acknowledges the balance is correct and due.
+Debtor owes Creditor {{total}} for: {{reason}}. Debtor acknowledges that the balance is correct and due.
 
 2. PAYMENT PLAN
-{{#if down}}Debtor pays {{down}} today. {{/if}}Debtor will pay {{installment}} {{frequency}}, starting {{firstDue}}, until the balance is paid in full. Debtor may pay more at any time.
+{{#if down}}On the date of this Agreement Debtor pays {{down}}. {{/if}}Debtor will pay {{installment}} {{#if frequency=weekly}}every week{{/if}}{{#if frequency=biweekly}}every two weeks{{/if}}{{#if frequency=monthly}}every month{{/if}}, starting {{firstDue}}. The last installment is the entire remaining balance and is due no later than {{finalDue}}. Debtor may pay more at any time. No interest accrues under this plan unless Debtor defaults. Payments are made by check or bank transfer to Creditor, or as Creditor directs in writing.
 
 3. MISSED PAYMENTS
-{{#if lateFee}}A payment more than 7 days late is subject to a late fee of {{lateFeeAmount}}. {{/if}}If a payment is more than 14 days late, Creditor may declare the whole remaining balance due at once.{{#if pauseWork}} Creditor may also pause services until the account is current.{{/if}}
+{{#if lateFee}}If a payment is received more than 7 days after its due date, Debtor will pay a one-time late fee of {{lateFeeAmount}} for that payment. {{/if}}If a payment is more than 14 days late and Debtor has not paid it within 7 days after Creditor's written notice, Creditor may declare the whole remaining balance due at once. If that happens, any interest or fees that the original agreement or the law allows may be added to the unpaid balance.{{#if pauseWork}} Creditor may also pause new work until the account is current, but will return Debtor's records on request and will not delay any filing that has a legal deadline.{{/if}}
 
 4. GENERAL
-This Agreement does not cancel the debt or waive any of Creditor's rights if Debtor defaults. It may be changed only in writing signed by both and is governed by the laws of the State of {{state}}.
+If Debtor defaults, Debtor also pays Creditor's reasonable costs of collection, including attorney's fees actually incurred, to the extent the law allows. This Agreement does not cancel the debt or waive any of Creditor's rights if Debtor defaults, and accepting a late payment is not a waiver. When the balance is paid in full, Creditor will confirm in writing that it is paid. Notices must be in writing. This Agreement may be changed only in writing signed by both and is governed by the laws of the State of {{state}}.
 
 DEBTOR: {{debtor}}
 Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________
 
 CREDITOR: {{creditor}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "employment_contract", title: "Employment Agreement", category: EMPLOYMENT,
@@ -1055,11 +1083,15 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "service_agreement", title: "Service Agreement", category: LENDING,
     description: "A general agreement for one business to provide services to another — scope, price, timing and rules.",
+    reviewNote: "Confirm the limit-of-liability and late-interest wording with an attorney. If the provider will handle the customer's tax or personal information, add a data-security term and get any separate consent that tax-return rules require (IRC §7216). Whether someone is a true independent contractor depends on the facts (Maryland Labor & Employment §8-205 and IRS rules), not only on this wording.",
     steps: [
       { title: "Parties", questions: [text("provider", "Service provider", { required: true }), text("providerAddress", "Provider's address"), text("customer", "Customer", { prefill: "clientName", required: true }), text("customerAddress", "Customer's address", { prefill: "clientAddress" }), effective(), state()] },
       { title: "Services and price", questions: [area("services", "Services", { required: true }), date("startDate", "Starts", { required: true }), yesno("hasEnd", "Fixed end date"), date("endDate", "Ends", { showIf: { id: "hasEnd", equals: true }, required: true }),
-        pick("priceType", "Price", [["fixed", "A fixed price"], ["hourly", "Hourly"], ["monthly", "Monthly"]], { required: true, default: "fixed" }), money("price", "Amount", { required: true }), num("payDays", "Invoices paid within (days)", { default: "30", required: true }),
-        yesno("warranty", "Provider will fix errors in the work at no charge", { default: true }), yesno("insurance", "Provider carries liability insurance")] },
+        pick("priceType", "Price", [["fixed", "A fixed price"], ["hourly", "Hourly"], ["monthly", "Monthly"]], { required: true, default: "fixed" }), money("price", "Amount", { required: true }),
+        text("fixedSchedule", "When the fixed price is invoiced", { showIf: { id: "priceType", equals: "fixed" }, placeholder: "e.g. 50% when work starts and 50% when it is finished" }),
+        money("hourlyCap", "Most the provider may bill without the customer's written approval (optional)", { showIf: { id: "priceType", equals: "hourly" } }),
+        num("payDays", "Invoices paid within (days)", { default: "30", required: true }),
+        yesno("warranty", "Provider will fix errors in the work at no charge", { default: true }), yesno("insurance", "Provider carries liability insurance"), money("insuranceAmount", "Coverage amount (optional)", { showIf: { id: "insurance", equals: true } })] },
     ],
     body: `SERVICE AGREEMENT
 
@@ -1072,36 +1104,48 @@ Provider will perform these services for Customer: {{services}}
 Services start on {{startDate}}{{#if hasEnd}} and end on {{endDate}}{{else}} and continue until either party ends this Agreement on 30 days' written notice{{/if}}.
 
 3. PRICE AND PAYMENT
-Customer will pay Provider {{#if priceType=fixed}}a fixed price of {{price}}{{/if}}{{#if priceType=hourly}}{{price}} per hour{{/if}}{{#if priceType=monthly}}{{price}} per month{{/if}}. Provider will invoice Customer and Customer will pay within {{payDays}} days of each invoice.
+Customer will pay Provider {{#if priceType=fixed}}a fixed price of {{price}}{{/if}}{{#if priceType=hourly}}{{price}} per hour{{/if}}{{#if priceType=monthly}}{{price}} per month{{/if}}. {{#if priceType=fixed}}{{#if fixedSchedule}}The fixed price is invoiced {{fixedSchedule}}. {{/if}}{{/if}}{{#if priceType=hourly}}{{#if hourlyCap}}Provider will not bill more than {{hourlyCap}} without Customer's written approval. {{/if}}{{/if}}Provider will invoice Customer and Customer will pay within {{payDays}} days of each invoice. Amounts unpaid after the due date accrue interest at 1% per month, or the maximum the law allows if less. Prices do not include any sales or similar tax that applies to the services; Customer pays it.
 
 4. QUALITY OF WORK
-Provider will perform the services in a professional manner.{{#if warranty}} Provider will correct errors in the services at no extra charge if Customer reports them within 30 days of the work being done.{{/if}}{{#if insurance}} Provider carries liability insurance for the services.{{/if}}
+Provider will perform the services in a professional manner.{{#if warranty}} Provider will correct errors in the services at no extra charge if Customer reports them within 30 days of the work being done. This correction is Customer's only remedy for errors in the services.{{/if}}{{#if insurance}} Provider carries liability insurance{{#if insuranceAmount}} of at least {{insuranceAmount}}{{/if}} for the services and will give Customer proof of it on request.{{/if}}
 
-5. INDEPENDENT PARTIES
-Provider is an independent contractor and not Customer's employee. Provider is responsible for its own taxes and workers.
+5. OWNERSHIP OF WORK
+Customer owns the final deliverables once they are paid for. Provider keeps its own tools, templates and know-how.
 
-6. CONFIDENTIALITY
-Each party will keep the other's non-public business information confidential.
+6. LIMIT OF LIABILITY
+Provider's total liability under this Agreement is limited to the fees Customer paid for the services that gave rise to the claim, and neither party is liable to the other for indirect or consequential losses. This does not limit any liability that the law does not allow to be limited.
 
-7. ENDING THE AGREEMENT
-Either party may end this Agreement if the other materially breaks it and does not fix the problem within 15 days of written notice. Customer pays for services performed up to the end date.
+7. INDEPENDENT PARTIES
+Provider is an independent contractor and not Customer's employee. Provider decides how the work is done, uses its own tools, has no authority to bind Customer, and receives no employee benefits. Provider is responsible for its own taxes, insurance and workers.
 
-8. GENERAL
-This is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+8. CONFIDENTIALITY
+Each party will keep the other's non-public business information confidential, use it only for this Agreement, and return or destroy it on request, during and after this Agreement. This does not cover information that is public through no fault of the receiving party, was already known to it, or must be disclosed by law.
+
+9. ENDING THE AGREEMENT
+Either party may end this Agreement if the other materially breaks it and does not fix the problem within 15 days of written notice. Customer pays for services performed up to the date the Agreement ends.
+
+10. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and may not be assigned without the other party's written consent. Notices must be in writing. If a term cannot be enforced, the rest stays in force. This Agreement may be signed electronically and is governed by the laws of the State of {{state}}.
 
 PROVIDER: {{provider}}
 Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________
 
 CUSTOMER: {{customer}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "consulting_agreement", title: "Consulting Agreement", category: LENDING,
     description: "A consultant gives advice or expertise to a business for an agreed fee.",
+    reviewNote: "Whether a consultant is truly independent depends on the facts (control, own business, other clients — Maryland Labor & Employment §8-205 and IRS rules), not only on this wording. Get a Form W-9 from the consultant before paying. Confirm the work-product assignment and confidentiality wording with an attorney.",
     steps: [
       { title: "Parties", questions: [text("client", "Company", { prefill: "clientName", required: true }), text("clientAddress", "Company address", { prefill: "clientAddress" }), text("consultant", "Consultant", { required: true }), text("consultantAddress", "Consultant's address"), effective(), state()] },
       { title: "Work", questions: [area("scope", "What the consultant will do", { required: true }), date("startDate", "Start date", { required: true }), yesno("hasEnd", "Fixed end date"), date("endDate", "End date", { showIf: { id: "hasEnd", equals: true }, required: true }),
-        pick("feeType", "Fee", [["fixed", "Fixed fee"], ["hourly", "Hourly"], ["monthly", "Monthly retainer"]], { required: true, default: "hourly" }), money("fee", "Amount", { required: true }), yesno("expenses", "Company reimburses approved expenses", { default: true }), yesno("confidential", "Consultant keeps information confidential", { default: true })] },
+        pick("feeType", "Fee", [["fixed", "Fixed fee"], ["hourly", "Hourly"], ["monthly", "Monthly retainer"]], { required: true, default: "hourly" }), money("fee", "Amount", { required: true }),
+        text("feeSchedule", "When the fixed fee is invoiced", { showIf: { id: "feeType", equals: "fixed" }, placeholder: "e.g. half when work starts and half when it is finished" }),
+        num("payDays", "Invoices paid within (days)", { default: "30", required: true }),
+        yesno("expenses", "Company reimburses approved expenses", { default: true }), yesno("confidential", "Consultant keeps information confidential", { default: true })] },
     ],
     body: `CONSULTING AGREEMENT
 
@@ -1114,32 +1158,51 @@ Consultant will provide the following consulting services: {{scope}}
 Services begin {{startDate}}{{#if hasEnd}} and end {{endDate}}{{else}} and continue until either party gives 30 days' written notice{{/if}}.
 
 3. FEES
-Company will pay Consultant {{#if feeType=fixed}}a fixed fee of {{fee}}{{/if}}{{#if feeType=hourly}}{{fee}} per hour{{/if}}{{#if feeType=monthly}}{{fee}} per month{{/if}}, payable within 30 days of each invoice.{{#if expenses}} Company reimburses reasonable expenses it approves in advance and that Consultant documents.{{/if}}
+Company will pay Consultant {{#if feeType=fixed}}a fixed fee of {{fee}}{{#if feeSchedule}}, invoiced {{feeSchedule}}{{/if}}{{/if}}{{#if feeType=hourly}}{{fee}} per hour{{/if}}{{#if feeType=monthly}}{{fee}} per month{{/if}}, payable within {{payDays}} days of each invoice.{{#if feeType=hourly}} Invoices will show the hours worked.{{/if}}{{#if expenses}} Company reimburses reasonable expenses it approves in advance and that Consultant documents.{{/if}}
 
 4. INDEPENDENT CONSULTANT
-Consultant is an independent contractor, controls how the work is done, and is responsible for their own taxes and insurance. Company will report payments on Form 1099-NEC where required.
+Consultant is an independent contractor, controls how the work is done, uses their own tools, may work for others, has no authority to bind Company, receives no employee benefits, and is responsible for their own taxes and insurance. Before the first payment Consultant will give Company a completed Form W-9. Company will report payments on Form 1099-NEC where required.
 
-{{#if confidential}}5. CONFIDENTIALITY
-Consultant will keep Company's non-public information confidential and use it only for this work, during and after this Agreement.
+5. WORK PRODUCT
+Consultant assigns to Company all rights in the deliverables created for Company under this Agreement, once Company pays for them, and will sign any further papers needed for this.
 
-{{/if}}6. GENERAL
-Either party may end this Agreement on 30 days' written notice. It is the parties' entire agreement, may be changed only in writing signed by both, and is governed by the laws of the State of {{state}}.
+6. NO GUARANTEE OF RESULTS
+Consultant will give advice and services with professional care but does not guarantee any result. Company makes the final decisions and is responsible for them.
+
+{{#if confidential}}7. CONFIDENTIALITY
+Consultant will keep Company's non-public information confidential, use it only for this work, and return or destroy it on request, during and after this Agreement. This does not cover information that is public through no fault of Consultant, was already known to Consultant, or must be disclosed by law. Nothing in this Agreement prevents Consultant from confidentially disclosing a trade secret to a government official or an attorney solely to report or investigate a suspected violation of law.
+
+{{/if}}8. ENDING THE AGREEMENT
+Either party may end this Agreement on 30 days' written notice, or sooner if the other materially breaks it and does not fix the problem within 15 days of written notice. When it ends, Company pays for services performed through the end date and, for a fixed fee, a fair share of the fee for the work done. The provisions on work product{{#if confidential}} and confidentiality{{/if}} continue after this Agreement ends.
+
+9. GENERAL
+This is the parties' entire agreement, may be changed only in writing signed by both, and may not be assigned without the other party's written consent. Notices must be in writing. If a term cannot be enforced, the rest stays in force. This Agreement may be signed electronically and is governed by the laws of the State of {{state}}.
 
 COMPANY: {{client}}
 Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________
 
 CONSULTANT: {{consultant}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "demand_letter", title: "Payment Demand Letter", category: LENDING,
     description: "A formal request for payment of an overdue amount, with a deadline.",
+    reviewNote: "Send this in the creditor's own name, signed by the creditor — not in the firm's name. Debt-collection rules (the federal FDCPA and Maryland's Consumer Debt Collection Act and Collection Agency Licensing Act) can apply to personal or household debts and to anyone collecting for someone else; confirm with an attorney before sending a letter on a client's behalf. Do not threaten anything the creditor does not intend to do. Include only interest and fees the agreement or the law allows, and attach the invoice.",
     steps: [
-      { title: "Details", questions: [text("sender", "From (your business)", { prefill: "clientName", required: true }), text("senderAddress", "Your address", { prefill: "clientAddress" }), text("recipient", "To (who owes the money)", { required: true }), text("recipientAddress", "Their address"), effective(),
-        text("reference", "Invoice or agreement it relates to", { required: true, placeholder: "e.g. Invoice 1042 dated August 3, 2026" }), money("amount", "Amount owed", { required: true }), date("deadline", "Pay by", { required: true }), text("howToPay", "How to pay", { placeholder: "e.g. Check payable to the business, or bank transfer" }),
+      { title: "Details", questions: [text("sender", "From (your business)", { prefill: "clientName", required: true }), text("senderTitle", "Signer's title", { placeholder: "e.g. Owner" }), text("senderAddress", "Your address", { prefill: "clientAddress" }), text("senderContact", "Phone or email for replies", { required: true }), text("recipient", "To (who owes the money)", { required: true }), text("recipientAddress", "Their address"), effective(),
+        text("deliveryMethod", "Sent by (optional)", { placeholder: "e.g. certified mail and email" }),
+        text("reference", "Invoice or agreement it relates to", { required: true, placeholder: "e.g. Invoice 1042 dated August 3, 2026" }), date("dueDate", "Date it was originally due (optional)"), money("amount", "Amount owed", { required: true }), date("deadline", "Pay by", { required: true, help: "Allow at least 10 days from the date of the letter." }), text("howToPay", "How to pay", { placeholder: "e.g. Check payable to the business, or bank transfer" }),
+        yesno("consumerDebt", "The debt is for personal, family or household purposes (not business)", { help: "Tick this for a personal or household debt. Debt-collection rules apply more strictly to these debts — send the letter in the creditor's own name, not the firm's, and have an attorney review it." }),
         yesno("interest", "Say that interest or fees may be added"), yesno("legal", "Say that legal action may follow if unpaid", { default: true })] },
     ],
-    body: `{{effectiveDate}}
+    body: `{{sender}}{{#if senderAddress}}
+{{senderAddress}}{{/if}}
+
+{{effectiveDate}}{{#if deliveryMethod}}
+
+Sent by {{deliveryMethod}}{{/if}}
 
 {{recipient}}{{#if recipientAddress}}
 {{recipientAddress}}{{/if}}
@@ -1148,15 +1211,17 @@ Re: Demand for payment — {{reference}}
 
 Dear {{recipient}},
 
-Our records show that {{amount}} remains unpaid on {{reference}}, and the payment is overdue. Please pay the full amount by {{deadline}}.{{#if howToPay}} {{howToPay}}.{{/if}}
+Our records show that {{amount}} remains unpaid on {{reference}}{{#if dueDate}}, which was due on {{dueDate}}{{/if}}, and the payment is overdue. Please pay the full amount by {{deadline}}.{{#if howToPay}} Payment may be made as follows: {{howToPay}}.{{/if}}
 
-{{#if interest}}Interest and collection fees allowed by our agreement or by law may be added to the balance if it is not paid by that date. {{/if}}{{#if legal}}If we do not receive payment or hear from you by {{deadline}}, we may take further steps to collect, including legal action, without further notice.{{else}}If you believe this is wrong, or you would like to arrange a payment plan, please contact us before {{deadline}}.{{/if}}
+{{#if interest}}Interest and fees that our agreement or the law allows may be added to the balance if it is not paid by that date; if so, we will show you how they were calculated. {{/if}}{{#if legal}}If we do not receive payment or hear from you by {{deadline}}, we may pursue the remedies available to us, which may include filing a lawsuit for the balance plus any interest, costs and attorney's fees that our agreement or the law allows.{{else}}If you believe this is wrong, or you would like to arrange a payment plan, please contact us before {{deadline}}.{{/if}}{{#if consumerDebt}} If you disagree with any part of this amount, please tell us in writing and send any documents that support your position, and we will review them.{{/if}}
 
-If you have already paid, please send us the payment details so we can correct our records.
+If you have already paid, please send us the payment details so we can correct our records. You can reach us at {{senderContact}}. This letter does not waive any of our rights.
 
 Sincerely,
-{{sender}}{{#if senderAddress}}
-{{senderAddress}}{{/if}}`,
+
+Signature: ______________________________
+{{sender}}
+{{#if senderTitle}}{{senderTitle}}{{else}}Title: ______________{{/if}}`,
   },
   {
     key: "lease_termination_agreement", title: "Lease Termination Agreement", category: LENDING,
@@ -1237,27 +1302,32 @@ If the person declined or was unable to sign: ______________________`,
   {
     key: "affidavit_general", title: "Affidavit", category: LENDING,
     description: "A sworn written statement of facts, signed in front of a notary.",
-    reviewNote: "An affidavit only counts once it is signed in front of a notary public. Leave the notary section blank until then.",
+    reviewNote: "An affidavit only counts once it is signed in front of a notary public. Leave both dates and the notary section blank until then. For a Maryland court filing, ask the attorney which form of statement the court rule requires (Maryland Rule 1-304 lists the accepted forms). Use personal knowledge for facts the signer saw or did; use the other choice only for facts the signer believes from what others told them. The Arabic edition is for the signer's understanding — a court will want an English version signed, and a signer who does not read English may need an interpreter's statement.",
     steps: [
-      { title: "Statement", questions: [text("affiant", "Person making the statement", { required: true }), text("address", "Their address"), text("county", "County", { required: true }), state({ id: "stateName", label: "State" } as Partial<Question>), list("facts", "Statements of fact", [area("fact", "Statement", { required: true })], { required: true, addLabel: "Add a statement" }), effective()] },
+      { title: "Statement", questions: [text("affiant", "Person making the statement", { required: true }), text("address", "Their address", { required: true }), text("docTitle", "Title of the affidavit (optional)", { placeholder: "e.g. Affidavit of Residence" }), text("county", "County or Baltimore City where you will sign before the notary", { required: true }), state({ id: "stateName", label: "State" } as Partial<Question>),
+        pick("knowledgeBasis", "The facts are based on", [["personal", "The signer's own personal knowledge"], ["belief", "Knowledge, information and belief"]], { required: true, default: "personal" }),
+        list("facts", "Statements of fact", [area("fact", "Statement", { required: true })], { required: true, addLabel: "Add a statement" })] },
     ],
-    body: `AFFIDAVIT
+    body: `AFFIDAVIT{{#if docTitle}}
+{{docTitle}}{{/if}}
 
 State of {{stateName}}
-County of {{county}}
+City/County of {{county}}
 
-I, {{affiant}}{{#if address}}, of {{address}}{{/if}}, being sworn, state:
+I, {{affiant}}, of {{address}}, being sworn, state that I am over 18 years of age and competent to make this affidavit, and that:
 
 {{#list facts}}{{n}}. {{fact}}
 
-{{/list}}I swear or affirm that the statements above are true and correct to the best of my knowledge.
+{{/list}}{{#if knowledgeBasis=personal}}I solemnly swear or affirm under the penalties of perjury, upon personal knowledge, that the statements above are true.{{else}}I solemnly swear or affirm under the penalties of perjury that the statements above are true to the best of my knowledge, information and belief.{{/if}}
 
 {{affiant}}
-Signature: ______________________________   Date: {{effectiveDate}}
+Signature: ______________________________   Date: ______________
 
-Subscribed and sworn to before me on ______________, 20____, by {{affiant}}.
+Subscribed and sworn to before me on ______________, 20____, by {{affiant}}, who is personally known to me or satisfactorily proved to be the person who signed.
 
 Notary Public: ______________________________
+Printed name: ______________________________
+County or city of appointment: ______________________________
 My commission expires: ______________
 (Seal)`,
   },
@@ -1646,7 +1716,7 @@ Signature: ______________________________   Date: ______________
   {
     key: "general_poa", title: "Power of Attorney", category: FAMILY,
     description: "Lets someone you trust handle your money, tax, property or business matters for you — general or limited, with or without a start condition. Follows the layout of Maryland's statutory financial power of attorney.",
-    reviewNote: "Maryland requires a power of attorney to be signed by the principal, acknowledged before a notary, and signed by two or more adult witnesses (the notary may be one of them) — Estates and Trusts Article §17-110. A bank, title company or the IRS may still ask for its own form; for the IRS or the Comptroller use 2848 / 8821 / MD 548. To sell or mortgage real estate, use the limited statutory form and record it in the county land records. Have a Maryland attorney review before use.",
+    reviewNote: "Maryland requires a power of attorney to be signed by the principal (or by someone else at the principal's direction and in the principal's presence), acknowledged before a notary, and signed by two or more adult witnesses (the notary may be one of them) — Estates and Trusts Article §17-110. The witnesses should not be the agent. For the IRS use Form 2848 / 8821; the Maryland Comptroller accepts only its own Form 548 (it no longer accepts 2848 / 8821). A bank or title company may still ask for its own form. To sell or mortgage real estate, use the limited statutory form and record it in the county land records. Confirm with an attorney: (1) the 'copy is as good as the original' and good-faith reliance wording, which is standard but was not checked against a Maryland statute; (2) who may certify incapacity for a power that starts only on incapacity (Estates and Trusts §17-111 refers to a physician or licensed psychologist, or a person you name); (3) whether gifts should be allowed at all. Have a Maryland attorney review before use.",
     steps: [
       { title: "People", questions: [text("principal", "Person giving the power (you)", { prefill: "clientName", required: true }), text("principalAddress", "Their address", { prefill: "clientAddress" }), text("principalPhone", "Their telephone", { prefill: "clientPhone" }), text("agent", "Person receiving the power (agent)", { required: true }), text("agentAddress", "Agent's address"), yesno("hasSuccessor", "Name a backup agent in case the first cannot act"), text("successor", "Backup agent", { showIf: { id: "hasSuccessor", equals: true }, required: true }), effective(), state()] },
       { title: "What the agent may do", questions: [
@@ -1663,14 +1733,17 @@ Signature: ______________________________   Date: ______________
         yesno("sTaxes", "Taxes — returns, refunds, payments, notices", { showIf: { id: "powerType", equals: "general" }, default: true }),
         yesno("sBusiness", "Business interests and operations", { showIf: { id: "powerType", equals: "general" }, default: true }),
         yesno("sDigital", "Digital assets and online accounts", { showIf: { id: "powerType", equals: "general" }, default: true }),
-        yesno("gifts", "The agent may make gifts from my property", { default: false }),
+        yesno("gifts", "The agent may make gifts from my property", { showIf: { id: "powerType", equals: "general" }, default: false }),
         pick("giftLimit", "Limit on gifts", [["annual", "Up to the federal annual gift-tax exclusion for each person each year"], ["amount", "Up to a total amount I set"]], { showIf: { id: "gifts", equals: true }, required: true, default: "annual" }),
         money("giftAmount", "Total amount of gifts allowed", { showIf: { id: "giftLimit", equals: "amount" }, required: true }),
+        text("giftException", "Agent (or a person the agent must support) who may also receive gifts — leave empty for none", { showIf: { id: "gifts", equals: true }, placeholder: "e.g. my daughter, Sara Ali" }),
         yesno("paid", "The agent may be paid a reasonable fee for the work", { default: false }),
+        yesno("revokePrior", "This replaces and cancels my earlier powers of attorney about the same matters", { default: false }),
       ] },
       { title: "When it starts and ends", questions: [
-        pick("startsWhen", "Starts", [["now", "As soon as I sign"], ["incapacity", "Only if a doctor confirms I cannot manage my own affairs"]], { required: true, default: "now" }),
-        yesno("durable", "It stays in effect if I become unable to manage my affairs", { default: true }),
+        pick("startsWhen", "Starts", [["now", "As soon as I sign"], ["incapacity", "Only if a physician or licensed psychologist confirms I cannot manage my own affairs"]], { required: true, default: "now" }),
+        text("certifier", "Person I name to decide that I cannot manage my affairs (optional)", { showIf: { id: "startsWhen", equals: "incapacity" }, placeholder: "e.g. my physician, Dr. Jane Smith" }),
+        yesno("durable", "It stays in effect if I become unable to manage my affairs", { showIf: { id: "startsWhen", equals: "now" }, default: true }),
         date("endDate", "Ends on (leave empty for no end date)"),
       ] },
       { title: "Witnesses and notary", questions: [text("county", "County where it is signed", { placeholder: "e.g. Baltimore County" }), text("witness1", "First witness (printed name)"), text("witness1Address", "First witness's address"), text("witness2", "Second witness (printed name)"), text("witness2Address", "Second witness's address")] },
@@ -1695,41 +1768,48 @@ I, {{principal}}{{#if principalAddress}} of {{principalAddress}}{{/if}}{{#if pri
 {{/if}}{{#if sTaxes}}• Taxes: prepare, sign and file returns, pay taxes, claim refunds, receive notices and deal with tax offices, to the extent the law accepts this document for that purpose.
 {{/if}}{{#if sBusiness}}• Business interests: run, buy, sell and manage my business interests and sign contracts for them.
 {{/if}}{{#if sDigital}}• Digital assets: manage my online accounts, electronic records and digital property as the law allows.
-{{/if}}{{else}}The Agent may act for me only in these matters: {{limitedPowers}}{{/if}}
+{{/if}}{{#if !sReal}}{{#if !sPersonal}}{{#if !sStocks}}{{#if !sBanks}}{{#if !sInsurance}}{{#if !sClaims}}{{#if !sBenefits}}{{#if !sRetirement}}{{#if !sTaxes}}{{#if !sBusiness}}{{#if !sDigital}}• No subject has been selected, so this document gives the Agent no power until it is corrected and signed again.
+{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{else}}The Agent may act for me only in these matters: {{limitedPowers}}{{/if}}
 
 3. GIFTS AND COMPENSATION
-{{#if gifts}}The Agent may make gifts from my property, {{#if giftLimit=annual}}up to the federal annual gift-tax exclusion for each person each year{{else}}up to {{giftAmount}} in total{{/if}}.{{else}}The Agent may not make gifts from my property.{{/if}} {{#if paid}}The Agent may be paid a reasonable fee for the work, and repaid reasonable expenses.{{else}}The Agent will not be paid but may be repaid reasonable expenses.{{/if}}
+{{#if powerType=general}}{{#if gifts}}The Agent may make gifts from my property, {{#if giftLimit=annual}}up to the federal annual gift-tax exclusion for each person each year{{else}}up to {{giftAmount}} in total{{/if}}. {{#if giftException}}Gifts to the Agent, or to anyone the Agent is legally required to support, are not allowed except to {{giftException}}.{{else}}Gifts to the Agent, or to anyone the Agent is legally required to support, are not allowed.{{/if}}{{else}}The Agent may not make gifts from my property.{{/if}}{{else}}The Agent may not make gifts from my property.{{/if}} {{#if paid}}The Agent may be paid a reasonable fee for the work, and repaid reasonable expenses.{{else}}The Agent will not be paid but may be repaid reasonable expenses.{{/if}}
 
 4. WHEN IT STARTS AND HOW LONG IT LASTS
-{{#if startsWhen=now}}This power starts when I sign it.{{else}}This power starts only when a licensed doctor confirms in writing that I cannot manage my own affairs.{{/if}} {{#if durable}}It is a durable power of attorney: it stays in effect if I later become disabled or unable to manage my affairs.{{else}}It ends if I become disabled or unable to manage my affairs.{{/if}} {{#if endDate}}It ends on {{endDate}}, or earlier if I revoke it in writing or I die.{{else}}It lasts until I revoke it in writing or I die.{{/if}}
+{{#if startsWhen=now}}This power starts when I sign it.{{else}}This power starts only when {{#if certifier}}{{certifier}} (or, if that person cannot or will not act, a physician or licensed psychologist){{else}}a physician or licensed psychologist{{/if}} confirms in writing that I cannot manage my own affairs.{{/if}} {{#if startsWhen=incapacity}}It is a durable power of attorney: once it starts, it stays in effect while I am unable to manage my affairs.{{else}}{{#if durable}}It is a durable power of attorney: it stays in effect if I later become disabled or unable to manage my affairs.{{else}}It ends if I become disabled or unable to manage my affairs.{{/if}}{{/if}} {{#if endDate}}It ends on {{endDate}}, or earlier if I revoke it in writing or I die.{{else}}It lasts until I revoke it in writing or I die.{{/if}}
 
 5. THE AGENT'S DUTIES
-The Agent must act in good faith and only within the powers given here; act loyally for my benefit and avoid conflicts of interest; act with care, competence and diligence; keep my property separate from the Agent's own; keep records of every transaction; and give me, my guardian or my personal representative an account when asked. The Agent is not liable if the value of my property goes down without a breach of these duties.
+The Agent must act in good faith and only within the powers given here; act according to my reasonable expectations if they are known, and otherwise in my best interest; act loyally for my benefit and avoid conflicts of interest; act with care, competence and diligence; keep my property separate from the Agent's own; keep records of every transaction; and give me, my guardian or my personal representative an account when asked. The Agent is not liable if the value of my property goes down without a breach of these duties.
 
-6. REVOCATION, COPIES AND RELIANCE
-I may revoke this power at any time by written notice to the Agent. A copy of this document is as good as the original. A person who relies on this document in good faith may keep relying on it until they receive written notice that it has ended. This document is governed by the laws of the State of {{state}}.
+6. OTHER TERMS
+This document does not give the Agent power to make health-care decisions. {{#if revokePrior}}This document replaces and cancels my earlier powers of attorney about the same matters.{{else}}This document does not cancel any other power of attorney I have signed.{{/if}} When signing for me, the Agent must sign my name, followed by "by" and the Agent's own name, as attorney-in-fact. If the Agent is my spouse, the Agent's authority also ends if an action for divorce, annulment or legal separation is filed.
+
+7. REVOCATION, COPIES AND RELIANCE
+I may revoke this power at any time by written notice to the Agent and to every bank or office that has been given this document. A copy of this document is as good as the original. A person who relies on this document in good faith may keep relying on it until they receive written notice that it has ended. This document is governed by the laws of the State of {{state}}.
 
 PRINCIPAL: {{principal}}
 Signature: ______________________________   Date: ______________
+
+Signed for the Principal, at the Principal's direction and in the Principal's presence, by: ______________________________ (only if the Principal cannot sign)
 
 AGENT (accepting): {{agent}}
 Signature: ______________________________   Date: ______________
 
 ATTESTATION OF WITNESSES
-Each of us is an adult. The Principal declared this document to be their power of attorney and signed it (or directed another to sign it for them) in our presence. The Principal appeared to be of sound mind and under no duress, fraud or undue influence. Each of us signed in the presence of the Principal and of each other.
+Each of us is an adult, and neither of us is the Agent. The Principal declared this document to be their power of attorney and signed it (or directed another to sign it for them) in our presence. The Principal appeared to be of sound mind and under no duress, fraud or undue influence. Each of us signed in the presence of the Principal and of each other.
 
-Witness 1: {{witness1}}
-Address: {{witness1Address}}
+Witness 1: {{#if witness1}}{{witness1}}{{else}}______________________________{{/if}}
+Address: {{#if witness1Address}}{{witness1Address}}{{else}}______________________________{{/if}}
 Signature: ______________________________   Date: ______________
 
-Witness 2: {{witness2}}
-Address: {{witness2Address}}
+Witness 2: {{#if witness2}}{{witness2}}{{else}}______________________________{{/if}}
+Address: {{#if witness2Address}}{{witness2Address}}{{else}}______________________________{{/if}}
 Signature: ______________________________   Date: ______________
 
 ACKNOWLEDGMENT BEFORE A NOTARY
-State of Maryland, County of {{county}}
+State of Maryland, County of {{#if county}}{{county}}{{else}}______________{{/if}}
 On ______________, before me, the undersigned notary public, personally appeared {{principal}}, known to me or satisfactorily proven to be the person who signed this document, and acknowledged that they signed it voluntarily for the purposes stated in it.
 Notary public signature and seal: ______________________________
+Printed name: ______________________________
 My commission expires: ______________`,
   },
   {
@@ -1847,13 +1927,13 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "personal_guaranty", title: "Personal Guaranty", category: LENDING,
     description: "A person promises to pay a business debt personally if the business does not.",
-    reviewNote: "A guarantor can lose personal property if the business cannot pay. Read the loan or lease this guaranty supports before signing.",
+    reviewNote: "A guarantor can lose personal property if the business cannot pay. Read the loan or lease this guaranty supports before signing. A bank or other lender should not require a spouse to sign merely because of marriage (Regulation B, 12 CFR §1002.7(d)). Waivers of a guarantor's defenses are only as strong as Maryland courts will enforce them — confirm with an attorney. Describe the loan or lease with its date, amount and the document name so there is no doubt what is guaranteed.",
     steps: [
       { title: "Parties", questions: [text("guarantor", "Guarantor (the person promising)", { required: true }), text("guarantorAddress", "Guarantor's address"), text("creditor", "Creditor (who is owed)", { required: true }), text("borrower", "Business or person whose debt is guaranteed", { prefill: "clientName", required: true }), effective(), state()] },
       { title: "What is guaranteed", questions: [
-        area("obligation", "The debt or obligation", { required: true, placeholder: "e.g. The loan of $50,000 dated June 1, 2026, or all rent due under the lease of the store at 12 Main St" }),
+        area("obligation", "The debt or obligation", { required: true, placeholder: "e.g. The loan of $50,000 dated June 1, 2026 under the loan agreement between the Creditor and the Borrower, or all rent due under the lease of the store at 12 Main St dated May 1, 2026" }),
         pick("limit", "How much is guaranteed", [["all", "Everything owed under the obligation"], ["capped", "Up to a fixed amount"]], { required: true, default: "all" }),
-        money("cap", "The most the Guarantor will pay", { showIf: { id: "limit", equals: "capped" }, required: true }),
+        money("cap", "The most the Guarantor will pay (principal and interest)", { showIf: { id: "limit", equals: "capped" }, required: true }),
       ] },
     ],
     body: `PERSONAL GUARANTY
@@ -1861,25 +1941,26 @@ Signature: ______________________________   Date: ______________`,
 Date: {{effectiveDate}}
 
 1. THE GUARANTY
-{{guarantor}}{{#if guarantorAddress}} of {{guarantorAddress}}{{/if}} ("Guarantor") personally and unconditionally guarantees to {{creditor}} ("Creditor") the full and on-time payment of the following obligation of {{borrower}} ("Borrower"): {{obligation}}
+In consideration of {{creditor}} ("Creditor") extending or continuing credit to {{borrower}} ("Borrower"), and for other value received, {{guarantor}}{{#if guarantorAddress}} of {{guarantorAddress}}{{/if}} ("Guarantor") personally and unconditionally guarantees to the Creditor the full and on-time payment of the following obligation of the Borrower (the "Obligation"): {{obligation}}
 
 2. HOW MUCH
-{{#if limit=all}}The Guarantor is responsible for everything the Borrower owes under that obligation, including interest, fees and the Creditor's reasonable costs of collecting.{{else}}The Guarantor is responsible up to {{cap}} plus the Creditor's reasonable costs of collecting from the Guarantor.{{/if}}
+{{#if limit=all}}The Guarantor is responsible for everything the Borrower owes under the Obligation, including interest, fees and the Creditor's reasonable costs of collecting, including attorney's fees.{{else}}The Guarantor is responsible for up to {{cap}} of principal and interest owed under the Obligation, plus the Creditor's reasonable costs of collecting from the Guarantor, including attorney's fees.{{/if}}
 
 3. NATURE OF THE PROMISE
-This is a guaranty of payment, not only of collection: if the Borrower does not pay when due, the Creditor may demand payment from the Guarantor without first suing the Borrower or using any security. The guaranty continues until the obligation is paid in full, even if the Creditor extends time, changes the terms with the Borrower, or accepts partial payments. It also continues if the Borrower's business changes owner, name or form.
+This is a guaranty of payment, not only of collection: if the Borrower does not pay when due, the Creditor may demand payment from the Guarantor without first suing the Borrower or using any security, and the Guarantor will pay within 10 days after the Creditor's written demand. The guaranty continues until the Obligation is paid in full, even if the Creditor extends time, changes the terms with the Borrower, or accepts partial payments. It also continues if the Borrower's business changes owner, name or form.
 
 4. WHAT THE GUARANTOR GIVES UP
-The Guarantor waives notice of default and demand, and the right to require the Creditor to pursue the Borrower first. If the Guarantor pays, the Guarantor takes the Creditor's place against the Borrower only after the Creditor has been paid in full.
+The Guarantor waives notice of default, demand, presentment and protest, and the right to require the Creditor to pursue the Borrower or any collateral first. The Guarantor's obligation is not reduced or ended by the Borrower's bankruptcy or discharge, any defect or unenforceability of the Obligation, any release or impairment of collateral or of another guarantor, or any lack of authority of the Borrower. If a payment to the Creditor is later returned or set aside, this guaranty is reinstated. Until the Creditor is paid in full, the Guarantor waives rights of subrogation, reimbursement and contribution against the Borrower.
 
 5. GENERAL
-This guaranty binds the Guarantor's heirs and estate, may be changed only in writing signed by the Guarantor and the Creditor, and is governed by the laws of the State of {{state}}. If a term cannot be enforced the rest stays in force.
+The Guarantor confirms that the Guarantor has received and read the documents that create the Obligation. This guaranty binds the Guarantor's heirs and estate, benefits the Creditor's successors and assigns, may be changed only in writing signed by the Guarantor and the Creditor, and is governed by the laws of the State of {{state}}. Notices must be in writing. If more than one person signs as Guarantor, each is liable for the whole amount. If a term cannot be enforced the rest stays in force.
 
 GUARANTOR: {{guarantor}}
 Signature: ______________________________   Date: ______________
 
 CREDITOR (accepting): {{creditor}}
-Signature: ______________________________   Date: ______________`,
+Signature: ______________________________   Date: ______________
+Printed name: ______________________   Title (if a company): ______________`,
   },
   {
     key: "non_compete", title: "Non-Competition and Non-Solicitation Agreement", category: EMPLOYMENT,
@@ -2004,36 +2085,52 @@ Signature: ______________________________   Date: ______________`,
   {
     key: "business_poa", title: "Business Power of Attorney (Operations, Banking & Tax)", category: BUSINESS,
     description: "A business gives a trusted person authority to run daily operations, handle bank accounts, and deal with tax and government matters — each power can be switched on or off.",
-    reviewNote: "Banks usually insist on their own authorization form and a company resolution as well — bring this document, the Articles / EIN letter and a corporate resolution (also in this builder). Sign in front of a notary. For dealing with the IRS or the Maryland Comptroller, the official forms (2848 / 8821 / MD 548) are still needed.",
+    reviewNote: "Banks usually insist on their own authorization form and a company resolution as well — bring this document, the Articles / EIN letter and a corporate resolution (also in this builder). Sign in front of a notary. This is for a business that is a separate legal entity (LLC, corporation, partnership); if the owner is a sole proprietor, use the personal Power of Attorney instead. A corporation's income tax return must be signed by an authorized officer (26 CFR 1.6062-1) — this document does not change that. For the IRS use Form 2848 / 8821; the Maryland Comptroller accepts only its own Form 548. Whether a Maryland tobacco, lottery or alcohol licence can be handled by an agent at all: confirm with an attorney. Whether a bank or the county will accept the 'copy is as good as the original' and good-faith reliance wording for a business power: confirm with an attorney. Have a Maryland attorney review before use.",
     steps: [
-      { title: "The business and the agent", questions: [text("company", "Business giving the authority", { prefill: "clientName", required: true }), text("companyAddress", "Business address", { prefill: "clientAddress" }), text("owner", "Owner / officer signing for the business", { required: true }), text("ownerTitle", "Their title", { required: true, placeholder: "e.g. Owner, Managing Member, President" }), text("agent", "Person receiving the authority (agent)", { required: true }), text("agentAddress", "Agent's address"), effective(), state()] },
+      { title: "The business and the agent", questions: [
+        text("company", "Business giving the authority", { prefill: "clientName", required: true }),
+        text("companyAddress", "Business address", { prefill: "clientAddress" }),
+        pick("entityType", "Kind of business", [["llc", "Limited liability company (LLC)"], ["corp", "Corporation"], ["partnership", "Partnership"], ["other", "Other business entity"]], { required: true, default: "llc" }),
+        text("formedIn", "State where it is formed", { default: "Maryland" }),
+        text("einLast4", "EIN — last 4 digits only", { placeholder: "e.g. 1234" }),
+        text("owner", "Owner / officer signing for the business", { required: true }),
+        text("ownerTitle", "Their title", { required: true, placeholder: "e.g. Managing Member, President" }),
+        text("agent", "Person receiving the authority (agent)", { required: true }),
+        text("agentAddress", "Agent's address"),
+        effective(), state(),
+      ] },
       { title: "Bank accounts", description: "Switch off anything the agent should not do.", questions: [
         yesno("bank", "Banking powers", { default: true }),
-        text("banks", "Which banks", { showIf: { id: "bank", equals: true }, placeholder: "Leave empty for any bank or credit union" }),
+        text("banks", "Which banks", { showIf: { id: "bank", equals: true }, required: true, placeholder: "e.g. Bank of America, Baltimore branch" }),
         yesno("openClose", "Open and close accounts", { showIf: { id: "bank", equals: true }, default: true }),
-        yesno("limitWithdraw", "Limit what the agent may withdraw or transfer in one transaction", { showIf: { id: "bank", equals: true }, default: false }),
+        yesno("limitWithdraw", "Limit what the agent may withdraw or transfer in one transaction", { showIf: { id: "bank", equals: true }, default: true }),
         money("withdrawLimit", "Highest single withdrawal or transfer", { showIf: { id: "limitWithdraw", equals: true }, required: true }),
       ] },
       { title: "Operations, tax and licenses", questions: [
         yesno("operations", "Run daily operations — purchases, vendors, inventory, contracts, point-of-sale and merchant accounts", { default: true }),
         yesno("staff", "Hire, supervise, pay and let go of employees, and run payroll", { default: true }),
-        yesno("tax", "Tax matters — prepare, sign and file sales tax, payroll tax and income tax returns, pay taxes, receive notices and deal with tax offices", { default: true }),
+        yesno("tax", "Tax matters — prepare and file sales tax, payroll tax and income tax returns, pay taxes, receive notices and deal with tax offices", { default: true }),
         yesno("licenses", "Apply for, renew, change and close licenses and permits", { default: true }),
-        yesno("borrow", "Borrow money, sign loans or credit applications for the business", { default: false }),
-        yesno("property", "Buy, sell or lease property or major equipment for the business", { default: false }),
-        yesno("ownership", "Sell the business, change who owns it, or add / remove owners", { default: false }),
-        yesno("giveAway", "Give away or donate the business's money or property", { default: false }),
+        yesno("borrow", "Borrow money, sign loans or credit applications for the business (owner approves each loan)", { default: false }),
+        yesno("property", "Buy, sell or lease property or major equipment for the business (owner approves each deal)", { default: false }),
+        yesno("ownership", "Sell the business, change who owns it, or add / remove owners (owner approves each step)", { default: false }),
+        yesno("giveAway", "Give away or donate the business's money or property (owner approves each gift)", { default: false }),
         yesno("approval", "Anything above a set amount needs the owner's written approval first", { default: false }),
         money("approvalAmount", "Approval is needed above", { showIf: { id: "approval", equals: true }, required: true }),
       ] },
-      { title: "How long", questions: [date("endDate", "Ends on (leave empty until cancelled)"), text("witness1", "First witness (printed name)"), text("witness2", "Second witness (printed name)")] },
+      { title: "How long, witnesses and notary", questions: [
+        date("endDate", "Ends on (leave empty until cancelled)"),
+        text("county", "County where it is signed", { placeholder: "e.g. Baltimore County" }),
+        text("witness1", "First witness (printed name, optional)"),
+        text("witness2", "Second witness (printed name, optional)"),
+      ] },
     ],
     body: `BUSINESS POWER OF ATTORNEY
 
 Date: {{effectiveDate}}
 
 1. APPOINTMENT
-{{company}}{{#if companyAddress}}, of {{companyAddress}},{{/if}} (the "Business"), acting through {{owner}}, its {{ownerTitle}}, appoints {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") as its attorney-in-fact to act for the Business and sign in its name in the matters listed below. {{owner}} confirms having the authority to give this power on behalf of the Business.
+{{company}}{{#if companyAddress}}, of {{companyAddress}}{{/if}}, {{#if entityType=llc}}a limited liability company{{/if}}{{#if entityType=corp}}a corporation{{/if}}{{#if entityType=partnership}}a partnership{{/if}}{{#if entityType=other}}a business entity{{/if}}{{#if formedIn}} formed in {{formedIn}}{{/if}}{{#if einLast4}} (EIN ending {{einLast4}}){{/if}} (the "Business"), acting through {{owner}}, its {{ownerTitle}}, appoints {{agent}}{{#if agentAddress}} of {{agentAddress}}{{/if}} ("Agent") as its attorney-in-fact to act for the Business and sign in its name in the matters listed below. {{owner}} confirms that this power is authorized by the Business's governing documents and, where required, by a resolution of its members or directors, and will give a copy of that resolution to any bank on request.
 
 2. POWERS GIVEN
 {{#if bank}}A. BANKING. {{#if banks}}At {{banks}}{{else}}At any bank or credit union{{/if}}, the Agent may{{#if openClose}} open and close accounts,{{/if}} deposit and withdraw money, write, sign and endorse checks, make transfers, wires and electronic payments, use and manage online banking and debit or credit cards of the Business, get statements and records, and sign the bank's forms and signature cards.{{#if limitWithdraw}} The Agent may not withdraw or transfer more than {{withdrawLimit}} in any one transaction.{{/if}}
@@ -2042,26 +2139,28 @@ Date: {{effectiveDate}}
 
 {{/if}}{{#if staff}}C. STAFF AND PAYROLL. The Agent may hire, supervise, pay and end the employment of staff, and run payroll, including payroll deposits and filings.
 
-{{/if}}{{#if tax}}D. TAX AND GOVERNMENT MATTERS. The Agent may prepare, sign and file the Business's sales tax, payroll tax and income tax returns, pay taxes, receive notices and correspondence, and deal with federal, state and local tax offices on the Business's behalf, to the extent the law accepts this document for that purpose.
+{{/if}}{{#if tax}}D. TAX AND GOVERNMENT MATTERS. The Agent may prepare and file the Business's sales tax, payroll tax and income tax returns, sign them where the law allows an agent to sign, pay taxes, receive notices and correspondence, and deal with federal, state and local tax offices on the Business's behalf. This power does not let the Agent sign any return that the law requires an owner or officer to sign. For the Comptroller of Maryland the Business will also sign Maryland Form 548, and for the IRS Form 2848, naming the Agent; this document alone is not enough.
 
 {{/if}}{{#if licenses}}E. LICENSES AND PERMITS. The Agent may apply for, renew, change and close licenses and permits of the Business.
 
-{{/if}}{{#if borrow}}F. BORROWING. The Agent may borrow money for the Business and sign loan and credit documents in its name.
+{{/if}}{{#if borrow}}F. BORROWING. The Agent may borrow money for the Business and sign loan and credit documents in its name, but only with the written approval of {{owner}} or another owner of the Business for each loan.
 
-{{/if}}{{#if property}}G. PROPERTY. The Agent may buy, sell or lease property and major equipment for the Business.
+{{/if}}{{#if property}}G. PROPERTY. The Agent may buy, sell or lease property and major equipment for the Business, but only with the written approval of {{owner}} or another owner of the Business for each transaction.
 
-{{/if}}{{#if ownership}}H. SALE AND OWNERSHIP. The Agent may sell the Business or its assets, change who owns the Business, and add or remove owners, and sign the papers needed to do so.
+{{/if}}{{#if ownership}}H. SALE AND OWNERSHIP. The Agent may sell the Business or its assets, change who owns the Business, and add or remove owners, and sign the papers needed to do so, but only with the written approval of {{owner}} or another owner of the Business for each step.
 
-{{/if}}{{#if giveAway}}I. GIFTS. The Agent may give away or donate the Business's money or property.
+{{/if}}{{#if giveAway}}I. GIFTS. The Agent may give away or donate the Business's money or property, but only with the written approval of {{owner}} or another owner of the Business for each gift.
 
-{{/if}}3. LIMITS
-{{#if approval}}For any single purchase, payment, contract or commitment above {{approvalAmount}}, the Agent must first get the written approval of {{owner}} or another owner of the Business. {{/if}}{{#if ownership}}{{else}}The Agent may not sell the Business or change who owns it, and may not add or remove owners. {{/if}}{{#if giveAway}}{{else}}The Agent may not give away the Business's money or property. {{/if}}No power is given beyond those listed above.
+{{/if}}{{#if !bank}}{{#if !operations}}{{#if !staff}}{{#if !tax}}{{#if !licenses}}{{#if !borrow}}{{#if !property}}{{#if !ownership}}{{#if !giveAway}}No power has been selected, so this document gives the Agent no authority until it is corrected and signed again.
+
+{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}3. LIMITS
+{{#if approval}}For any single purchase, payment, contract or commitment above {{approvalAmount}}, the Agent must first get the written approval of {{owner}} or another owner of the Business. {{/if}}{{#if bank}}{{#if limitWithdraw}}{{#if approval}}Where both the bank limit and the approval amount apply, the lower one controls. {{/if}}{{/if}}{{/if}}{{#if ownership}}{{else}}The Agent may not sell the Business or change who owns it, and may not add or remove owners. {{/if}}{{#if giveAway}}{{else}}The Agent may not give away the Business's money or property. {{/if}}No power is given beyond those listed above.
 
 4. DUTIES
-The Agent must act in the Business's best interest, keep its money separate from the Agent's own, keep records of what is done, and give the owners an account whenever they ask. The owners may inspect all accounts and records at any time.
+The Agent must act in the Business's best interest, keep its money separate from the Agent's own, keep records of what is done, and give the owners an account whenever they ask. The owners may inspect all accounts and records at any time. The Agent may not pay or benefit the Agent or the Agent's relatives from the Business except wages the owner has approved, may not hand this authority to anyone else, and must sign as "the Business, by the Agent, as attorney-in-fact". The Agent receives no pay for this authority unless the owner agrees in writing.
 
 5. HOW LONG IT LASTS
-This power starts when signed. {{#if endDate}}It ends on {{endDate}}, or earlier if{{else}}It lasts until{{/if}} the Business cancels it in writing. Cancelling must be given in writing to the Agent and to each bank or office relying on this document. People who rely on it in good faith are protected until they receive written notice that it has ended.
+This power starts when signed. {{#if endDate}}It ends on {{endDate}}, or earlier if the Business cancels it in writing.{{else}}It lasts until the Business cancels it in writing.{{/if}} It also ends automatically if the Agent stops working for the Business, or if the Business is sold or dissolved. Notice of cancellation must be given in writing to the Agent and to each bank or office relying on this document. The Agent may resign by written notice to the Business. People who rely on it in good faith are protected until they receive written notice that it has ended.
 
 6. GENERAL
 A copy of this document is as good as the original. It is governed by the laws of the State of {{state}}.
@@ -2073,21 +2172,28 @@ Signature: ______________________________   Date: ______________
 AGENT (accepting): {{agent}}
 Signature: ______________________________   Date: ______________
 
-WITNESSES
-1. {{witness1}}   Signature: ______________________________
-2. {{witness2}}   Signature: ______________________________
+WITNESSES (optional)
+Each witness is an adult and was present when {{owner}} signed.
+Witness 1: {{#if witness1}}{{witness1}}{{else}}______________{{/if}}   Signature: ______________________________
+Witness 2: {{#if witness2}}{{witness2}}{{else}}______________{{/if}}   Signature: ______________________________
 
-NOTARY: signed and sworn before me on ______________  Notary signature and seal: ______________________________`,
+ACKNOWLEDGMENT BEFORE A NOTARY
+State of Maryland, County of {{#if county}}{{county}}{{else}}______________{{/if}}
+On ______________, before me, the undersigned notary public, personally appeared {{owner}}, known to me or satisfactorily proven to be the person who signed this document, who acknowledged being the {{ownerTitle}} of {{company}} and that, with authority to do so, they signed it voluntarily for that business.
+Notary public signature and seal: ______________________________
+Printed name: ______________________________
+My commission expires: ______________`,
   },
   {
     key: "limited_poa_filings", title: "Limited Power of Attorney — Licenses, Permits & State Tax Filings", category: CLIENT_SERVICE,
     description: "A business names the firm to obtain its licenses, permits and records and to file its Maryland sales/use and withholding tax — only for the matters ticked, nothing more. Based on the firm's own POA template.",
-    reviewNote: "This gives the firm authority to deal with offices for the business, but the Comptroller and the IRS still require their own authorization forms to act on tax accounts (Maryland Form 548, IRS 2848 / 8821). Some offices ask for a notarized power, so the notary block is on by default. Have a Maryland attorney review before use.",
+    reviewNote: "This gives the firm authority to deal with offices for the business, but offices still require their own forms: the Maryland Comptroller accepts only its own Form 548 for tax accounts (the IRS uses Form 2848 / 8821), and the Maryland Division of Unemployment Insurance has its own employer power-of-attorney form filed through its portal. Some offices ask for a notarized power, so the notary block is always included. Confirm with an attorney, before relying on this for them: (1) whether the USDA SNAP/EBT retailer application and the State Department of Assessments and Taxation annual report must be signed by the owner or officer personally; (2) whether the county and the health department accept an agent applying for an occupancy or food permit; (3) whether this power is valid beyond one year for a given office. The telephone numbers and e-mail address pre-filled below are the firm's own — check they are current. Have a Maryland attorney review before use.",
     steps: [
       { title: "The business", questions: [
         text("principal", "Business giving the authority", { prefill: "clientName", required: true }),
         text("entityDesc", "Kind of business", { placeholder: "e.g. a Maryland limited liability company" }),
         text("principalAddress", "Business street address", { prefill: "clientAddress", required: true }),
+        text("acctRef", "Account / license numbers covered (last 4 digits only)", { placeholder: "e.g. Sales tax account ending 1234; tobacco license ending 5678" }),
         text("signerName", "Owner / officer signing for the business", { required: true }),
         text("signerTitle", "Their title", { required: true, default: "Owner", placeholder: "e.g. Owner, Managing Member, President" }),
       ] },
@@ -2111,9 +2217,8 @@ NOTARY: signed and sworn before me on ______________  Notary signature and seal:
         yesno("signDocs", "The firm may sign applications, forms and letters in the business's name, only as needed for the matters above", { default: true }),
       ] },
       { title: "Term and signing", questions: [
-        date("endDate", "Ends on (leave empty to continue until revoked)"),
-        yesno("notarize", "Include a notary acknowledgment", { default: true }),
-        text("county", "County where it is signed", { showIf: { id: "notarize", equals: true }, placeholder: "e.g. Baltimore City" }),
+        date("endDate", "Ends on (leave empty — it then ends one year after it is signed)"),
+        text("county", "County where it is signed (for the notary)", { placeholder: "e.g. Baltimore City" }),
         effective(), state(),
       ] },
     ],
@@ -2123,10 +2228,10 @@ Licenses, Permits and State Tax Filings
 Date: {{effectiveDate}}
 
 1. APPOINTMENT
-{{principal}}{{#if entityDesc}}, {{entityDesc}},{{/if}} with street address {{principalAddress}} (the "Principal"), acting through {{signerName}}, its {{signerTitle}}, grants a limited and specific power of attorney to {{firmName}}{{#if firmAddress}}, {{firmAddress}},{{/if}} represented by {{rep1}}{{#if rep2}} and {{rep2}}{{/if}} (each an "Attorney-in-Fact", together the "Attorneys-in-Fact"). {{signerName}} confirms having the authority to give this power on behalf of the Principal.
+{{principal}}{{#if entityDesc}}, {{entityDesc}},{{/if}} with street address {{principalAddress}} (the "Principal"), acting through {{signerName}}, its {{signerTitle}}, grants a limited and specific power of attorney to {{firmName}}{{#if firmAddress}}, {{firmAddress}}{{/if}} (the "Attorney-in-Fact"), which may act through its representatives {{rep1}}{{#if rep2}} and {{rep2}}, either of whom may act for it{{/if}}. {{signerName}} confirms having the authority to give this power on behalf of the Principal.
 
 2. POWERS GIVEN
-The Attorneys-in-Fact may act for the Principal, and deal with the offices concerned, only for these purposes:
+The Attorney-in-Fact may act for the Principal, and deal with the offices concerned, only for these purposes:
 {{#if pSales}}• Obtain, renew, amend or close the Principal's Sales and Use Tax license.
 {{/if}}{{#if pArticles}}• Obtain copies of the Principal's Articles of Incorporation / Organization and other business records from the State Department of Assessments and Taxation.
 {{/if}}{{#if pEbt}}• Apply for or maintain the Principal's EBT / SNAP permit.
@@ -2136,26 +2241,34 @@ The Attorneys-in-Fact may act for the Principal, and deal with the offices conce
 {{/if}}{{#if pHealth}}• Apply for and maintain the Principal's health department or food service permit.
 {{/if}}{{#if pLocal}}• Apply for, renew or amend the Principal's local business, trader's and other county or city licenses.
 {{/if}}{{#if pAnnual}}• File the Principal's annual report and personal property return with the State Department of Assessments and Taxation.
-{{/if}}{{#if pUI}}• Handle the Principal's Maryland unemployment insurance account matters.
+{{/if}}{{#if pUI}}• Handle the Principal's Maryland unemployment insurance account matters, using the Division's own authorization form where it requires one.
 {{/if}}{{#if other}}• {{other}}
-{{/if}}The Attorneys-in-Fact may also handle all related communications for the Principal and do the incidental acts reasonably needed to carry out these purposes.
+{{/if}}{{#if !pSales}}{{#if !pArticles}}{{#if !pEbt}}{{#if !pFile}}{{#if !pOccupancy}}{{#if !pTobacco}}{{#if !pHealth}}{{#if !pLocal}}{{#if !pAnnual}}{{#if !pUI}}{{#if !other}}• No purpose has been selected, so this document gives the Attorney-in-Fact no power until it is corrected and signed again.
+{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}{{#if acctRef}}Accounts and licenses covered (last four digits only): {{acctRef}}.
+{{/if}}The Attorney-in-Fact may also handle all related communications for the Principal and do the incidental acts reasonably needed to carry out these purposes.
 
 3. SIGNING
-{{#if signDocs}}The Attorneys-in-Fact may sign applications, forms, agreements and letters in the Principal's name, but only as needed for the purposes in Section 2.{{else}}The Attorneys-in-Fact may prepare and submit documents for the Principal but may not sign them in the Principal's name.{{/if}}
+{{#if signDocs}}The Attorney-in-Fact may sign applications, forms, agreements and letters in the Principal's name, but only as needed for the purposes in Section 2.{{else}}The Attorney-in-Fact may prepare and submit documents for the Principal but may not sign them in the Principal's name.{{/if}}
 
 4. LIMITS
-This power does not include the power to sell or mortgage the business or its property, borrow money, open or close bank accounts, sign checks or withdraw funds, change the ownership of the business, make gifts, or sign any contract other than those needed for the purposes in Section 2. Taxes and fees are paid only from funds the Principal provides.
+This power does not include the power to sell or mortgage the business or its property, borrow money, open or close bank accounts, sign checks or withdraw funds, change the ownership of the business, make gifts, or sign any contract other than those needed for the purposes in Section 2. Taxes and fees are paid only by the Principal's own payment authorization (an electronic debit the Principal approves or a check the Principal signs); the Attorney-in-Fact never holds the Principal's funds or bank login.
 
-5. DUTIES
-The Attorneys-in-Fact accept this appointment on these terms and will act in the Principal's best interest and only within these powers, keep records of what they do, give the Principal copies of every filing, license, permit and notice, and keep the Principal's information confidential, using it only for these purposes.
+5. OFFICIAL FORMS
+Some offices accept only their own authorization form (for example Maryland Comptroller Form 548, the Maryland Division of Unemployment Insurance power of attorney form, or IRS Form 2848). The Principal will sign those forms when asked, and for each such office its form governs. This document does not replace them.
 
-6. WHEN IT STARTS AND ENDS
-This power takes effect when it is signed {{#if endDate}}and ends on {{endDate}}{{else}}and stays in effect until the Principal ends it{{/if}}. The Principal may revoke it at any time by written notice to the Attorneys-in-Fact. When they receive that notice they will stop acting and promptly return all documents, funds and property belonging to the Principal. An Attorney-in-Fact may resign by written notice to the Principal.
+6. PRINCIPAL'S RESPONSIBILITIES
+The Principal will give accurate and complete information, remains responsible for the taxes, fees, penalties and interest of the business, and will personally sign any application or return that the law or the office requires an owner or officer to sign.
 
-7. COPIES AND RELIANCE
+7. DUTIES
+The Attorney-in-Fact accepts this appointment on these terms and will act in the Principal's best interest and only within these powers, keep records of what it does, give the Principal copies of every filing, license, permit and notice, and keep the Principal's information confidential, using it only for these purposes.
+
+8. WHEN IT STARTS AND ENDS
+This power takes effect when it is signed and ends {{#if endDate}}on {{endDate}}{{else}}one year after the date it is signed{{/if}}, or earlier when the Attorney-in-Fact's engagement for the Principal ends. The Principal may revoke it at any time by written notice to the Attorney-in-Fact. When it receives that notice it will stop acting and promptly return all documents, funds and property belonging to the Principal. The Attorney-in-Fact may resign by written notice to the Principal.
+
+9. COPIES AND RELIANCE
 A copy of this document is as good as the original. An office or person who relies on it in good faith may keep relying on it until they receive written notice that it has ended.
 
-8. GOVERNING LAW
+10. GOVERNING LAW
 This power of attorney is governed by the laws of the State of {{state}}.
 
 PRINCIPAL: {{principal}}
@@ -2163,19 +2276,20 @@ By: {{signerName}}, {{signerTitle}}
 Signature: ______________________________   Date: ______________
 
 ACCEPTANCE OF APPOINTMENT
-I, {{rep1}}, the Attorney-in-Fact named above, accept this appointment in accordance with the foregoing instrument.
+I, {{rep1}}, sign for {{firmName}} as its authorized representative and accept this appointment in accordance with the foregoing instrument.
 {{firmName}}{{#if firmAddress}}, {{firmAddress}}{{/if}}{{#if rep1Phone}}, {{rep1Phone}}{{/if}}{{#if firmEmail}}, {{firmEmail}}{{/if}}
 Signature: ______________________________   Date: ______________
-
-{{#if rep2}}I, {{rep2}}, the Attorney-in-Fact named above, accept this appointment in accordance with the foregoing instrument.
+{{#if rep2}}
+I, {{rep2}}, sign for {{firmName}} as its authorized representative and accept this appointment in accordance with the foregoing instrument.
 {{firmName}}{{#if firmAddress}}, {{firmAddress}}{{/if}}{{#if rep2Phone}}, {{rep2Phone}}{{/if}}{{#if firmEmail}}, {{firmEmail}}{{/if}}
 Signature: ______________________________   Date: ______________
-
-{{/if}}{{#if notarize}}ACKNOWLEDGMENT BEFORE A NOTARY
-State of Maryland, County of {{county}}
+{{/if}}
+ACKNOWLEDGMENT BEFORE A NOTARY
+State of Maryland, County of {{#if county}}{{county}}{{else}}______________{{/if}}
 On ______________, before me, the undersigned notary public, personally appeared {{signerName}}, known to me or satisfactorily proven to be the person who signed this document for {{principal}}, and acknowledged that they signed it voluntarily for the purposes stated in it, with authority to do so.
 Notary public signature and seal: ______________________________
-My commission expires: ______________{{/if}}`,
+Printed name: ______________________________
+My commission expires: ______________`,
   },
 ];
 
