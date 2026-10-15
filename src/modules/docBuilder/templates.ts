@@ -2174,6 +2174,304 @@ LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
 If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
   },
+  {
+    key: "loan_agreement", title: "Loan Agreement", category: LENDING,
+    description: "A lender gives a loan to one or more borrowers: the amount, interest, repayment dates, early payment, default, costs, and optional security and notary pages.",
+    reviewNote: "Maryland limits interest and fees on loans — generally 8% a year on a written loan, with exceptions for some corporate and large commercial loans — so confirm the rate with an attorney before using more than 8%. Real estate or a vehicle as security needs a separate recorded document. If the lender makes loans as a business, licensing rules may apply. A below-market loan between related people or companies can create taxable imputed interest (IRC §7872) — ask the tax preparer. Check that the number of payments, the first payment date and the final due date agree. This agreement covers the lender's promise to lend and the borrower's promise to repay; use the Promissory Note when only a signed promise to pay is needed. Written with Maryland in mind and checked against a LawDepot-style sample.",
+    steps: [
+      { title: "Parties", questions: [text("lender", "Lender", { required: true }), text("lenderAddress", "Lender's address", { required: true }), list("borrowers", "Borrowers — each is responsible for the whole loan", [text("name", "Name", { required: true }), text("address", "Address")], { required: true, minItems: 1, addLabel: "Add a borrower" }), effective(), state()] },
+      { title: "The loan", questions: [
+        money("principal", "Amount of the loan", { required: true }), date("fundingDate", "Lender provides the money on", { required: true }), text("purpose", "What the money is for (optional)", { placeholder: "e.g. Buying equipment for the store" }),
+        num("rate", "Annual interest rate (%)", { required: true, default: "0", help: "Enter 0 for no interest. Maryland limits interest on many loans (generally 8% a year on a written loan; some corporate and large commercial loans are exempt). Confirm the rate with the attorney before using more than 8%." }),
+        pick("schedule", "Repayment", [["monthly", "Equal monthly payments"], ["lump", "One payment on the due date"]], { required: true, default: "monthly" }),
+        num("months", "Number of monthly payments", { showIf: { id: "schedule", equals: "monthly" }, required: true }), money("paymentAmount", "Amount of each monthly payment", { showIf: { id: "schedule", equals: "monthly" }, required: true, help: "Principal plus interest, spread over the payments." }),
+        date("firstPayment", "First payment due", { showIf: { id: "schedule", equals: "monthly" }, required: true }), date("dueDate", "Final due date", { required: true, help: "For monthly payments this is the date of the last payment; any balance is due then." }),
+        yesno("prepay", "Borrower may repay early without penalty", { default: true }), yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }), num("graceDays", "Days after written notice before a missed payment is a default", { default: "10", required: true }),
+        yesno("secured", "The loan is secured by property"), text("collateral", "Describe the property", { showIf: { id: "secured", equals: true }, required: true }),
+        yesno("notary", "Add notary acknowledgment pages for the lender and the borrowers", { default: false }),
+      ] },
+    ],
+    body: `LOAN AGREEMENT
+
+Date: {{effectiveDate}}
+
+This agreement is between {{lender}}, {{lenderAddress}} ("Lender") and the following (together "Borrower"):
+{{#list borrowers}}• {{name}}{{#if address}}, {{address}}{{/if}}
+{{/list}}
+1. THE LOAN
+On {{fundingDate}} Lender lends Borrower {{principal}}{{#if purpose}} for {{purpose}}{{/if}} (the "Loan"), and Borrower promises to repay it to Lender{{#if rate}} with simple interest at {{rate}}% per year (365-day year) on the unpaid balance{{else}} without interest{{/if}}, as this agreement says. Interest and fees together will never exceed the maximum the law allows; any excess is applied to principal or refunded to Borrower. If more than one person signs as Borrower, each is jointly and severally liable to Lender for the whole Loan.
+
+2. REPAYMENT
+{{#if schedule=monthly}}Borrower will pay {{months}} monthly installments of {{paymentAmount}} each, on the same day of each month beginning {{firstPayment}}, and will pay everything still owing on {{dueDate}} (the "Maturity Date").{{else}}Borrower will pay the full principal{{#if rate}} and accrued interest{{/if}} in one payment on {{dueDate}} (the "Maturity Date").{{/if}} Payments are made by check or bank transfer to Lender at the address above, or as Lender later directs in writing. Each payment is applied first to costs and late fees, then {{#if rate}}to interest, then {{/if}}to principal. {{#if prepay}}Borrower may pay all or part of the balance early at any time, without bonus or penalty, while not in default.{{else}}Early payment requires Lender's written consent.{{/if}}
+
+3. LATE PAYMENT AND DEFAULT
+{{#if lateFee}}If a payment is received more than {{graceDays|day}} after its due date, Borrower will pay a one-time late fee of {{lateFeeAmount}} for that payment. {{/if}}Each of the following is a default: (a) a payment is not made within {{graceDays|day}} after Lender gives written notice that it is past due; (b) the whole balance is not paid on the Maturity Date; (c) a Borrower becomes insolvent or files for bankruptcy; or (d) a Borrower gives Lender false information in connection with this agreement{{#if secured}}; or (e) the collateral is lost, damaged beyond use, or transferred without Lender's written consent{{/if}}. On default, Lender may declare the whole unpaid balance due immediately.
+
+{{#if secured}}4. SECURITY
+To secure the Loan, Borrower grants Lender a security interest in: {{collateral}}, and authorizes Lender to file financing statements. Real property and titled vehicles require a separate recorded document. If Borrower defaults, Lender may use the rights the law gives a secured lender.
+
+{{/if}}5. COSTS
+If Borrower defaults, Borrower pays Lender's reasonable costs of collection, including attorney's fees actually incurred, to the extent the law allows. Those costs are added to the balance and are due when Lender asks for them. Borrower waives presentment for payment, notice of non-payment, protest and notice of protest.
+
+6. GENERAL
+This agreement binds and benefits the parties' heirs, executors, successors and permitted assigns. It is the whole agreement of the parties and may be changed only in writing signed by Lender and Borrower. Notices must be in writing and sent to the parties' addresses in this agreement or to a new address given in writing. If a term cannot be enforced, a court may narrow it as far as needed and the rest stays in force. Headings are for convenience only, and the singular includes the plural. This agreement may be signed in counterparts, including electronically, and is governed by the laws of the State of {{state}}.
+
+LENDER: {{lender}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+{{#list borrowers}}BORROWER: {{name}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+{{/list}}{{#if notary}}[page break]
+NOTARY ACKNOWLEDGMENT — LENDER
+State of Maryland, County of ______________
+On ______________, before me, the undersigned notary public, personally appeared {{lender}}, known to me or satisfactorily proven to be the person who signed this agreement, and acknowledged that they signed it voluntarily for the purposes stated in it.
+Notary public signature and seal: ______________________________
+Printed name: ______________________________
+My commission expires: ______________
+
+[page break]
+NOTARY ACKNOWLEDGMENT — BORROWER
+State of Maryland, County of ______________
+On ______________, before me, the undersigned notary public, personally appeared the borrower or borrowers who signed this agreement, known to me or satisfactorily proven to be the persons who signed it, and acknowledged that they signed it voluntarily for the purposes stated in it.
+Notary public signature and seal: ______________________________
+Printed name: ______________________________
+My commission expires: ______________{{/if}}`,
+  },
+  {
+    key: "letter_of_intent", title: "Letter of Intent to Buy a Business", category: BUSINESS,
+    description: "A short, non-binding letter that records the basic terms before a purchase agreement is written — the business, the assets, the price, the target closing date and what each side expects.",
+    reviewNote: "A letter of intent is meant to be non-binding on the sale itself: only the purchase agreement, once signed, binds the parties. Two optional parts, confidentiality and an exclusive negotiating period, DO bind the parties if you choose them — an attorney should confirm the wording. The price and terms here are expectations; the purchase agreement can change them. Licenses (tobacco, lottery, alcohol, health) do not transfer to a buyer and the buyer applies in its own name; Maryland's bulk-transfer notices and the landlord's consent to a lease assignment should be planned early. Improved using a LawDepot-style sample.",
+    steps: [
+      { title: "Parties and business", questions: [text("purchaser", "Purchaser (buyer)", { required: true }), text("purchaserAddress", "Purchaser's address"), text("seller", "Seller", { required: true }), text("sellerAddress", "Seller's address"), yesno("sellerCompany", "The Seller is a company (corporation or LLC)"), text("businessName", "Business name", { required: true }), text("businessAddress", "Business address", { required: true }), text("businessKind", "What the business does", { required: true, placeholder: "e.g. Tobacco store" }), effective(), state()] },
+      { title: "The deal", questions: [
+        area("assets", "Assets to be sold", { required: true, placeholder: "e.g. Equipment and fixtures, inventory, goodwill and the business name, telephone numbers" }),
+        money("price", "Proposed price", { required: true }), date("closingDate", "Target closing date", { required: true }), money("deposit", "Deposit the Purchaser expects to pay when the purchase agreement is signed (optional)"),
+        pick("inventory", "Inventory (stock)", [["included", "Included in the price"], ["atcost", "Counted on closing day and paid for separately at cost"]], { required: true, default: "atcost" }),
+        yesno("leaseTransfer", "The Purchaser will take over the Seller's lease of the premises", { default: true }), text("landlord", "Landlord", { showIf: { id: "leaseTransfer", equals: true } }),
+        area("licenses", "Licenses and permits the Purchaser will apply for in its own name", { placeholder: "e.g. Tobacco license, lottery agent, health permit, sales tax registration" }),
+        yesno("nonCompete", "The Seller will agree not to open a competing business nearby", { default: true }), num("noCompeteYears", "For how many years", { showIf: { id: "nonCompete", equals: true }, default: "3", required: true }), num("noCompeteMiles", "Within how many miles", { showIf: { id: "nonCompete", equals: true }, default: "3", required: true }),
+      ] },
+      { title: "Binding parts and expiry", questions: [
+        yesno("confidential", "Both sides must keep the talks confidential (this part is binding)", { default: true }),
+        yesno("exclusive", "The Seller will not negotiate the sale with anyone else for a set time (this part is binding)", { default: false }), num("exclusiveDays", "Number of days", { showIf: { id: "exclusive", equals: true }, default: "30", required: true }),
+        date("expiresOn", "This letter expires if no purchase agreement is signed by (optional)"),
+      ] },
+    ],
+    body: `LETTER OF INTENT
+
+Date: {{effectiveDate}}
+
+This letter of intent is between {{purchaser}}{{#if purchaserAddress}}, {{purchaserAddress}},{{/if}} ("Purchaser") and {{seller}}{{#if sellerAddress}}, {{sellerAddress}},{{/if}} ("Seller").
+
+1. BACKGROUND
+The Seller {{#if sellerCompany}}is a company that {{/if}}carries on the business of {{businessKind}} under the name {{businessName}} at {{businessAddress}} (the "Business"). The Seller owns and wishes to sell certain assets of the Business (the "Assets") to the Purchaser, and the Purchaser wishes to buy them. This letter sets out the basic terms the parties expect to use in a future business purchase agreement. The terms are not complete; others may be added, and these may be changed or dropped.
+
+2. NOT A BINDING AGREEMENT
+Except for the sections marked as binding, this letter does not create a binding agreement and cannot be enforced. Only the future purchase agreement, once signed by both parties, will bind them, and its terms replace the terms of this letter. {{#if exclusive}}Subject to the exclusive negotiating period below, the{{else}}The{{/if}} parties are not prevented from negotiating with other people about the same subject.
+
+3. THE ASSETS
+The Assets are: {{assets}}. The sale will not include cash, bank accounts, accounts receivable, tax refunds, lottery funds or the Seller's personal items. This will be a sale of assets only: the Seller's own company, tax identification numbers and registrations stay with the Seller.
+
+4. PRICE AND CLOSING
+The Purchaser expects to pay {{price}} for the Assets{{#if deposit}}, including a deposit of {{deposit}} paid when the purchase agreement is signed{{/if}}, with closing on or about {{closingDate}}. {{#if inventory=included}}Inventory on hand at closing would be included in the price.{{else}}Inventory on hand would be counted on closing day and paid for separately at cost.{{/if}}
+
+5. EXPECTED TERMS
+The parties expect the purchase agreement to include the Seller's usual statements, including that at closing the Assets are free of liens, claims and rights of others, except those paid off from the price at closing, and that the Purchaser may decline to close if the Seller's statements are not true on the closing date.{{#if leaseTransfer}} The sale would depend on the landlord{{#if landlord}}, {{landlord}},{{/if}} consenting in writing to assign the lease to the Purchaser.{{/if}} The Purchaser will apply, in its own name, for the licenses and permits it needs to run the Business{{#if licenses}}, including: {{licenses}}{{/if}}. The parties will follow Maryland's bulk-transfer notice rules and any tax holdback they require.{{#if nonCompete}} The Seller would agree not to run or work for a competing business within {{noCompeteMiles|mile}} of the Business for {{noCompeteYears|year}} after closing.{{/if}}
+
+{{#if confidential}}6. CONFIDENTIALITY (BINDING)
+Each party will keep confidential the existence and terms of this letter and everything it learns about the other party or the Business during the talks that is not public, will use it only to evaluate and carry out the proposed sale, and may share it only with its advisers who need it and agree to the same duty. If no sale happens, each party returns or destroys the other's papers on request.
+
+{{/if}}{{#if exclusive}}7. EXCLUSIVE NEGOTIATING PERIOD (BINDING)
+For {{exclusiveDays|day}} after both parties sign this letter, the Seller will not offer the Business or the Assets for sale to anyone else, negotiate their sale with anyone else, or accept another offer for them.
+
+{{/if}}8. GENERAL
+This letter is governed by the laws of the State of {{state}}. {{#if expiresOn}}This letter ends on {{expiresOn}} if the parties have not signed a purchase agreement by then. {{/if}}It may be signed in counterparts, including electronically. Each person who signs for a company states that he or she is authorized to do so.
+
+PURCHASER: {{purchaser}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+SELLER: {{seller}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
+  },
+  {
+    key: "sales_agreement", title: "Sales Agreement (Goods)", category: BUSINESS,
+    description: "A seller sells goods — equipment, stock, vehicles or other items — to a buyer: price and tax, payment, delivery, risk of loss, warranties, title, inspection, claims and remedies.",
+    reviewNote: "This is for selling goods between businesses or private parties. If the buyer is a consumer buying for personal, family or household use, Maryland law does not allow most 'as is' disclaimers of the implied warranties (Commercial Law §2-316.1), so do not rely on the 'as is' option for a consumer sale — confirm with an attorney. A vehicle, boat or other titled item needs its own signed title transfer. For selling a whole business use the Sale of a Business Agreement. Sales tax: Maryland generally taxes sales of goods; the buyer pays it unless it has a valid exemption certificate. Written under the Maryland Uniform Commercial Code (Commercial Law Title 2) and checked against a LawDepot-style sample; its clause that limits the buyer's only remedy to the price and its one-sided cancellation right are options here.",
+    steps: [
+      { title: "Parties and goods", questions: [text("seller", "Seller", { required: true }), text("sellerAddress", "Seller's address", { required: true }), text("buyer", "Buyer", { prefill: "clientName", required: true }), text("buyerAddress", "Buyer's address", { prefill: "clientAddress", required: true }), area("goods", "The goods being sold", { required: true, placeholder: "e.g. Two refrigerated display coolers, serial numbers ..., and one cash register" }), effective(), state()] },
+      { title: "Price, payment and delivery", questions: [
+        money("price", "Price", { required: true }),
+        pick("tax", "Sales tax", [["buyer", "The Buyer pays any sales tax on top of the price"], ["included", "The price already includes sales tax"], ["exempt", "The Buyer gives a valid exemption certificate — no tax is charged"]], { required: true, default: "buyer" }),
+        pick("payment", "Payment", [["delivery", "All at delivery"], ["advance", "All before delivery"], ["deposit", "A deposit now and the rest at delivery"]], { required: true, default: "delivery" }), money("deposit", "Deposit", { showIf: { id: "payment", equals: "deposit" }, required: true }),
+        pick("delivery", "Delivery", [["pickup", "The Buyer picks the goods up"], ["seller", "The Seller delivers the goods"], ["carrier", "The Seller ships the goods by carrier"]], { required: true, default: "pickup" }), text("deliveryPlace", "Place of pickup or delivery", { required: true }), date("deliveryDate", "Delivery date (optional)"),
+        pick("freight", "Shipping cost", [["buyer", "The Buyer pays shipping"], ["seller", "The Seller pays shipping"]], { showIf: { id: "delivery", equals: "carrier" }, default: "buyer" }),
+      ] },
+      { title: "Warranties and risk", questions: [
+        pick("warranty", "Condition of the goods", [["asis", "Sold 'as is' — no promise about condition"], ["described", "The Seller promises the goods match this description and belong to the Seller free of liens"]], { required: true, default: "described" }),
+        pick("title", "When ownership passes to the Buyer", [["delivery", "On delivery"], ["payment", "When the Buyer has paid in full"]], { required: true, default: "delivery" }),
+        yesno("securityInterest", "The Seller keeps a security interest in the goods until paid in full", { default: false }),
+        num("claimDays", "Days after delivery to report a problem", { default: "10", required: true }),
+        yesno("limitRemedy", "The Buyer's only remedy for a defect is a refund of the price (plus shipping paid)", { default: false }),
+        area("extraClauses", "Any additional terms (optional)"),
+      ] },
+    ],
+    body: `SALES AGREEMENT
+
+This agreement is made on {{effectiveDate}} between {{seller}}, {{sellerAddress}} ("Seller") and {{buyer}}, {{buyerAddress}} ("Buyer").
+
+1. THE GOODS
+The Seller sells and the Buyer buys the following (the "Goods"): {{goods}}.
+
+2. PRICE AND TAX
+The price is {{price}}. {{#if tax=buyer}}The Buyer also pays any sales, use, excise or similar tax on the sale, unless it gives the Seller a tax exemption certificate acceptable to the taxing authority.{{/if}}{{#if tax=included}}The price includes sales tax. If the Buyer gives the Seller a valid tax exemption certificate, the tax is taken off the price.{{/if}}{{#if tax=exempt}}The Buyer has given, or will give before delivery, a valid tax exemption certificate acceptable to the taxing authority, and no sales tax is charged. If the certificate is not accepted, the Buyer pays the tax.{{/if}}
+
+3. PAYMENT
+{{#if payment=delivery}}The Buyer pays the full price when it receives the Goods, or when the Seller hands over any title document or signed bill of sale for them, whichever is first.{{/if}}{{#if payment=advance}}The Buyer pays the full price before delivery, and the Seller delivers once it has been paid.{{/if}}{{#if payment=deposit}}The Buyer pays a deposit of {{deposit}} when this agreement is signed and the rest of the price when it receives the Goods, or when the Seller hands over any title document or signed bill of sale, whichever is first.{{/if}}
+
+4. DELIVERY
+{{#if delivery=pickup}}The Buyer will pick up the Goods at {{deliveryPlace}}{{#if deliveryDate}} on {{deliveryDate}}{{/if}}, and the Goods are received by the Buyer when they are loaded.{{/if}}{{#if delivery=seller}}The Seller will deliver the Goods to {{deliveryPlace}}{{#if deliveryDate}} on {{deliveryDate}}{{/if}}, and the Goods are received by the Buyer when they are delivered there.{{/if}}{{#if delivery=carrier}}The Seller will ship the Goods by carrier to {{deliveryPlace}}{{#if deliveryDate}} to arrive by {{deliveryDate}}{{/if}}, and the Goods are received by the Buyer when they are delivered there. {{#if freight=seller}}The Seller pays the shipping cost.{{else}}The Buyer pays the shipping cost.{{/if}}{{/if}}
+
+5. RISK OF LOSS AND INSURANCE
+The risk of loss of or damage to the Goods passes to the Buyer {{#if delivery=carrier}}when the Seller hands them to the carrier{{else}}when the Buyer receives them{{/if}}. Until the price is paid in full the Buyer, at its own cost, keeps the Goods insured for the benefit of both parties from the time the risk passes.
+
+6. CONDITION AND WARRANTY
+{{#if warranty=asis}}THE GOODS ARE SOLD "AS IS". THE SELLER MAKES NO WARRANTY, EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTY OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE. This does not affect any manufacturer's warranty that passes with the Goods. The Buyer has had the chance to inspect the Goods or have them inspected and accepts them in their present condition.{{else}}The Seller promises that the Goods match the description in this agreement, that the Seller owns them, and that they are free of liens and claims of others. The Seller makes no other warranty beyond the manufacturer's warranty, if any, that passes with the Goods, and the Buyer has relied on its own inspection and not on any statement about how the Goods will perform.{{/if}}
+
+7. TITLE
+{{#if title=delivery}}Ownership of the Goods passes to the Buyer on delivery.{{else}}Ownership of the Goods passes to the Buyer when the Buyer has paid the full price.{{/if}} The Seller will give the Buyer any document of title or signed bill of sale needed to show the transfer.{{#if securityInterest}} The Seller keeps a security interest in the Goods until the price is paid in full and may file the papers the law requires to protect it.{{/if}}
+
+8. INSPECTION AND CLAIMS
+The Buyer inspects the Goods when they are delivered. If the Buyer does not tell the Seller in writing about a problem, with details, within {{claimDays|day}} after delivery, the Buyer is treated as having accepted the Goods, except for defects that could not have been found by a reasonable inspection. A refund does not include the cost of delivery, installation or removal, which the Buyer bears.
+
+9. DELAY AND FAILURE TO DELIVER
+The Seller is not liable for delay or failure to deliver caused by events outside its control, such as labor disputes, shortages of transport or material, fire or accident. If delivery is prevented for more than one month after the date of this agreement, the Seller may end this agreement by written notice with a full refund of everything the Buyer has paid. In every other case, if the Seller does not deliver on time, the Buyer may give written notice, and if the failure is not fixed within 7 days after the notice is received, the Buyer may end this agreement and receive a full refund.
+
+10. REMEDIES AND CANCELLATION
+{{#if limitRemedy}}The Buyer's only remedy for defective Goods or any other cause of loss is a refund of the price of the Goods concerned, plus any shipping charges the Buyer actually paid, to the extent the law allows. {{/if}}The Seller may cancel this agreement if the Buyer does not pay when due or becomes insolvent or bankrupt, and in that case the Seller keeps any deposit only to the extent of its actual loss.
+
+{{#if extraClauses}}11. ADDITIONAL TERMS
+{{extraClauses}}
+
+{{/if}}12. GENERAL
+This agreement is the parties' whole agreement and may be changed only in writing signed by both. The Buyer may not assign it without the Seller's written consent. It binds the parties' heirs, successors and permitted assigns, and is governed by the laws of the State of {{state}}, including the Maryland Uniform Commercial Code; the courts of that State may settle any dispute. Notices must be in writing and delivered by hand or sent by registered or certified mail to the addresses above; mailed notice is treated as received on the third business day after mailing. Time is of the essence. If a term cannot be enforced, the rest stays in force. The Buyer states that it has relied on its own inspection and not on any promise not written here. This agreement may be signed in counterparts, including electronically.
+
+SELLER: {{seller}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+BUYER: {{buyer}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
+  },
+  {
+    key: "termination_agreement", title: "Contract Termination Agreement", category: LENDING,
+    description: "Two parties agree to end a contract they signed — when it ends, what is still owed or returned, a mutual release and what continues. For a lease use the Lease Termination Agreement.",
+    reviewNote: "A mutual release gives up claims, so make sure everything that is owed is settled first and no claim that you want to keep is covered. This agreement ends only the contract named in it; it does not cancel a government license, a lease with a third party or a registration — those need their own steps. If someone else guaranteed the contract, the guarantor should sign too. For ending a home or store lease use the Lease Termination Agreement, and for cancelling a sale use the Termination of Purchase Agreement. Improved using a LawDepot-style sample.",
+    steps: [
+      { title: "Parties and contract", questions: [text("partyA", "First party", { required: true }), text("partyAAddress", "First party's address"), text("partyB", "Second party", { required: true }), text("partyBAddress", "Second party's address"), text("contract", "The contract being ended", { required: true, placeholder: "e.g. The agreement to lease 1500 N Washington St, Baltimore MD 21213" }), date("contractDate", "Date of that contract", { required: true }), text("reason", "Reason (optional)"), effective(), state()] },
+      { title: "How it ends", questions: [
+        pick("endsOn", "The contract ends", [["signing", "When both parties sign this agreement"], ["date", "On a date set here"]], { required: true, default: "signing" }), date("endDate", "End date", { showIf: { id: "endsOn", equals: "date" }, required: true }),
+        pick("money", "Money and property", [["none", "Nothing more is owed by either party"], ["payment", "One party makes a settlement payment"]], { required: true, default: "none" }),
+        text("payer", "Who pays", { showIf: { id: "money", equals: "payment" }, required: true }), money("amount", "Amount", { showIf: { id: "money", equals: "payment" }, required: true }), date("payBy", "Pay by", { showIf: { id: "money", equals: "payment" }, required: true }),
+        area("returnItems", "Property, keys, papers or equipment to be returned (optional)", { placeholder: "e.g. Keys, signs and equipment returned by June 30" }),
+        yesno("release", "Each party releases the other from claims about the contract", { default: true }),
+        text("survives", "Duties that continue after the contract ends (optional)", { placeholder: "e.g. Confidentiality and the non-competition promise" }),
+        yesno("confidential", "Keep the terms of this agreement confidential", { default: true }),
+      ] },
+    ],
+    body: `CONTRACT TERMINATION AGREEMENT
+
+Date: {{effectiveDate}}
+
+This agreement is between {{partyA}}{{#if partyAAddress}}, {{partyAAddress}},{{/if}} and {{partyB}}{{#if partyBAddress}}, {{partyBAddress}},{{/if}} (together the "Parties").
+
+1. BACKGROUND
+The Parties are bound by the following contract (the "Contract") dated {{contractDate}}: {{contract}}. The Parties wish to end the Contract and settle what each owes the other under it{{#if reason}}, because {{reason}}{{/if}}.
+
+2. TERMINATION
+The Parties end and cancel the Contract {{#if endsOn=date}}effective {{endDate}}{{else}}effective when both of them have signed this agreement{{/if}}. After that date neither Party has any further duty under the Contract, except as this agreement says.
+
+3. MONEY AND PROPERTY
+{{#if money=none}}The Parties agree that everything each has given and received under the Contract is fair and settles the matter, and that no further money or other payment is owed by either of them under the Contract.{{else}}{{payer}} will pay {{amount}} on or before {{payBy}} as full settlement of everything owed under the Contract. Apart from that payment, no further money is owed by either Party under the Contract.{{/if}}{{#if returnItems}} Property and papers to be returned: {{returnItems}}{{/if}}
+
+{{#if release}}4. RELEASE
+Each Party releases the other, and its heirs, successors and assigns, from all claims, demands and liabilities, known or unknown, that it had in the past, has now or may later have arising out of the Contract, except for the duties in this agreement and any claim based on fraud or on a payment that this agreement requires.
+
+{{/if}}{{#if survives}}5. DUTIES THAT CONTINUE
+These duties continue after the Contract ends: {{survives}}.
+
+{{/if}}{{#if confidential}}6. CONFIDENTIALITY
+The Parties will keep the terms of this agreement and of the Contract, and any financial or business information about each other that is not already public, confidential, except where the law requires disclosure or a Party needs to tell its advisers, lenders or tax authorities.
+
+{{/if}}7. GENERAL
+This is the Parties' whole agreement on its subject and may be changed only in writing signed by both. It binds their heirs, successors and permitted assigns and is governed by the laws of the State of {{state}}, whose courts may settle any dispute about it. Notices must be in writing and are treated as delivered when handed over or seven days after being mailed with postage paid to the address above. If a term cannot be enforced, the rest stays in force. This agreement may be signed in counterparts, including electronically. Each person who signs for a company states that he or she is authorized to do so.
+
+{{partyA}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+{{partyB}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
+  },
+  {
+    key: "termination_of_purchase", title: "Termination of Purchase Agreement", category: BUSINESS,
+    description: "A seller and a buyer cancel a sale they agreed to — a bill of sale or purchase agreement — and settle the refund, the return of what was handed over and a mutual release.",
+    reviewNote: "A cancellation should say what happens to the money and the property, which the simple form often leaves out — fill in the refund and return sections. Undo anything that was done for the sale: a lease assignment, a license or registration application, a bulk-transfer notice to creditors or the Comptroller, a vehicle title transfer or a lien filing. If any money is kept, state why. A mutual release gives up claims — an attorney should confirm it is right for this sale. For ending other contracts use the Contract Termination Agreement. Improved using a LawDepot-style sample.",
+    steps: [
+      { title: "The sale being cancelled", questions: [text("seller", "Seller", { required: true }), text("sellerAddress", "Seller's address"), text("buyer", "Buyer", { required: true }), text("buyerAddress", "Buyer's address"), text("agreementName", "Document being cancelled", { required: true, default: "Bill of Sale", placeholder: "e.g. Bill of Sale, Purchase Agreement" }), date("agreementDate", "Date of that document", { required: true }), area("itemSold", "What was to be sold", { required: true, placeholder: "e.g. The equipment, inventory and goodwill of the store at 604 Frenchtown Rd" }), text("reason", "Reason for cancelling (optional)", { placeholder: "e.g. The Buyer could not obtain the landlord's consent to the lease" }), effective(), state()] },
+      { title: "Money and property", questions: [
+        pick("money", "Money already paid", [["refund", "The Seller refunds what the Buyer paid"], ["keep", "The Seller keeps part or all of what was paid"], ["none", "Nothing was paid"]], { required: true, default: "refund" }),
+        money("paidAmount", "Amount the Buyer paid (leave empty if nothing was paid)"), money("refundAmount", "Amount refunded", { showIf: { id: "money", equals: "refund" }, required: true }), date("refundBy", "Refund paid by", { showIf: { id: "money", equals: "refund" }, required: true }),
+        money("keepAmount", "Amount the Seller keeps", { showIf: { id: "money", equals: "keep" }, required: true }), text("keepReason", "Why the Seller keeps it", { showIf: { id: "money", equals: "keep" }, required: true }),
+        yesno("handedOver", "The Buyer received keys, goods or papers that must be returned"), area("returnItems", "What is returned", { showIf: { id: "handedOver", equals: true }, required: true }), date("returnBy", "Returned by", { showIf: { id: "handedOver", equals: true }, required: true }),
+        area("undoSteps", "Anything else that must be undone (optional)", { placeholder: "e.g. The Buyer withdraws its license applications; the Seller cancels the lease assignment request" }),
+        yesno("confidential", "Keep the terms of this agreement confidential", { default: true }),
+      ] },
+    ],
+    body: `TERMINATION OF PURCHASE AGREEMENT
+
+Date: {{effectiveDate}}
+
+This agreement is between {{seller}}{{#if sellerAddress}}, {{sellerAddress}},{{/if}} ("Seller") and {{buyer}}{{#if buyerAddress}}, {{buyerAddress}},{{/if}} ("Buyer"), together the "Parties".
+
+1. BACKGROUND
+The Seller and the Buyer signed a {{agreementName}} dated {{agreementDate}} (the "Agreement") under which the Seller agreed to sell and the Buyer agreed to buy: {{itemSold}}. The Parties now wish to cancel the Agreement{{#if reason}} because {{reason}}{{/if}}.
+
+2. TERMINATION
+The Parties terminate and cancel the Agreement effective when both of them have signed this document. Neither Party has any further duty under the Agreement except as this document says, and nothing has been or will be transferred under it.
+
+3. MONEY
+{{#if money=refund}}{{#if paidAmount}}The Buyer paid the Seller {{paidAmount}} under the Agreement. {{/if}}The Seller will refund {{refundAmount}} to the Buyer on or before {{refundBy}}, by check or bank transfer.{{/if}}{{#if money=keep}}{{#if paidAmount}}The Buyer paid the Seller {{paidAmount}} under the Agreement. {{/if}}The Seller keeps {{keepAmount}} because {{keepReason}}{{#if paidAmount}}, and promptly refunds any balance of what the Buyer paid{{/if}}.{{/if}}{{#if money=none}}The Buyer has paid the Seller nothing under the Agreement, and no payment is owed by either Party.{{/if}} Apart from this section, no further money is owed by either Party under the Agreement.
+
+{{#if handedOver}}4. RETURN OF PROPERTY
+The Buyer will return the following to the Seller on or before {{returnBy}}, in the condition in which it was received, normal wear excepted: {{returnItems}}. The Seller will give back any document the Buyer signed for the sale.
+
+{{/if}}{{#if undoSteps}}5. UNDOING THE SALE
+Each Party will do what is needed to undo the steps taken for the sale, and will tell any agency, landlord or creditor that was told of it, as the law requires: {{undoSteps}}
+
+{{/if}}6. RELEASE
+Each Party releases the other, and its heirs, successors and assigns, from all claims, demands and liabilities, known or unknown, that it had in the past, has now or may later have arising out of the Agreement, except for the duties in this document.
+
+{{#if confidential}}7. CONFIDENTIALITY
+The Parties will keep the terms of this document and of the Agreement, and any financial or business information about each other that is not already public, confidential, except where the law requires disclosure or a Party needs to tell its advisers or tax authorities.
+
+{{/if}}8. GENERAL
+This is the Parties' whole agreement on its subject and may be changed only in writing signed by both. It binds their heirs, successors and permitted assigns and is governed by the laws of the State of {{state}}, whose courts may settle any dispute about it. If a term cannot be enforced, the rest stays in force. This document may be signed in counterparts, including electronically. Each person who signs for a company states that he or she is authorized to do so.
+
+SELLER: {{seller}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+BUYER: {{buyer}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
+  },
   /* ─────────────── Batch 7: powers, sales and transfers ─────────────── */
   {
     key: "general_poa", title: "Power of Attorney", category: FAMILY,
