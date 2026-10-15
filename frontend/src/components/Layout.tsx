@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, type ComponentType } from "react";
+import { PageNote } from "./PageNote";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
@@ -466,6 +467,7 @@ export function Layout() {
               — so every sticky element anywhere in the app, not just table headers,
               was silently broken by this one inline style. */}
           <main id="main-content" tabIndex={-1} className={showLanguageToggle ? "has-bottom-tabs" : ""} style={{ flex: 1, padding: "24px 32px", minWidth: 0 }}>
+            {(user?.role === "admin" || user?.role === "staff") && <PageNote pageTitle={displayTitle} />}
             <Outlet />
           </main>
           {showPanel && <ClientContextPanel />}

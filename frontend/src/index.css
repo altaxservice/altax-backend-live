@@ -2012,3 +2012,47 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 .sb-snapnote { margin: 0; font-size: 12.5px; }
 .sb-copy { justify-self: start; font-size: 12.5px; font-weight: 700; }
 .sb-summary { display: flex; flex-wrap: wrap; gap: 6px 28px; align-items: baseline; margin-top: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-size: 14px; } .sb-summary .big { font-size: 20px; }
+
+/* ---- Page Note: a note pinned to the page you are on (components/PageNote.tsx) ---- */
+.pnote { margin: 0 0 16px; border: 1px solid var(--line); border-left-width: 6px; border-radius: 12px; background: var(--paper); box-shadow: var(--shadow); padding: 12px 16px; animation: pnoteIn .32s ease-out; }
+.pnote.tone-info { border-color: #93b4e8; background: var(--blue-soft); }
+.pnote.tone-important { border-color: #e3b341; background: var(--amber-soft); }
+.pnote.tone-critical { border-color: #e08074; background: var(--red-soft); }
+@keyframes pnoteIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .pnote { animation: none; } }
+.pnote-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.pnote-eyebrow-row { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+.pnote-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.pnote-head-actions { display: flex; align-items: center; gap: 12px; }
+.pnote-item { padding: 8px 0 10px; border-top: 1px solid rgba(0,0,0,.09); }
+.pnote-item:first-of-type { border-top: 0; }
+.pnote-item.is-hidden { opacity: .72; }
+.pnote-item-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; margin-bottom: 4px; }
+.pnote-chip { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.08); color: var(--ink); }
+.pnote-chip.tone-critical { background: var(--red); color: #fff; }
+.pnote-chip.tone-important { background: var(--amber); color: #fff; }
+.pnote-chip.new { background: var(--ink); color: #fff; }
+.pnote-chip.muted { background: rgba(0,0,0,.06); color: var(--muted); }
+.pnote-body { font-size: 14px; line-height: 1.5; color: var(--ink); }
+.pnote-body p { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pnote-gap { height: 6px; }
+.pnote-check { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0; cursor: pointer; }
+.pnote-check input { margin-top: 4px; }
+.pnote-check.done span { text-decoration: line-through; color: var(--muted); }
+.pnote-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.pnote-item-actions { display: inline-flex; gap: 12px; margin-left: auto; }
+.pnote-link { background: none; border: 0; padding: 2px 0; font: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-decoration: underline; text-underline-offset: 2px; }
+.pnote-link.danger { color: var(--red); }
+.pnote-slim { display: flex; align-items: center; gap: 12px; padding: 8px 14px; }
+.pnote-slim-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 4px 0; font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+.pnote-preview { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pnote-empty { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 14px; margin: -4px 0 8px; }
+.pnote-empty .pnote-link { font-weight: 600; color: var(--muted); }
+.pnote-hiddenlist, .pnote-hiddenwrap { flex-basis: 100%; }
+.pnote-hiddenwrap { margin-top: 8px; border-top: 1px solid rgba(0,0,0,.09); padding-top: 6px; }
+.pnote-edit { margin-top: 10px; padding: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+.pnote-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.pnote-tabonly { display: flex; gap: 8px; align-items: center; font-size: 13px; margin-top: 8px; }
+.pnote-actions { display: flex; gap: 8px; margin-top: 10px; }
+html:not([data-skin="classic"]) .pnote { border-radius: 4px; }
+@media print { .pnote, .pnote-empty { display: none; } }
