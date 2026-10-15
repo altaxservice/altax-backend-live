@@ -35,7 +35,7 @@ const only = new Set((process.env.ONLY || "").split(",").filter(Boolean));
         if (q.type === "list") { tg[q.id] = [1, 2].map(() => { const r: Record<string, any> = {}; for (const f of q.fields || []) fill(f, r); return r; }); return; }
         if (q.type === "yesno") tg[q.id] = Boolean(q.default);
         else if (q.type === "select") tg[q.id] = q.default !== undefined ? String(q.default) : q.options![0].value;
-        else if (q.type === "date") { if (/^(contractDate|agreementDate|leaseDate|masterLeaseDate|formationDate)$/.test(q.id)) tg[q.id] = day(-400); else { d += 30; tg[q.id] = day(d); } }
+        else if (q.type === "date") { if (q.id === "masterLeaseEnd") tg[q.id] = day(3000); else if (/^(contractDate|agreementDate|leaseDate|masterLeaseDate|formationDate)$/.test(q.id)) tg[q.id] = day(-400); else { d += 30; tg[q.id] = day(d); } }
         else if (q.type === "money") tg[q.id] = /nsf|returnFee|late/i.test(q.id) ? "25" : "1000";
         else if (q.type === "number") tg[q.id] = q.id === "before" ? "100" : /percent|share/i.test(q.id) ? "50" : /rate|interest/i.test(q.id) ? "0.5" : "5";
         else tg[q.id] = q.type === "textarea" ? "Sample details for this document." : "Sample text";

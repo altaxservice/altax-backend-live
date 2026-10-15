@@ -70,3 +70,12 @@ test("real documents: the checks that matter fire on bad input and stay quiet on
   assert.equal(problemsFor("client_privacy_notice", { noAffiliates: false }).length, 1);
   assert.deepEqual(problemsFor("client_privacy_notice", { noAffiliates: true }), []);
 });
+
+test("sublease documents: a home cannot go in the commercial sublease, and a lease cannot outlast the master lease", async () => {
+  const { problemsFor } = await import("../modules/docBuilder/checks");
+  assert.equal(problemsFor("commercial_sublease", { residential: true }).length, 1);
+  assert.deepEqual(problemsFor("commercial_sublease", { residential: false }), []);
+  assert.equal(problemsFor("lease_residential", { masterLeaseEnd: "2027-01-01", endDate: "2027-10-31" }).length, 1);
+  assert.deepEqual(problemsFor("lease_residential", { masterLeaseEnd: "2031-10-31", endDate: "2027-10-31" }), []);
+  assert.deepEqual(problemsFor("lease_residential", { endDate: "2027-10-31" }), []);
+});

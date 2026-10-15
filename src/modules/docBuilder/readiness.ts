@@ -637,14 +637,16 @@ export const READINESS: Record<string, Readiness> = {
       "Subsidized or Section 8 housing, or a city or county with rent rules or a license you have not checked",
       "Home built before 1978 where lead hazards are known, or a child under 6 lives there",
       "The tenant already has a lawyer, or there is a dispute, eviction or unpaid-rent claim",
-      "Home partly used as a shop or office (mixed use)"
+      "Home partly used as a shop or office (mixed use)",
+      "A sublease: the landlord is itself a tenant and the owner has not signed the consent page, or the master lease does not allow residential use"
     ],
     "checklist": [
       "Current Maryland Tenants' Bill of Rights is uploaded in settings (new edition each October 1) and prints with the lease",
       "Hand the tenant the State mold pamphlet at signing",
       "Pre-1978 answer is correct; MDE lead papers given and the inspection certificate number and date written in",
       "Deposit is no more than one month's rent and the signed deposit receipt goes to the tenant",
-      "Rental license number, landlord phone and all tenant names are filled in"
+      "Rental license number, landlord phone and all tenant names are filled in",
+      "If it is a sublease: sublease switch on, master lease read, owner's consent page signed before move-in"
     ]
   },
   "lease_commercial": {
@@ -688,14 +690,17 @@ export const READINESS: Record<string, Readiness> = {
       "The master lease bans subletting or the landlord will not sign the consent page",
       "The master lease is in default, or ends within a few months",
       "The sublease runs to the last day of the master lease with renewals, or past 7 years",
-      "A personal guarantee or a large deposit is part of the deal"
+      "A personal guarantee or a large deposit is part of the deal",
+      "The space includes an apartment or other home (use the Residential Lease form with the sublease switch instead)",
+      "The master lease has a confession-of-judgment clause, a purchase option or a landlord lien on the tenant's property"
     ],
     "checklist": [
       "Read the master lease; copy attached to the sublease",
       "Landlord signed the consent page BEFORE the subtenant moves in",
       "Sublease end date is on or before the master lease end date (enter that date)",
       "Rent, who is paid and utilities match the master lease",
-      "Subtenant holds its own licenses (a sublease does not transfer them)"
+      "Subtenant holds its own licenses (a sublease does not transfer them)",
+      "Liability insurance amount is at least what the master lease requires; if the master lease names two tenants, both are entered and both sign"
     ]
   },
   "lease_amendment": {
