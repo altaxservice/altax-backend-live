@@ -221,6 +221,14 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     otherOfficerName: "", otherOfficerAddress: "",
   });
   const [directors, setDirectors] = useState<DirectorOrTrustee[]>([{ ...EMPTY_DIRECTOR }]);
+
+  // Maryland Comptroller final-return notices (MW506FR withholding, 202FR sales and use tax) — both forms ask the same questions,
+  // so they share one state and the form type only picks which official PDF is filled.
+  const [mdFinal, setMdFinal] = useState({
+    ein: "", craNumber: "", dateDiscontinued: "", businessName: "", street: "", city: "", state: "MD", zip: "", zip4: "",
+    purchaser: "", dateSold: "", personCompleting: "", phone: "", email: "",
+  });
+  const [mdFinalSold, setMdFinalSold] = useState(false);
   function addDirector() {
     setDirectors((prev) => (prev.length >= 4 ? prev : [...prev, { ...EMPTY_DIRECTOR }]));
   }
@@ -241,6 +249,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     cra: typeof cra; f8822b: typeof f8822b; f8832: typeof f8832;
     mdAmendLlc: typeof mdAmendLlc; mdAmendCorp: typeof mdAmendCorp;
     mdDissolution: typeof mdDissolution; directors: DirectorOrTrustee[];
+    mdFinal?: typeof mdFinal; mdFinalSold?: boolean;
   }>(draftFormKey);
 
   function restoreDraft() {
@@ -259,6 +268,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     setMdAmendCorp(d.mdAmendCorp);
     setMdDissolution(d.mdDissolution);
     setDirectors(d.directors);
+    if (d.mdFinal) { setMdFinal((f) => ({ ...f, ...d.mdFinal })); setMdFinalSold(Boolean(d.mdFinalSold)); }
     dismissPendingDraft();
   }
 
@@ -268,10 +278,10 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   // draft this effect exists to protect, before the user ever saw it.
   useEffect(() => {
     if (!draftChecked || pendingDraft) return;
-    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors });
+    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors, mdFinal, mdFinalSold });
     hasSavedDraftRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors]);
+  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors, mdFinal, mdFinalSold]);
 
   useEffect(() => {
     Promise.all([
@@ -301,6 +311,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           if (editingFiling.form_type === "8832") setF8832((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "MD_AMEND_LLC") setMdAmendLlc((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "MD_AMEND_CORP") setMdAmendCorp((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "MW506FR" || editingFiling.form_type === "SUT202FR") { setMdFinal((f) => ({ ...f, ...d })); setMdFinalSold(Boolean(d.purchaser || d.dateSold)); }
           if (editingFiling.form_type === "MD_DISSOLUTION") {
             // form_data stores officers as a nested { president?, treasurer?, secretary?, other? }
             // object (see mdDissolution.ts's MdDissolutionData) — this modal's own state keeps
@@ -406,6 +417,17 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           street: res.client.street_address || "",
           cityStateZip: [res.client.city, [res.client.state, res.client.zip_code].filter(Boolean).join(" ")].filter(Boolean).join(", "),
         }));
+        // The ZIP on file may be 5 digits or ZIP+4 ("21224-1234"); the form has separate boxes. Only what the record already holds is
+        // filled — the closing date, purchaser and sale date are facts of this particular closing, so they stay blank.
+        const zipDigits = String(res.client.zip_code || "").replace(/\D/g, "");
+        setMdFinal((f) => ({
+          ...f,
+          ein: String(res.client.ein || "").replace(/\D/g, ""), craNumber: String(res.client.cra_registration_number || "").replace(/\D/g, ""),
+          businessName: res.client.client_name, street: res.client.street_address || "", city: res.client.city || "",
+          state: res.client.state || "MD", zip: zipDigits.slice(0, 5), zip4: zipDigits.slice(5, 9),
+          personCompleting: res.client.company_contact_name || "", phone: res.client.company_contact_phone || res.client.phone || "",
+          email: res.client.company_contact_email || res.client.email || "",
+        }));
         setMdAmendLlc((f) => ({ ...f, llcName: res.client.client_name }));
         // "Return address of filing party" (6) is this firm's own address, not
         // the client's — SDAT mails the stamped/approved copy back to whoever
@@ -461,6 +483,14 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
         return null;
       }
       return { ...f8822b };
+    }
+    if (formType === "MW506FR" || formType === "SUT202FR") {
+      if (!mdFinal.businessName.trim()) { setSaveError("Employer / business name is required."); return null; }
+      if (!mdFinal.dateDiscontinued) { setSaveError("Enter the date the business was permanently discontinued or sold."); return null; }
+      if (mdFinal.ein.replace(/\D/g, "") && mdFinal.ein.replace(/\D/g, "").length !== 9) { setSaveError("The Federal Employer Identification Number must be 9 digits."); return null; }
+      if (mdFinal.craNumber.replace(/\D/g, "") && mdFinal.craNumber.replace(/\D/g, "").length !== 8) { setSaveError("The Maryland Central Registration Number must be 8 digits."); return null; }
+      if (mdFinalSold && !mdFinal.purchaser.trim()) { setSaveError("Enter the purchaser's name and address, or untick \"The business was sold\"."); return null; }
+      return { ...mdFinal, purchaser: mdFinalSold ? mdFinal.purchaser : "", dateSold: mdFinalSold ? mdFinal.dateSold : "" };
     }
     if (formType === "8832") {
       if (!f8832.legalName.trim()) { setSaveError("Name of the eligible entity is required."); return null; }
@@ -1521,6 +1551,88 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 <div className="field">
                   <label htmlFor="gf-mddis-agent-consent">Resident agent's consent — full name &amp; title of person signing <span className="muted">(only if the resident agent is itself an MD LLC or corporation, not an individual)</span></label>
                   <input id="gf-mddis-agent-consent" value={mdDissolution.residentAgentConsentSignerName} onChange={(e) => setMdDissolution({ ...mdDissolution, residentAgentConsentSignerName: e.target.value })} />
+                </div>
+              </div>
+            )}
+
+            {(formType === "MW506FR" || formType === "SUT202FR") && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  {formType === "MW506FR"
+                    ? "Tells the Maryland Comptroller that this employer has permanently stopped paying wages or has sold the business. Send it with the final employer withholding return (MW506 or MW506M), or mail it separately if that return is filed electronically."
+                    : "Tells the Maryland Comptroller that this business has permanently stopped making taxable sales or has sold. Send it with the final sales and use tax return, or mail it separately if that return is filed electronically."}
+                  {" "}The signature line is signed by hand and is not filled in by this app.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-ein">Federal EIN <span className="muted">(line 1 — 9 digits)</span></label>
+                    <input id="gf-mdfr-ein" autoComplete="off" data-no-suggest inputMode="numeric" value={mdFinal.ein} onChange={(e) => setMdFinal({ ...mdFinal, ein: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-cra">Central Registration Number <span className="muted">(line 2 — 8 digits)</span></label>
+                    <input id="gf-mdfr-cra" autoComplete="off" data-no-suggest inputMode="numeric" value={mdFinal.craNumber} onChange={(e) => setMdFinal({ ...mdFinal, craNumber: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdfr-discontinued">Date permanently discontinued <span className="muted">(line 3 — the last day of business; if sold, the sale date)</span></label>
+                  <DateInput id="gf-mdfr-discontinued" value={mdFinal.dateDiscontinued} onChange={(e) => setMdFinal({ ...mdFinal, dateDiscontinued: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdfr-name">{formType === "MW506FR" ? "Employer name" : "Name"} <span className="muted">(line 4)</span></label>
+                  <input id="gf-mdfr-name" value={mdFinal.businessName} onChange={(e) => setMdFinal({ ...mdFinal, businessName: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdfr-street">Street address <span className="muted">(line 5)</span></label>
+                  <input id="gf-mdfr-street" value={mdFinal.street} onChange={(e) => setMdFinal({ ...mdFinal, street: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-city">City</label>
+                    <input id="gf-mdfr-city" value={mdFinal.city} onChange={(e) => setMdFinal({ ...mdFinal, city: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-state">State</label>
+                    <input id="gf-mdfr-state" maxLength={2} value={mdFinal.state} onChange={(e) => setMdFinal({ ...mdFinal, state: e.target.value.toUpperCase() })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-zip">ZIP</label>
+                    <input id="gf-mdfr-zip" inputMode="numeric" maxLength={5} value={mdFinal.zip} onChange={(e) => setMdFinal({ ...mdFinal, zip: e.target.value.replace(/\D/g, "") })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-zip4">+4 <span className="muted">(optional)</span></label>
+                    <input id="gf-mdfr-zip4" inputMode="numeric" maxLength={4} value={mdFinal.zip4} onChange={(e) => setMdFinal({ ...mdFinal, zip4: e.target.value.replace(/\D/g, "") })} />
+                  </div>
+                </div>
+
+                <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0 6px", fontSize: 13 }}>
+                  <input type="checkbox" checked={mdFinalSold} onChange={(e) => setMdFinalSold(e.target.checked)} /> The business was sold <span className="muted">(lines 6 and 7)</span>
+                </label>
+                {mdFinalSold && (
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label htmlFor="gf-mdfr-purchaser">Purchaser's name and address <span className="muted">(line 6 — up to 3 lines)</span></label>
+                      <textarea id="gf-mdfr-purchaser" rows={3} value={mdFinal.purchaser} onChange={(e) => setMdFinal({ ...mdFinal, purchaser: e.target.value })} placeholder={"Buyer name\nStreet address\nCity, State ZIP"} />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label htmlFor="gf-mdfr-sold">Date sold <span className="muted">(line 7)</span></label>
+                      <DateInput id="gf-mdfr-sold" value={mdFinal.dateSold} onChange={(e) => setMdFinal({ ...mdFinal, dateSold: e.target.value })} />
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-person">Person completing this form <span className="muted">(line 8)</span></label>
+                    <input id="gf-mdfr-person" value={mdFinal.personCompleting} onChange={(e) => setMdFinal({ ...mdFinal, personCompleting: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdfr-phone">Telephone <span className="muted">(line 9)</span></label>
+                    <input id="gf-mdfr-phone" inputMode="tel" value={mdFinal.phone} onChange={(e) => setMdFinal({ ...mdFinal, phone: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdfr-email">Email address <span className="muted">(line 10)</span></label>
+                  <input id="gf-mdfr-email" type="email" value={mdFinal.email} onChange={(e) => setMdFinal({ ...mdFinal, email: e.target.value })} />
                 </div>
               </div>
             )}

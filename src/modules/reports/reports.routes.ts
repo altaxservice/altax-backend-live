@@ -540,6 +540,7 @@ const VALUE_REPORT_GOV_FORM_LABELS: Record<string, string> = {
   SS4: "IRS Form SS-4 (EIN Application)", "2553": "IRS Form 2553 (S-Corp Election)", W9: "IRS Form W-9",
   "8832": "IRS Form 8832 (Entity Classification)", W4: "IRS Form W-4", CRA: "MD Form CRA (Combined Registration)",
   "8822B": "IRS Form 8822-B (Change of Address)",
+  MW506FR: "MD Form MW506FR (Withholding Final Return)", SUT202FR: "MD Form 202FR (Sales Tax Final Return)",
 };
 const VALUE_REPORT_POA_FORM_LABELS: Record<string, string> = {
   "2848": "IRS Form 2848 (Power of Attorney)", "8821": "IRS Form 8821 (Tax Information Authorization)", "548": "MD Form 548 (Power of Attorney)",

@@ -69,6 +69,8 @@ const FORM_LABELS: Record<string, string> = {
   MD_AMEND_LLC: "Maryland Articles of Amendment — Limited Liability Company",
   MD_AMEND_CORP: "Maryland Articles of Amendment — Corporation",
   MD_DISSOLUTION: "Maryland Articles of Dissolution",
+  MW506FR: "Maryland Form MW506FR — Employer Withholding Final Return Notice",
+  SUT202FR: "Maryland Form 202FR — Sales and Use Tax Final Return Notice",
 };
 
 /**
@@ -150,6 +152,12 @@ function validateGovFormRequiredFields(formType: string, formData: any): string 
     if (!s(formData.corpName)) return "Corporation name is required.";
     if (!s(formData.amendmentText)) return "The amendment text is required.";
     if (!s(formData.approvalMethod)) return "Select how this amendment was approved.";
+  } else if (formType === "MW506FR" || formType === "SUT202FR") {
+    if (!s(formData.businessName)) return "Employer / business name is required.";
+    if (!s(formData.dateDiscontinued)) return "Enter the date the business was permanently discontinued or sold.";
+    if (s(formData.ein) && String(formData.ein).replace(/\D/g, "").length !== 9) return "The Federal Employer Identification Number must be 9 digits.";
+    if (s(formData.craNumber) && String(formData.craNumber).replace(/\D/g, "").length !== 8) return "The Maryland Central Registration Number must be 8 digits.";
+    if (s(formData.dateSold) && !s(formData.purchaser)) return "Enter the purchaser's name and address, or clear the date sold.";
   } else if (formType === "MD_DISSOLUTION") {
     if (!s(formData.corpName)) return "Corporation name is required.";
     if (!s(formData.principalOfficeAddress)) return "Principal office address is required.";
