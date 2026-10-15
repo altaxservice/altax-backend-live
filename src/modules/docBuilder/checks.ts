@@ -14,6 +14,8 @@ export type Check =
   | { type: "sumLte"; ids: string[]; other: string; message: string; when?: Cond }
   | { type: "dateNotBefore"; later: string; earlier: string; message: string; when?: Cond }
   | { type: "max"; id: string; value: number; message: string; when?: Cond }
+  | { type: "min"; id: string; value: number; message: string; when?: Cond }
+  | { type: "mustEqual"; id: string; value: string | boolean; message: string; when?: Cond }
   | { type: "sumFieldsEquals"; ids: string[]; other: string; message: string; when?: Cond };
 
 const num = (v: unknown): number | null => {
@@ -41,6 +43,11 @@ export function runChecks(checks: Check[], answers: Answers): string[] {
     } else if (c.type === "max") {
       const a = num(answers[c.id]);
       if (a !== null && a > c.value + 1e-9) out.push(c.message);
+    } else if (c.type === "min") {
+      const a = num(answers[c.id]);
+      if (a !== null && a < c.value - 1e-9) out.push(c.message);
+    } else if (c.type === "mustEqual") {
+      if (String(answers[c.id] ?? "") !== String(c.value)) out.push(c.message);
     } else if (c.type === "sumFieldsEquals") {
       const b = num(answers[c.other]);
       // the first amount must be filled in; later ones may be left blank (counted as 0)
@@ -69,18 +76,18 @@ const GENERAL_SUBJECTS = ["sReal", "sPersonal", "sStocks", "sBanks", "sInsurance
 /** Checks per document key. Every id here must be a question of that document (a test verifies it). */
 export const CHECKS: Record<string, Check[]> = {
   ach_authorization: [{ type: "max", id: "returnFee", value: 35, message: "A fee for a returned debit may not be more than $35." }, after("endDate", "startDate", ENDS, { id: "billing", equals: "monthly" })],
-  ein_closure_letter: [],
+  ein_closure_letter: [{ type: "mustEqual", id: "returnsFiled", value: "yes", message: "The IRS will not close the account until every required return is filed and every tax is paid — finish those first, then send this letter." }],
   fee_agreement: [{ type: "max", id: "lateFeePercent", value: 0.67, message: "Interest above 8% a year (0.67% a month) is not allowed here — Maryland limits interest on a written agreement to 8% (Commercial Law §12-103)." }],
   engagement_letter: [after("endDate", "effectiveDate", "The end date must be after the date of the letter.", { id: "term", equals: "fixed" })],
   authorization_release: [after("expires", "effectiveDate", "The expiry date must be after the date of the authorization.", { id: "duration", equals: "date" })],
   document_request_letter: [after("dueDate", "effectiveDate", "The due date must be after the date of the letter.")],
   demand_letter: [after("deadline", "effectiveDate", "The pay-by date must be after the date of the letter.")],
   payment_agreement: [lte("installment", "total", "An installment cannot be larger than the total owed."), lte("down", "total", "The payment made today cannot be larger than the total owed."), lte("lateFeeAmount", "installment", "A late fee cannot be more than 5% of an installment.", 0.05, { id: "lateFee", equals: true }), { type: "atLeastOne", ids: ["notTimeBarred"], message: "A personal debt older than three years cannot go on a payment plan — confirm it is not time-barred first.", when: { id: "consumerDebt", equals: true } }],
-  offer_letter: [after("replyBy", "effectiveDate", "The reply-by date must be after the date of the letter."), notBefore("startDate", "effectiveDate", "The start date should not be before the date of the letter.")],
+  offer_letter: [{ type: "min", id: "rate", value: 15, message: "Hourly pay cannot be below Maryland's $15.00 minimum wage (some counties require more).", when: { id: "payType", equals: "hourly" } }, after("replyBy", "effectiveDate", "The reply-by date must be after the date of the letter."), notBefore("startDate", "effectiveDate", "The start date should not be before the date of the letter.")],
   contractor_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true })],
   employment_termination_letter: [notBefore("finalPayDate", "lastDay", "The final pay date cannot be before the last day of work.")],
   employment_verification_letter: [after("endDate", "startDate", "The employment end date must be after the start date.", { id: "current", equals: false })],
-  employment_contract: [notBefore("startDate", "effectiveDate", "The start date should not be before the date of the agreement.")],
+  employment_contract: [{ type: "min", id: "rate", value: 15, message: "Hourly pay cannot be below Maryland's $15.00 minimum wage (some counties require more).", when: { id: "payType", equals: "hourly" } }, notBefore("startDate", "effectiveDate", "The start date should not be before the date of the agreement.")],
   resignation_letter: [notBefore("lastDay", "effectiveDate", "The last day of work cannot be before the date of the letter.")],
   general_poa: [
     after("endDate", "effectiveDate", "The end date must be after the date of the power of attorney."),
@@ -100,16 +107,16 @@ export const CHECKS: Record<string, Check[]> = {
   shareholder_loan_agreement: [after("repayBy", "effectiveDate", "The repayment date must be after the date of the agreement.", { id: "schedule", equals: "date" }), after("firstPayment", "effectiveDate", "The first payment must be after the date of the agreement.", { id: "schedule", equals: "monthly" })],
   service_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true }), { type: "max", id: "lateRate", value: 0.66, message: "Late interest above 0.66% a month (8% a year) is not allowed here — Commercial Law §12-103(a)." }],
   consulting_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true }), { type: "max", id: "lateRate", value: 0.66, message: "Late interest above 0.66% a month (8% a year) is not allowed here — Commercial Law §12-103(a)." }],
-  lease_residential: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, 
+  lease_residential: [{ type: "min", id: "entryHours", value: 24, message: "A landlord must give at least 24 hours' written notice before entering a home (Real Property Article §8-221)." }, { type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, 
     lte("deposit", "rent", "A security deposit for a home may not be more than one month's rent (Real Property Article §8-203)."),
     lte("lateFeeAmount", "rent", "A late fee for a home may not be more than 5% of the monthly rent (Real Property Article §8-208).", 0.05, { id: "lateFee", equals: true }),
     after("endDate", "startDate", ENDS, { id: "termType", equals: "fixed" }),
   ],
   lease_commercial: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
   commercial_lease_short: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
-  commercial_sublease: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
+  commercial_sublease: [notBefore("masterLeaseEnd", "endDate", "The sublease cannot end after the master lease ends."), { type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
   lease_termination_agreement: [notBefore("endDate", "leaseDate", "The lease cannot end before the date of the original lease.")],
-  lease_amendment: [after("newEnd", "leaseDate", "The new end date must be after the date of the original lease.", { id: "extend", equals: true }), notBefore("rentFrom", "leaseDate", "The new rent cannot start before the date of the original lease.", { id: "rentChange", equals: true })],
+  lease_amendment: [{ type: "atLeastOne", ids: ["extend", "rentChange", "depositChange", "useChange", "other"], message: "Fill in at least one change — an amendment with no change does nothing." }, after("newEnd", "leaseDate", "The new end date must be after the date of the original lease.", { id: "extend", equals: true }), notBefore("rentFrom", "leaseDate", "The new rent cannot start before the date of the original lease.", { id: "rentChange", equals: true })],
   llc_operating_agreement: [{ type: "sumEquals", list: "members", field: "percent", total: 100, message: "The members' ownership percentages must total 100" }],
   partnership_agreement: [{ type: "sumEquals", list: "partners", field: "share", total: 100, message: "The partners' profit and loss shares must total 100" }],
   profit_sharing_agreement: [{ type: "sumEquals", list: "owners", field: "percent", total: 100, message: "The owners' profit shares must total 100" }],
@@ -117,6 +124,7 @@ export const CHECKS: Record<string, Check[]> = {
   ownership_transfer: [lte("percent", "before", "The percentage transferred cannot be more than the Transferor owned before the transfer.")],
   business_sale_agreement: [
     notBefore("closingDate", "effectiveDate", "The closing date cannot be before the date of the agreement."),
+    { type: "sumLte", ids: ["deposit", "financedAmount"], other: "price", message: "The deposit plus the amount paid later cannot be more than the price.", when: { id: "payment", equals: "financed" } },
     notBefore("transitionEnd", "closingDate", "The service-account transition cannot end before the closing date.", { id: "transition", equals: true }),
     lte("deposit", "price", "The deposit cannot be more than the price."),
     lte("taxHoldback", "price", "The tax holdback cannot be more than the price."),

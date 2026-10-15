@@ -14,6 +14,7 @@ import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
 import { canAccessDoc } from "./access";
 import { problemsFor } from "./checks";
+import { READINESS } from "./readiness";
 import { appendStandardAttachments, attachmentStatuses, inspectPdf, specFor } from "./standardAttachments";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { registerSigningRoutes } from "./esign";
@@ -41,7 +42,7 @@ const EXISTING_TOOLS = [
   { title: "Health permit (HACCP) plans", description: "Food-safety plan documents for health permit applications.", path: "/haccp", hint: "Health Permits" },
 ];
 
-function summary(t: DocTemplate) { return { key: t.key, title: t.title, titleAr: t.titleAr || null, category: t.category, description: t.description, reviewNote: t.reviewNote || null, steps: t.steps.length, hasArabic: hasArabic(t) }; }
+function summary(t: DocTemplate) { return { key: t.key, title: t.title, titleAr: t.titleAr || null, category: t.category, description: t.description, reviewNote: t.reviewNote || null, steps: t.steps.length, hasArabic: hasArabic(t), readiness: READINESS[t.key] || null }; }
 
 docBuilderRouter.get("/templates", asyncHandler(async (_req: AuthedRequest, res: Response) => {
   res.json({ templates: DOC_TEMPLATES.map(summary), categories: Array.from(new Set(DOC_TEMPLATES.map((t) => t.category))), existingTools: EXISTING_TOOLS });
@@ -119,8 +120,8 @@ function prep(req: AuthedRequest, res: Response): { t: DocTemplate; answers: Ans
 }
 
 docBuilderRouter.post("/preview", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const p = prep(req, res); if (!p) return;
-  res.json({ body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), missing: missingAnswers(p.t, p.answers), problems: problemsFor(p.t.key, p.answers) });
+  const p = prep(req, res); if (!p) return; const firmName = (await getFirmProfile()).firmName;
+  res.json({ body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName }), missing: missingAnswers(p.t, p.answers), problems: problemsFor(p.t.key, p.answers) });
 }));
 
 /** Official PDFs kept once and appended to the PDF of certain documents (e.g. the Maryland Tenants' Bill of Rights on a lease). Anyone on staff can see them; only an admin replaces one. */
@@ -156,11 +157,11 @@ docBuilderRouter.post("/attachments/:key", requireRole("admin"), asyncHandler(as
 
 /** A PDF of the document as it stands, without saving anything — for printing or checking. */
 docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const p = prep(req, res); if (!p) return;
+  const p = prep(req, res); if (!p) return; const firmName = (await getFirmProfile()).firmName;
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return;
   const bytes = await generateContractPdf({
-    contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang, { placeholders: true }),
+    contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName }),
     effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null, legal: true, bodySize: p.t.pdfFontSize,
   });
   res.setHeader("Content-Type", "application/pdf");
@@ -170,19 +171,19 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
 
 /** A printable page (HTML, same layout as the PDF/Word file) of the document as it stands — Arabic and bilingual documents print through the browser. */
 docBuilderRouter.post("/html", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const p = prep(req, res); if (!p) return;
+  const p = prep(req, res); if (!p) return; const firmName = (await getFirmProfile()).firmName;
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(renderDocumentHtml({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), autoPrint: Boolean(req.body?.print) }));
+  res.send(renderDocumentHtml({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName }), autoPrint: Boolean(req.body?.print) }));
 }));
 
 /** A Word (.docx) copy of the document as it stands, without saving anything. */
 docBuilderRouter.post("/docx", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const p = prep(req, res); if (!p) return;
+  const p = prep(req, res); if (!p) return; const firmName = (await getFirmProfile()).firmName;
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return;
-  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), footerNote: "Draft" });
+  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName }), footerNote: "Draft" });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   res.setHeader("Content-Disposition", `attachment; filename="${p.t.key}.docx"`);
   res.send(buf);
@@ -199,7 +200,7 @@ docBuilderRouter.post("/create", asyncHandler(async (req: AuthedRequest, res: Re
   if (missing.length) return res.status(400).json({ error: `Please fill in: ${missing.slice(0, 6).join("; ")}${missing.length > 6 ? "…" : ""}`, missing });
   const problems = problemsFor(p.t.key, p.answers);
   if (problems.length) return res.status(400).json({ error: `Please fix: ${problems.slice(0, 4).join(" ")}`, problems });
-  const body = renderDocument(p.t, p.answers, p.lang);
+  const body = renderDocument(p.t, p.answers, p.lang, { firmName: (await getFirmProfile()).firmName });
   const effective = /^\d{4}-\d{2}-\d{2}$/.test(String(p.answers.effectiveDate || "")) ? String(p.answers.effectiveDate) : null;
   const title = String(req.body?.title || "").trim().slice(0, 200) || docTitle(p.t, p.lang);
 

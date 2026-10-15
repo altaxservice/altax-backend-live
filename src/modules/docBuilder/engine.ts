@@ -143,6 +143,28 @@ export function allQuestions(t: DocTemplate): Question[] { return t.steps.flatMa
 const HEADING_EN = /^\d+\.\s+[A-Z][A-Z0-9 &,'\/()-]+$/;
 const HEADING_AR = /^\d+\.\s+[؀-ۿ][؀-ۿ0-9 ،'\/()-]+$/;
 
+/**
+ * Documents that are legal instruments between other people (as opposed to the firm's own letters and forms). They can carry a closing line
+ * saying they were prepared from a standard form, that the firm is not a law firm and that this is not legal advice. Maryland defines
+ * "practice law" as giving legal advice (and, among other things, preparing an instrument that affects title to real estate) and bars
+ * anyone not admitted to the Bar from practicing or offering to practice it (Business Occupations and Professions §10-101(h), §10-601), so
+ * the line makes clear what the firm is and is not doing. It is on by default and the preparer can switch it off on the last step.
+ */
+export const INSTRUMENT_KEYS = new Set([
+  "llc_operating_agreement", "partnership_agreement", "profit_sharing_agreement", "single_member_llc_agreement", "corporate_resolution", "annual_meeting_minutes",
+  "ownership_transfer", "personal_guaranty", "non_compete", "business_bill_of_sale", "business_sale_agreement", "letter_of_intent", "sales_agreement",
+  "termination_of_purchase", "termination_agreement", "property_sale_residential", "property_sale_commercial", "lease_residential", "lease_commercial",
+  "commercial_lease_short", "commercial_sublease", "lease_amendment", "lease_termination_agreement", "promissory_note", "loan_agreement", "shareholder_loan_agreement",
+  "nda_mutual", "contractor_agreement", "employment_contract", "service_agreement", "consulting_agreement", "general_poa", "business_poa", "affidavit_general",
+  "child_travel_consent", "payment_agreement", "ach_authorization",
+]);
+
+function preparedNotice(firm: string, lang: "en" | "ar"): string {
+  return lang === "ar"
+    ? `أعدّت ${firm} هذه الوثيقة من نموذج قياسي. وليست ${firm} مكتب محاماة، ولا تُعد هذه الوثيقة مشورة قانونية. وينبغي لكل طرف أن يعرضها على محاميه الخاص قبل التوقيع إذا كان الأمر كبيرًا أو غير واضح.`
+    : `Prepared by ${firm} from a standard form. ${firm} is not a law firm and this document is not legal advice. Each party should have its own attorney review it before signing if the matter is large or uncertain.`;
+}
+
 /** One notary acknowledgment per signer (from the same list the signing screen suggests), each starting on its own page after the first. */
 function notaryPages(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders: boolean): string {
   const county = String(answers.notaryCounty || "").trim();
@@ -167,22 +189,23 @@ My commission expires: ______________`);
   return `[page break]\n${lang === "ar" ? "إقرار أمام كاتب العدل" : "NOTARY ACKNOWLEDGMENT"}\n\n${blocks.join("\n\n")}`;
 }
 
-function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false): string {
+function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false, firmName = ""): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
   const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang, placeholders });
   // Section headings ("1. PROMISE TO PAY") are renumbered in order, so a section that is switched off never leaves a gap.
   const heading = lang === "ar" ? HEADING_AR : HEADING_EN;
   let sec = 0;
   const out = text.split("\n").map((l) => l.replace(/[ \t]+$/g, "")).map((l) => (heading.test(l) ? l.replace(/^\d+/, String(++sec)) : l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  return answers.notaryAck === true ? `${out}\n\n${notaryPages(t, answers, lang, placeholders)}` : out;
+  const withNotary = answers.notaryAck === true ? `${out}\n\n${notaryPages(t, answers, lang, placeholders)}` : out;
+  return firmName && INSTRUMENT_KEYS.has(t.key) && answers.preparedNotice !== false ? `${withNotary}\n\n${preparedNotice(firmName, lang)}` : withNotary;
 }
 
 /** Renders the document with the answers: English, Arabic, or both (English first, then its Arabic edition). */
-export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang = "en", opts: { placeholders?: boolean } = {}): string {
-  const ph = Boolean(opts.placeholders);
-  if (lang === "ar" && hasArabic(t)) return renderOne(t, answers, "ar", ph);
-  if (lang === "both" && hasArabic(t)) return `${renderOne(t, answers, "en", ph)}\n\n\n${renderOne(t, answers, "ar", ph)}`;
-  return renderOne(t, answers, "en", ph);
+export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang = "en", opts: { placeholders?: boolean; firmName?: string } = {}): string {
+  const ph = Boolean(opts.placeholders); const fn = String(opts.firmName || "").trim();
+  if (lang === "ar" && hasArabic(t)) return renderOne(t, answers, "ar", ph, fn);
+  if (lang === "both" && hasArabic(t)) return `${renderOne(t, answers, "en", ph, fn)}\n\n\n${renderOne(t, answers, "ar", ph, fn)}`;
+  return renderOne(t, answers, "en", ph, fn);
 }
 
 export function docTitle(t: DocTemplate, lang: DocLang): string {
@@ -214,7 +237,7 @@ export function cleanAnswers(t: DocTemplate, raw: unknown): Answers {
     const out: Answers = {};
     for (const q of qs) {
       const v = from[q.id];
-      if (q.type === "yesno") out[q.id] = Boolean(v);
+      if (q.type === "yesno") out[q.id] = v === undefined ? Boolean(q.default) : Boolean(v);
       else if (q.type === "list") out[q.id] = (Array.isArray(v) ? v : []).slice(0, 25).map((row) => clean(q.fields || [], (row && typeof row === "object" ? row : {}) as Answers));
       else out[q.id] = String(v ?? "").slice(0, q.type === "textarea" ? 6000 : 500);
     }

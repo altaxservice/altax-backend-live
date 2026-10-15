@@ -18,7 +18,9 @@ interface Question {
   fields?: Question[]; addLabel?: string; minItems?: number;
 }
 interface Step { title: string; description?: string; questions: Question[] }
-interface TemplateSummary { key: string; title: string; titleAr?: string | null; category: string; description: string; reviewNote: string | null; steps: number; hasArabic?: boolean }
+interface Readiness { level: "READY" | "CARE" | "LAWYER"; why: string; triggers: string[]; checklist: string[] }
+const READINESS_LABEL: Record<Readiness["level"], { text: string; color: string }> = { READY: { text: "Ready to use", color: "var(--green)" }, CARE: { text: "Use with care", color: "#b7791f" }, LAWYER: { text: "Lawyer review advised for big matters", color: "var(--red)" } };
+interface TemplateSummary { key: string; title: string; titleAr?: string | null; category: string; description: string; reviewNote: string | null; steps: number; hasArabic?: boolean; readiness?: Readiness | null }
 type Lang = "en" | "ar" | "both";
 interface TemplateFull extends TemplateSummary { stepList: Step[] }
 interface ExistingTool { title: string; description: string; path: string; hint: string }
@@ -205,7 +207,21 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
         </div>
       )}
       {tab === "new" && <div className="command-panel">
-        <div className="command-panel-header"><div><h2 className="command-panel-title">Create a document</h2><div className="command-panel-note">Pick a document, answer a few questions, and it is written for you — then save it to the client, send it to sign, or print it.</div></div></div>
+        <div className="command-panel-header"><div><h2 className="command-panel-title">Create a document</h2><div className="command-panel-note">Pick a document, answer a few questions, and it is written for you — then save it to the client, send it to sign, or print it.</div></div>
+        <details style={{ margin: "0 16px 10px", padding: "10px 12px", border: "1px solid var(--line, #d7dde5)", borderRadius: 8 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 800 }}>Using these documents safely — read once</summary>
+          <div style={{ display: "grid", gap: 8, marginTop: 8, fontSize: 13.5 }}>
+            <p style={{ margin: 0 }}>These documents were written from Maryland and federal law and checked against the statute and regulation text, in English and Arabic. They are careful drafts, <b>not a lawyer's work</b>, and the firm is not a law firm. The coloured label on each card says how far you can rely on it: <b style={{ color: "var(--green)" }}>Ready to use</b>, <b style={{ color: "#b7791f" }}>Use with care</b> (follow its short checklist), or <b style={{ color: "var(--red)" }}>Lawyer review advised</b> for big or contested matters.</p>
+            <p style={{ margin: 0 }}><b>Maryland reserves legal practice to lawyers.</b> "Practice law" includes giving legal advice and preparing an instrument that affects title to real estate or a document filed in court (Business Occupations and Professions §10-101(h), §10-601). So:</p>
+            <ul style={{ margin: "0 0 0 18px", padding: 0, display: "grid", gap: 4 }}>
+              <li>Use the firm's own letters, fee and engagement agreements and the forms that go to the IRS or the State freely.</li>
+              <li>For a client's contracts, hand them over as <b>standard forms the client completes and decides</b>. Do not advise which legal terms to pick or what a clause means for them; send that question to the client's own lawyer.</li>
+              <li>Keep the closing line "prepared from a standard form — not legal advice" switched on (last step).</li>
+              <li>Do not prepare deeds, anything for a court case, or a document that sells or transfers real estate for a client — a lawyer or title company does those.</li>
+              <li>Read the "Check before the client signs" box on the last step every time, and never use a document for a matter its box says needs a lawyer.</li>
+            </ul>
+          </div>
+        </details></div>
         <div style={{ padding: "12px 16px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", borderBottom: "1px solid var(--line)" }}>
           <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 360 }}>
             <Search size={14} aria-hidden="true" style={{ position: "absolute", left: 10, top: 11, opacity: 0.5 }} />
@@ -223,6 +239,7 @@ function Library({ onPick }: { onPick: (key: string) => void }) {
                   <button key={t.key} type="button" className="card" onClick={() => onPick(t.key)} style={{ textAlign: "left", padding: "12px 14px", cursor: "pointer", font: "inherit", color: "inherit", display: "grid", gap: 6 }}>
                     <span style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 800 }}><FileText size={16} aria-hidden="true" />{t.title}</span>
                     <span className="muted" style={{ fontSize: 12.5 }}>{t.description}</span>
+                    {t.readiness && <span style={{ fontSize: 11.5, fontWeight: 800, color: READINESS_LABEL[t.readiness.level].color }}>● {READINESS_LABEL[t.readiness.level].text}</span>}
                     <span style={{ fontSize: 12, color: "var(--teal)", fontWeight: 700 }}>{t.steps + 1} steps{t.hasArabic ? " · English / العربية" : ""} · Start →</span>
                   </button>
                 ))}
@@ -472,6 +489,14 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
             {step > 0 && step < last && q.questions.map((qq) => <Field key={qq.id} q={qq} value={answers[qq.id]} answers={answers} onChange={(v) => set(qq.id, v)} />)}
             {step === last && (
               <div style={{ display: "grid", gap: 10 }}>
+                {tpl.readiness && (
+                  <div className="card" style={{ padding: "10px 12px", display: "grid", gap: 6, borderLeft: `4px solid ${READINESS_LABEL[tpl.readiness.level].color}` }}>
+                    <b style={{ color: READINESS_LABEL[tpl.readiness.level].color }}>● {READINESS_LABEL[tpl.readiness.level].text}</b>
+                    <span style={{ fontSize: 13 }}>{tpl.readiness.why}</span>
+                    {tpl.readiness.checklist.length > 0 && <div style={{ fontSize: 13 }}><b>Check before the client signs:</b><ul style={{ margin: "2px 0 0 18px", padding: 0 }}>{tpl.readiness.checklist.map((c) => <li key={c}>{c}</li>)}</ul></div>}
+                    {tpl.readiness.triggers.length > 0 && <div style={{ fontSize: 13 }}><b>Get a lawyer's review first if:</b><ul style={{ margin: "2px 0 0 18px", padding: 0 }}>{tpl.readiness.triggers.map((c) => <li key={c}>{c}</li>)}</ul></div>}
+                  </div>
+                )}
                 {tpl.reviewNote && <div className="tender-warn">{tpl.reviewNote}</div>}
                 {attachments.filter((a) => a.templates.includes(tpl.key)).map((a) => a.uploaded && !a.expired
                   ? <div key={a.key} className="muted" style={{ fontSize: 12.5 }}><Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: "var(--green)" }} /> The {a.title} ({a.editionLabel || a.fileName}, {a.pages} pages) is added to the end of the PDF automatically. The Word file and the browser print page do not include it — attach it by hand there.</div>

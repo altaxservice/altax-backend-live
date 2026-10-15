@@ -31,7 +31,7 @@ const SPEC: Record<string, Spec[]> = {
   resignation_letter: [{ role: "Employee", nameId: "employee" }],
   service_agreement: [{ role: "Provider", nameId: "provider" }, { role: "Customer", nameId: "customer" }],
   consulting_agreement: [{ role: "Company", nameId: "client" }, { role: "Consultant", nameId: "consultant" }],
-  lease_termination_agreement: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Guarantor", nameId: "guarantor" }],
+  lease_termination_agreement: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Other tenant", nameId: "coTenant" }, { role: "Guarantor", nameId: "guarantor" }],
   workplace_incident_report: [{ role: "Person involved", nameId: "person" }],
   affidavit_general: [{ role: "Affiant", nameId: "affiant" }],
   child_travel_consent: [{ role: "Parent / guardian", nameId: "parent" }, { role: "Second parent / guardian", nameId: "parent2", onlyIf: "secondParent" }],
