@@ -229,6 +229,16 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     purchaser: "", dateSold: "", personCompleting: "", phone: "", email: "",
   });
   const [mdFinalSold, setMdFinalSold] = useState(false);
+
+  // Maryland Unemployment Insurance employer power of attorney (the Division's own form, submitted in BEACON).
+  const [mdUi, setMdUi] = useState({
+    employerUiNumber: "", ein: "", employerName: "", employerAddress: "", employerPhone: "", employerEmail: "",
+    agentNumber: "", agentName: "", agentAddress: "", agentPhone: "", agentEmail: "",
+    wageReports: false, payments: false, accountMaintenance: false, benefitCharges: false, wageSeparation: false, adjudication: false, all: true, revoke: false,
+    commAccountMaintenance: "Email", detailAccountMaintenance: "", commBenefitCharges: "Email", detailBenefitCharges: "", commWageSeparation: "Email", detailWageSeparation: "",
+    commAdjudication: "Email", detailAdjudication: "", commAll: "Email", detailAll: "",
+    signerName: "", signerTitle: "", effectiveDate: "", endDate: "",
+  });
   function addDirector() {
     setDirectors((prev) => (prev.length >= 4 ? prev : [...prev, { ...EMPTY_DIRECTOR }]));
   }
@@ -249,7 +259,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     cra: typeof cra; f8822b: typeof f8822b; f8832: typeof f8832;
     mdAmendLlc: typeof mdAmendLlc; mdAmendCorp: typeof mdAmendCorp;
     mdDissolution: typeof mdDissolution; directors: DirectorOrTrustee[];
-    mdFinal?: typeof mdFinal; mdFinalSold?: boolean;
+    mdFinal?: typeof mdFinal; mdFinalSold?: boolean; mdUi?: typeof mdUi;
   }>(draftFormKey);
 
   function restoreDraft() {
@@ -269,6 +279,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     setMdDissolution(d.mdDissolution);
     setDirectors(d.directors);
     if (d.mdFinal) { setMdFinal((f) => ({ ...f, ...d.mdFinal })); setMdFinalSold(Boolean(d.mdFinalSold)); }
+    if (d.mdUi) setMdUi((f) => ({ ...f, ...d.mdUi }));
     dismissPendingDraft();
   }
 
@@ -278,10 +289,10 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   // draft this effect exists to protect, before the user ever saw it.
   useEffect(() => {
     if (!draftChecked || pendingDraft) return;
-    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors, mdFinal, mdFinalSold });
+    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors, mdFinal, mdFinalSold, mdUi });
     hasSavedDraftRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors, mdFinal, mdFinalSold]);
+  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors, mdFinal, mdFinalSold, mdUi]);
 
   useEffect(() => {
     Promise.all([
@@ -311,6 +322,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           if (editingFiling.form_type === "8832") setF8832((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "MD_AMEND_LLC") setMdAmendLlc((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "MD_AMEND_CORP") setMdAmendCorp((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "MD_UI_POA") setMdUi((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "MW506FR" || editingFiling.form_type === "SUT202FR") { setMdFinal((f) => ({ ...f, ...d })); setMdFinalSold(Boolean(d.purchaser || d.dateSold)); }
           if (editingFiling.form_type === "MD_DISSOLUTION") {
             // form_data stores officers as a nested { president?, treasurer?, secretary?, other? }
@@ -428,6 +440,16 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           personCompleting: res.client.company_contact_name || "", phone: res.client.company_contact_phone || res.client.phone || "",
           email: res.client.company_contact_email || res.client.email || "",
         }));
+        // The employer side comes from the client record; the reporting agent is this firm. The agent's UI agent number and which rows to
+        // authorize are choices for staff — "All of the above" by e-mail is the usual one.
+        setMdUi((f) => ({
+          ...f,
+          employerUiNumber: res.client.md_ui_employer_id || "", ein: res.client.ein || "", employerName: res.client.client_name, employerAddress: addr,
+          employerPhone: res.client.company_contact_phone || res.client.phone || "", employerEmail: res.client.company_contact_email || res.client.email || "",
+          agentName: firm.firmName || "", agentAddress: [firm.street, [firm.city, [firm.state, firm.zipCode].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean).join(", "),
+          agentPhone: firm.phone || "", agentEmail: firm.email || "", detailAll: firm.email || "", detailAccountMaintenance: firm.email || "", detailBenefitCharges: firm.email || "", detailWageSeparation: firm.email || "", detailAdjudication: firm.email || "",
+          signerName: res.client.company_contact_name || "", signerTitle: res.client.company_contact_title || "", effectiveDate: new Date().toISOString().slice(0, 10),
+        }));
         setMdAmendLlc((f) => ({ ...f, llcName: res.client.client_name }));
         // "Return address of filing party" (6) is this firm's own address, not
         // the client's — SDAT mails the stamped/approved copy back to whoever
@@ -483,6 +505,13 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
         return null;
       }
       return { ...f8822b };
+    }
+    if (formType === "MD_UI_POA") {
+      if (!mdUi.employerName.trim()) { setSaveError("Employer name is required."); return null; }
+      if (!mdUi.agentName.trim()) { setSaveError("Reporting agent name is required."); return null; }
+      if (![mdUi.wageReports, mdUi.payments, mdUi.accountMaintenance, mdUi.benefitCharges, mdUi.wageSeparation, mdUi.adjudication, mdUi.all, mdUi.revoke].some(Boolean)) { setSaveError("Check at least one authorization (or Revoke a previous Power of Attorney)."); return null; }
+      if (mdUi.endDate && mdUi.effectiveDate && mdUi.endDate < mdUi.effectiveDate) { setSaveError("The end date cannot be before the effective date."); return null; }
+      return { ...mdUi };
     }
     if (formType === "MW506FR" || formType === "SUT202FR") {
       if (!mdFinal.businessName.trim()) { setSaveError("Employer / business name is required."); return null; }
@@ -1633,6 +1662,61 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 <div className="field">
                   <label htmlFor="gf-mdfr-email">Email address <span className="muted">(line 10)</span></label>
                   <input id="gf-mdfr-email" type="email" value={mdFinal.email} onChange={(e) => setMdFinal({ ...mdFinal, email: e.target.value })} />
+                </div>
+              </div>
+            )}
+
+            {formType === "MD_UI_POA" && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  The Maryland Department of Labor's own form (Division of Unemployment Insurance) that lets a reporting agent act for an employer on its
+                  unemployment-insurance account. The Division wants the completed, signed form submitted in <b>BEACON</b>. The employer's signature is not
+                  filled in by this app.
+                </p>
+                <h4 style={{ margin: "10px 0 4px" }}>Employer</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-num">Maryland UI employer number</label><input id="gf-ui-num" value={mdUi.employerUiNumber} onChange={(e) => setMdUi({ ...mdUi, employerUiNumber: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-ein">Federal EIN</label><input id="gf-ui-ein" autoComplete="off" data-no-suggest value={mdUi.ein} onChange={(e) => setMdUi({ ...mdUi, ein: e.target.value })} /></div>
+                </div>
+                <div className="field"><label htmlFor="gf-ui-ename">Name of employer / taxpayer</label><input id="gf-ui-ename" value={mdUi.employerName} onChange={(e) => setMdUi({ ...mdUi, employerName: e.target.value })} /></div>
+                <div className="field"><label htmlFor="gf-ui-eaddr">Address</label><input id="gf-ui-eaddr" value={mdUi.employerAddress} onChange={(e) => setMdUi({ ...mdUi, employerAddress: e.target.value })} /></div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-ephone">Telephone</label><input id="gf-ui-ephone" inputMode="tel" value={mdUi.employerPhone} onChange={(e) => setMdUi({ ...mdUi, employerPhone: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-eemail">Email</label><input id="gf-ui-eemail" type="email" value={mdUi.employerEmail} onChange={(e) => setMdUi({ ...mdUi, employerEmail: e.target.value })} /></div>
+                </div>
+                <h4 style={{ margin: "14px 0 4px" }}>Reporting agent (this firm)</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-anum">Maryland UI agent number</label><input id="gf-ui-anum" value={mdUi.agentNumber} onChange={(e) => setMdUi({ ...mdUi, agentNumber: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-aname">Name of reporting agent</label><input id="gf-ui-aname" value={mdUi.agentName} onChange={(e) => setMdUi({ ...mdUi, agentName: e.target.value })} /></div>
+                </div>
+                <div className="field"><label htmlFor="gf-ui-aaddr">Address</label><input id="gf-ui-aaddr" value={mdUi.agentAddress} onChange={(e) => setMdUi({ ...mdUi, agentAddress: e.target.value })} /></div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-aphone">Telephone</label><input id="gf-ui-aphone" inputMode="tel" value={mdUi.agentPhone} onChange={(e) => setMdUi({ ...mdUi, agentPhone: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-aemail">Email</label><input id="gf-ui-aemail" type="email" value={mdUi.agentEmail} onChange={(e) => setMdUi({ ...mdUi, agentEmail: e.target.value })} /></div>
+                </div>
+                <h4 style={{ margin: "14px 0 4px" }}>What the agent may do</h4>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, margin: "4px 0" }}><input type="checkbox" checked={mdUi.wageReports} onChange={(e) => setMdUi({ ...mdUi, wageReports: e.target.checked })} /> Submit original and amended wage reports <span className="muted">(correspondence goes to the BEACON inbox)</span></label>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, margin: "4px 0" }}><input type="checkbox" checked={mdUi.payments} onChange={(e) => setMdUi({ ...mdUi, payments: e.target.checked })} /> Submit payments <span className="muted">(BEACON inbox)</span></label>
+                {([
+                  ["accountMaintenance", "Make account maintenance updates", "commAccountMaintenance", "detailAccountMaintenance"],
+                  ["benefitCharges", "Access benefit charges and receive benefit charge statements", "commBenefitCharges", "detailBenefitCharges"],
+                  ["wageSeparation", "Manage wage and separation requests, including the notices", "commWageSeparation", "detailWageSeparation"],
+                  ["adjudication", "File and take part in adjudications and appeal hearings", "commAdjudication", "detailAdjudication"],
+                  ["all", "All of the above", "commAll", "detailAll"],
+                ] as const).map(([key, label, commKey, detailKey]) => (
+                  <div key={key} style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) 110px minmax(0, 1.4fr)", gap: 8, alignItems: "center", margin: "4px 0" }}>
+                    <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={(mdUi as any)[key]} onChange={(e) => setMdUi({ ...mdUi, [key]: e.target.checked })} /> {label}</label>
+                    <select aria-label={`${label} — how to contact`} value={(mdUi as any)[commKey]} onChange={(e) => setMdUi({ ...mdUi, [commKey]: e.target.value })}>{["US Mail", "Email", "Text"].map((o) => <option key={o} value={o}>{o}</option>)}</select>
+                    <input aria-label={`${label} — mailing address, email or phone`} placeholder="Address / email / phone" value={(mdUi as any)[detailKey]} onChange={(e) => setMdUi({ ...mdUi, [detailKey]: e.target.value })} />
+                  </div>
+                ))}
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, margin: "8px 0 4px" }}><input type="checkbox" checked={mdUi.revoke} onChange={(e) => setMdUi({ ...mdUi, revoke: e.target.checked })} /> Revoke a previous Power of Attorney authorization</label>
+                <h4 style={{ margin: "14px 0 4px" }}>Signature block</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-sname">Employer's signer (printed name)</label><input id="gf-ui-sname" value={mdUi.signerName} onChange={(e) => setMdUi({ ...mdUi, signerName: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-stitle">Title</label><input id="gf-ui-stitle" value={mdUi.signerTitle} onChange={(e) => setMdUi({ ...mdUi, signerTitle: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-eff">Effective date of authorization</label><DateInput id="gf-ui-eff" value={mdUi.effectiveDate} onChange={(e) => setMdUi({ ...mdUi, effectiveDate: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-ui-end">End date <span className="muted">(leave empty if none)</span></label><DateInput id="gf-ui-end" value={mdUi.endDate} onChange={(e) => setMdUi({ ...mdUi, endDate: e.target.value })} /></div>
                 </div>
               </div>
             )}

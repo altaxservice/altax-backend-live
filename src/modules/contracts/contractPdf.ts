@@ -55,6 +55,8 @@ export interface ContractPdfData {
   headerLabel?: string;
   /** Clean legal-document layout (no firm letterhead or contract box; serif type, centered title, bold clause headings, "Page X of Y") — used for Document Builder documents. */
   legal?: boolean;
+  /** Body text size for the legal layout (default 11 pt). */
+  bodySize?: number;
   signers?: { role: string; name: string; status: string; signedAt: string | null; ip: string | null; image: string | null }[];
 }
 
@@ -121,7 +123,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   const L = 48, R = PAGE_W - 48;
   if (legal) {
     // Clean legal layout (one-inch margins, real signature lines, boxed notary block) lives in docBuilder/legalPdf.ts.
-    const r = drawLegalBody(doc, font, bold, data.renderedBody);
+    const r = drawLegalBody(doc, font, bold, data.renderedBody, undefined, data.bodySize);
     page = r.page; c = new Cursor(page, font, bold, PAGE_H); y = r.y; pageNum = r.pageNum;
   } else { ({ page, c } = newPage(doc, font, bold, false)); }
   let textL = L;

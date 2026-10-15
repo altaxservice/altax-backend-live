@@ -22,6 +22,8 @@ export interface DocTemplate {
   titleAr?: string; bodyAr?: string;
   /** Shown above the preview — what to double-check before this document is signed. */
   reviewNote?: string;
+  /** PDF body size in points when 11 is not enough (the tax-return consent must print at 12 pt). */
+  pdfFontSize?: number;
 }
 export type Answers = Record<string, unknown>;
 export type DocLang = "en" | "ar" | "both";

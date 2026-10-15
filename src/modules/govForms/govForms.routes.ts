@@ -71,6 +71,7 @@ const FORM_LABELS: Record<string, string> = {
   MD_DISSOLUTION: "Maryland Articles of Dissolution",
   MW506FR: "Maryland Form MW506FR — Employer Withholding Final Return Notice",
   SUT202FR: "Maryland Form 202FR — Sales and Use Tax Final Return Notice",
+  MD_UI_POA: "Maryland Unemployment Insurance — Employer Power of Attorney (Designating Agent)",
 };
 
 /**
@@ -158,6 +159,12 @@ function validateGovFormRequiredFields(formType: string, formData: any): string 
     if (s(formData.ein) && String(formData.ein).replace(/\D/g, "").length !== 9) return "The Federal Employer Identification Number must be 9 digits.";
     if (s(formData.craNumber) && String(formData.craNumber).replace(/\D/g, "").length !== 8) return "The Maryland Central Registration Number must be 8 digits.";
     if (s(formData.dateSold) && !s(formData.purchaser)) return "Enter the purchaser's name and address, or clear the date sold.";
+  } else if (formType === "MD_UI_POA") {
+    if (!s(formData.employerName)) return "Employer name is required.";
+    if (!s(formData.agentName)) return "Reporting agent name is required.";
+    const picked = ["wageReports", "payments", "accountMaintenance", "benefitCharges", "wageSeparation", "adjudication", "all", "revoke"].some((k) => formData[k]);
+    if (!picked) return "Check at least one authorization (or Revoke a previous Power of Attorney).";
+    if (s(formData.endDate) && s(formData.effectiveDate) && String(formData.endDate) < String(formData.effectiveDate)) return "The end date cannot be before the effective date.";
   } else if (formType === "MD_DISSOLUTION") {
     if (!s(formData.corpName)) return "Corporation name is required.";
     if (!s(formData.principalOfficeAddress)) return "Principal office address is required.";

@@ -14,7 +14,8 @@ const INK = rgb(0.09, 0.09, 0.09), GRAY = rgb(0.4, 0.4, 0.4), RULE = rgb(0.2, 0.
 
 export interface LegalDrawResult { page: PDFPage; y: number; pageNum: number; newPage: () => PDFPage }
 
-export function drawLegalBody(doc: PDFDocument, font: PDFFont, bold: PDFFont, body: string, onNewPage?: (page: PDFPage, n: number) => void): LegalDrawResult {
+export function drawLegalBody(doc: PDFDocument, font: PDFFont, bold: PDFFont, body: string, onNewPage?: (page: PDFPage, n: number) => void, bodySize = 11): LegalDrawResult {
+  const BS = bodySize; const LH = (bodySize * 15) / 11; // body text size and line height (a document may need 12 pt, e.g. the tax-return consent)
   let page = doc.addPage([W, H]); let y = TOP; let pageNum = 1;
   onNewPage?.(page, 1);
   const newPage = () => { page = doc.addPage([W, H]); y = TOP; pageNum += 1; onNewPage?.(page, pageNum); return page; };
@@ -91,15 +92,15 @@ export function drawLegalBody(doc: PDFDocument, font: PDFFont, bold: PDFFont, bo
     if (b.t === "subheading") {
       // keep the heading with the paragraph under it and the start of the form after that
       const n1 = blocks[bi + 1], n2 = blocks[bi + 2];
-      const paraH = n1 && n1.t === "para" ? wrap(n1.text, font, 11, TW).length * 15 + 5 : 0;
+      const paraH = n1 && n1.t === "para" ? wrap(n1.text, font, BS, TW).length * LH + 5 : 0;
       ensure(36 + paraH + Math.min(formHeight(n1 && n1.t === "form" ? n1 : n2), 80)); y += 10; text(pdfSafeText(b.text), ML, y + 11, bold, 10.5); y += 19; continue; }
     if (b.t === "subtitle") { y -= 8; for (const ln of wrap(b.text, font, 11.5, TW)) { text(ln, ML + (TW - font.widthOfTextAtSize(pdfSafeText(ln), 11.5)) / 2, y + 12, font, 11.5, GRAY); y += 16; } y += 6; line(ML + TW * 0.35, y, ML + TW * 0.65, 0.6, GRAY); y += 18; continue; }
     if (b.t === "heading") {
       // keep the heading together with the first lines of the paragraph under it
-      const nx = blocks[bi + 1]; const nl = nx && (nx.t === "para" || nx.t === "bullet") ? wrap(nx.text, font, 11, TW).length : 0;
-      ensure(9 + 19 + Math.min(Math.max(nl, 1), 3) * 15 + 6); y += 9; text(pdfSafeText(b.text), ML, y + 11, bold, 11); y += 19; continue; }
-    if (b.t === "bullet") { const ls = wrap(b.text, font, 11, TW - 24); ensure(ls.length * 15 + 4); page.drawCircle({ x: ML + 11, y: H - (y + 7.2), size: 1.7, color: INK }); for (const ln of ls) { text(ln, ML + 24, y + 11, font, 11); y += 15; } y += 3; continue; }
-    if (b.t === "para") { const ls = wrap(b.text, font, 11, TW); const nx = blocks[bi + 1]; ensure(Math.min(ls.length, 3) * 15 + 4 + (nx && nx.t === "form" ? Math.min(formHeight(nx), 150) + ls.length * 15 : 0)); for (const ln of ls) { ensure(16); text(ln, ML, y + 11, font, 11); y += 15; } y += 5; continue; }
+      const nx = blocks[bi + 1]; const nl = nx && (nx.t === "para" || nx.t === "bullet") ? wrap(nx.text, font, BS, TW).length : 0;
+      ensure(9 + 19 + Math.min(Math.max(nl, 1), 3) * LH + 6); y += 9; text(pdfSafeText(b.text), ML, y + 11, bold, BS); y += 19; continue; }
+    if (b.t === "bullet") { const ls = wrap(b.text, font, BS, TW - 24); ensure(ls.length * LH + 4); page.drawCircle({ x: ML + 11, y: H - (y + 7.2), size: 1.7, color: INK }); for (const ln of ls) { text(ln, ML + 24, y + 11, font, BS); y += LH; } y += 3; continue; }
+    if (b.t === "para") { const ls = wrap(b.text, font, BS, TW); const nx = blocks[bi + 1]; ensure(Math.min(ls.length, 3) * LH + 4 + (nx && nx.t === "form" ? Math.min(formHeight(nx), 150) + ls.length * LH : 0)); for (const ln of ls) { ensure(16); text(ln, ML, y + 11, font, BS); y += LH; } y += 5; continue; }
     // signing form / notary acknowledgment
     formsSeen += 1;
     if (formsSeen === 1) {

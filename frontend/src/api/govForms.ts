@@ -1,6 +1,6 @@
 /** Shared types for Tools → Government Forms (2553, W-9, 8832 on a client; W-4 on an employee). */
 
-export type ClientGovFormType = "SS4" | "2553" | "W9" | "8832" | "CRA" | "8822B" | "MD_AMEND_LLC" | "MD_AMEND_CORP" | "MD_DISSOLUTION" | "MW506FR" | "SUT202FR";
+export type ClientGovFormType = "SS4" | "2553" | "W9" | "8832" | "CRA" | "8822B" | "MD_AMEND_LLC" | "MD_AMEND_CORP" | "MD_DISSOLUTION" | "MW506FR" | "SUT202FR" | "MD_UI_POA";
 export type EmployeeGovFormType = "W4" | "W9";
 export type GovFormType = ClientGovFormType | EmployeeGovFormType;
 
@@ -64,6 +64,7 @@ export const GOV_FORM_LABELS: Record<GovFormType, string> = {
   MD_DISSOLUTION: "Maryland Articles of Dissolution",
   MW506FR: "Maryland Form MW506FR — Employer Withholding Final Return Notice",
   SUT202FR: "Maryland Form 202FR — Sales and Use Tax Final Return Notice",
+  MD_UI_POA: "Maryland Unemployment Insurance — Employer Power of Attorney (Designating Agent)",
 };
 
 export const GOV_SUBMIT_VIA_OPTIONS = ["Mail", "Fax", "IRS Online Portal", "Hand-Delivered", "Kept on File"];

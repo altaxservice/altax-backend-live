@@ -43,7 +43,8 @@ export function runChecks(checks: Check[], answers: Answers): string[] {
       if (a !== null && a > c.value + 1e-9) out.push(c.message);
     } else if (c.type === "sumFieldsEquals") {
       const b = num(answers[c.other]);
-      const parts = c.ids.map((id) => num(answers[id]));
+      // the first amount must be filled in; later ones may be left blank (counted as 0)
+      const parts = c.ids.map((id, i) => { const v = num(answers[id]); return v === null && i > 0 ? 0 : v; });
       if (b !== null && parts.every((p) => p !== null) && Math.abs((parts as number[]).reduce((x, y) => x + y, 0) - b) > 0.011) out.push(c.message);
     } else if (c.type === "atLeastOne") {
       if (!c.ids.some((id) => Boolean(answers[id]))) out.push(c.message);
@@ -67,12 +68,14 @@ const GENERAL_SUBJECTS = ["sReal", "sPersonal", "sStocks", "sBanks", "sInsurance
 
 /** Checks per document key. Every id here must be a question of that document (a test verifies it). */
 export const CHECKS: Record<string, Check[]> = {
-  fee_agreement: [{ type: "max", id: "lateFeePercent", value: 2, message: "Interest above 2% a month is not allowed here — Maryland limits interest; ask an attorney before using more." }],
+  ach_authorization: [{ type: "max", id: "returnFee", value: 35, message: "A fee for a returned debit may not be more than $35." }, after("endDate", "startDate", ENDS, { id: "billing", equals: "monthly" })],
+  ein_closure_letter: [],
+  fee_agreement: [{ type: "max", id: "lateFeePercent", value: 0.67, message: "Interest above 8% a year (0.67% a month) is not allowed here — Maryland limits interest on a written agreement to 8% (Commercial Law §12-103)." }],
   engagement_letter: [after("endDate", "effectiveDate", "The end date must be after the date of the letter.", { id: "term", equals: "fixed" })],
   authorization_release: [after("expires", "effectiveDate", "The expiry date must be after the date of the authorization.", { id: "duration", equals: "date" })],
   document_request_letter: [after("dueDate", "effectiveDate", "The due date must be after the date of the letter.")],
   demand_letter: [after("deadline", "effectiveDate", "The pay-by date must be after the date of the letter.")],
-  payment_agreement: [lte("installment", "total", "An installment cannot be larger than the total owed."), lte("down", "total", "The payment made today cannot be larger than the total owed.")],
+  payment_agreement: [lte("installment", "total", "An installment cannot be larger than the total owed."), lte("down", "total", "The payment made today cannot be larger than the total owed."), lte("lateFeeAmount", "installment", "A late fee cannot be more than 5% of an installment.", 0.05, { id: "lateFee", equals: true }), { type: "atLeastOne", ids: ["notTimeBarred"], message: "A personal debt older than three years cannot go on a payment plan — confirm it is not time-barred first.", when: { id: "consumerDebt", equals: true } }],
   offer_letter: [after("replyBy", "effectiveDate", "The reply-by date must be after the date of the letter."), notBefore("startDate", "effectiveDate", "The start date should not be before the date of the letter.")],
   contractor_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true })],
   employment_termination_letter: [notBefore("finalPayDate", "lastDay", "The final pay date cannot be before the last day of work.")],
@@ -95,16 +98,16 @@ export const CHECKS: Record<string, Check[]> = {
   promissory_note: [after("dueDate", "effectiveDate", "The final due date must be after the date of the note."), notBefore("dueDate", "firstPayment", "The final due date cannot be before the first payment date.", { id: "schedule", equals: "monthly" })],
   loan_agreement: [after("dueDate", "fundingDate", "The final due date must be after the funding date."), after("firstPayment", "fundingDate", "The first payment must be after the funding date.", { id: "schedule", equals: "monthly" }), notBefore("dueDate", "firstPayment", "The final due date cannot be before the first payment date.", { id: "schedule", equals: "monthly" })],
   shareholder_loan_agreement: [after("repayBy", "effectiveDate", "The repayment date must be after the date of the agreement.", { id: "schedule", equals: "date" }), after("firstPayment", "effectiveDate", "The first payment must be after the date of the agreement.", { id: "schedule", equals: "monthly" })],
-  service_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true })],
-  consulting_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true })],
-  lease_residential: [
+  service_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true }), { type: "max", id: "lateRate", value: 0.66, message: "Late interest above 0.66% a month (8% a year) is not allowed here — Commercial Law §12-103(a)." }],
+  consulting_agreement: [after("endDate", "startDate", ENDS, { id: "hasEnd", equals: true }), { type: "max", id: "lateRate", value: 0.66, message: "Late interest above 0.66% a month (8% a year) is not allowed here — Commercial Law §12-103(a)." }],
+  lease_residential: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, 
     lte("deposit", "rent", "A security deposit for a home may not be more than one month's rent (Real Property Article §8-203)."),
     lte("lateFeeAmount", "rent", "A late fee for a home may not be more than 5% of the monthly rent (Real Property Article §8-208).", 0.05, { id: "lateFee", equals: true }),
     after("endDate", "startDate", ENDS, { id: "termType", equals: "fixed" }),
   ],
-  lease_commercial: [after("endDate", "startDate", ENDS)],
-  commercial_lease_short: [after("endDate", "startDate", ENDS)],
-  commercial_sublease: [after("endDate", "startDate", ENDS)],
+  lease_commercial: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
+  commercial_lease_short: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
+  commercial_sublease: [{ type: "max", id: "nsfFee", value: 35, message: "A returned-payment fee may not be more than $35 (Commercial Law §15-802)." }, after("endDate", "startDate", ENDS)],
   lease_termination_agreement: [notBefore("endDate", "leaseDate", "The lease cannot end before the date of the original lease.")],
   lease_amendment: [after("newEnd", "leaseDate", "The new end date must be after the date of the original lease.", { id: "extend", equals: true }), notBefore("rentFrom", "leaseDate", "The new rent cannot start before the date of the original lease.", { id: "rentChange", equals: true })],
   llc_operating_agreement: [{ type: "sumEquals", list: "members", field: "percent", total: 100, message: "The members' ownership percentages must total 100" }],
@@ -116,8 +119,9 @@ export const CHECKS: Record<string, Check[]> = {
     notBefore("closingDate", "effectiveDate", "The closing date cannot be before the date of the agreement."),
     notBefore("transitionEnd", "closingDate", "The service-account transition cannot end before the closing date.", { id: "transition", equals: true }),
     lte("deposit", "price", "The deposit cannot be more than the price."),
+    lte("taxHoldback", "price", "The tax holdback cannot be more than the price."),
     lte("financedAmount", "price", "The amount paid later cannot be more than the price.", 1, { id: "payment", equals: "financed" }),
-    { type: "sumFieldsEquals", ids: ["allocEquipment", "allocInventory", "allocGoodwill"], other: "price", message: "The equipment, inventory and goodwill amounts must add up to the total price.", when: { id: "allocate", equals: true } },
+    { type: "sumFieldsEquals", ids: ["allocEquipment", "allocInventory", "allocGoodwill", "allocNonCompete"], other: "price", message: "The equipment, inventory and goodwill amounts must add up to the total price.", when: { id: "allocate", equals: true } },
   ],
   termination_agreement: [notBefore("effectiveDate", "contractDate", "This termination cannot be dated before the contract it ends."), after("endDate", "contractDate", "The end date must be after the contract date.", { id: "endsOn", equals: "date" })],
   property_sale_residential: [lte("deposit", "price", "The deposit cannot be more than the price."), lte("loanAmount", "price", "The loan cannot be more than the price."), notBefore("closingDate", "effectiveDate", "Closing cannot be before the date of the agreement.")],

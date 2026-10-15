@@ -15,6 +15,7 @@ import { buildDocumentDocx } from "../docBuilder/docx";
 import { renderDocumentHtml } from "../docBuilder/htmlDoc";
 import { generateContractPdf } from "./contractPdf";
 import { appendStandardAttachments, templateKeyOfService } from "../docBuilder/standardAttachments";
+import { getDocTemplate } from "../docBuilder/templates";
 import {
   FIRM_SERVICES, SERVICE_LABEL, GENERAL_TERMS_KEY, GENERAL_TERMS_TITLE, GENERAL_TERMS_BODY,
   BUILT_IN_CONTRACT_TEMPLATES, POA_RELEASE_SERVICE_KEY, buildAuthorizedFilingsList,
@@ -261,6 +262,7 @@ async function buildOneContractPdf(contract: any): Promise<Uint8Array> {
     signatureMethod: contract.signature_method, recordedBy: contract.recorded_by,
     headerLabel: String(contract.service_key || "").startsWith("doc_") ? "DOCUMENT" : undefined,
     legal: String(contract.service_key || "").startsWith("doc_"),
+    bodySize: getDocTemplate(templateKeyOfService(contract.service_key) || "")?.pdfFontSize,
     signers: multi.length ? multi.map((m: any) => ({ role: m.role_label, name: m.signed_name || m.signer_name, status: m.status, signedAt: m.signed_at ? new Date(m.signed_at).toISOString() : null, ip: m.signer_ip, image: m.signature_image })) : undefined,
   });
   // Official attachments that belong to this kind of document (e.g. the Maryland Tenants' Bill of Rights on a lease) follow the last page.

@@ -42,6 +42,8 @@ const SPEC: Record<string, Spec[]> = {
   sales_agreement: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   termination_agreement: [{ role: "First party", nameId: "partyA" }, { role: "Second party", nameId: "partyB" }, { role: "Guarantor", nameId: "guarantor" }],
   termination_of_purchase: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
+  ein_closure_letter: [{ role: "Owner or officer", nameId: "signerName" }],
+  ach_authorization: [{ role: "Customer", nameId: "customer" }],
   commercial_sublease: [{ role: "Sublandlord", nameId: "sublandlord" }, { role: "Subtenant", nameId: "subtenant" }, { role: "Guarantor", nameId: "guarantor", onlyIf: "guarantee" }, { role: "Landlord (consent)", nameId: "landlord" }],
   property_sale_residential: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   property_sale_commercial: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],

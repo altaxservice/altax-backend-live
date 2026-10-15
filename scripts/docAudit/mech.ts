@@ -22,7 +22,7 @@ function sample(t: any, mode: "defaults" | "alltrue" | "allfalse", pick: Record<
   const a: Record<string, any> = {};
   const fill = (q: Question, target: Record<string, any>) => {
     if (q.type === "list") { target[q.id] = [1, 2].map((i) => { const row: Record<string, any> = {}; for (const f of q.fields || []) fill(f, row); return row; }); return; }
-    if (q.type === "yesno") target[q.id] = mode === "alltrue" ? true : mode === "allfalse" ? false : Boolean(q.default);
+    if (q.type === "yesno") target[q.id] = q.id === "notaryAck" ? false : mode === "alltrue" ? true : mode === "allfalse" ? false : Boolean(q.default);
     else if (q.type === "select") target[q.id] = pick[q.id] ?? (q.default !== undefined ? String(q.default) : q.options![0].value);
     else if (q.type === "date") target[q.id] = "2026-11-01";
     else if (q.type === "money") target[q.id] = "1234.5";

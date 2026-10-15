@@ -161,7 +161,7 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
   if (client === undefined) return;
   const bytes = await generateContractPdf({
     contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang, { placeholders: true }),
-    effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null, legal: true,
+    effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null, legal: true, bodySize: p.t.pdfFontSize,
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${p.t.key}.pdf"`);
