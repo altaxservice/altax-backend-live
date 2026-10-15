@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
+import { logGovFormUploadAccess } from "../../common/govFormAccessLog";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText, resolveActiveClientId } from "../../common/assignment";
 import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
@@ -865,6 +866,14 @@ documentsRouter.get("/uploads/:uploadId/download", downloadLimiter, asyncHandler
       return res.status(410).json({ error: "This link has expired. Please log in to your client portal to view this document, or contact the firm for a current copy." });
     }
   }
+
+  // Electronic W-4/W-9 access log (Treas. Reg. 31.3402(f)(5)-1(c)(2)(i)): if this upload is the signed copy of a W-4/W-9
+  // filing, record who fetched it (best-effort, never blocks the download; logs no file contents).
+  await logGovFormUploadAccess(
+    req.params.uploadId,
+    authedUser ? { email: authedUser.email, role: authedUser.role } : { email: "unauthenticated-link", role: "public-link" },
+    authedUser ? "Documents download" : "Documents download (token link)"
+  );
 
   // Always "attachment", never "inline": this route is intentionally unauthenticated
   // (see comment above) and mime_type is whatever the uploader's browser claimed it

@@ -492,4 +492,16 @@ ${SIG}`,
 العميل: {{clientName}}
 ${SIG}`,
   },
+  immigration_office_notice: {
+    title: "إشعار المساعدة في نماذج الهجرة — لافتة المكتب (ماريلاند)",
+    body: `إشعار
+
+{{firmName}}
+
+(النص الإنجليزي أدناه هو النص الذي يوجبه القانون؛ وهذه الترجمة للاطلاع.)
+
+أنا لست محاميًا مرخّصًا لمزاولة المحاماة في ولاية ماريلاند، ولا يجوز لي تقديم نماذج قانونية أو مشورة قانونية أو خدمات قانونية.
+
+I am not an attorney licensed to practice law in Maryland, and may not provide legal forms, provide legal advice, or provide legal services.`,
+  },
 };

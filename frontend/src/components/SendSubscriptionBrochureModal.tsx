@@ -28,6 +28,7 @@ export function SendSubscriptionBrochureModal({ onClose }: { onClose: () => void
   const [sendSms, setSendSms] = useState(false);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [recipientAskedForText, setRecipientAskedForText] = useState(false);
   const [subject, setSubject] = useState("Our Subscription Plans");
   const [message, setMessage] = useState("Attached is an overview of our subscription plans and current pricing.");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -63,7 +64,11 @@ export function SendSubscriptionBrochureModal({ onClose }: { onClose: () => void
   }
 
   const channels = [sendEmail && "email", sendSms && "sms"].filter(Boolean) as string[];
-  const canSend = channels.length > 0 && (!sendEmail || email.trim()) && (!sendSms || phone.trim());
+  // A client who allows texts needs no confirmation; anyone else (a prospect, or a number typed by hand) does.
+  const pickedClient = clients.find((cl) => cl.client_id === clientId);
+  const clientAllowsSms = !!pickedClient && pickedClient.sms_allowed;
+  const needsTextConfirm = sendSms && !clientAllowsSms;
+  const canSend = channels.length > 0 && (!sendEmail || email.trim()) && (!sendSms || phone.trim()) && (!needsTextConfirm || recipientAskedForText);
 
   async function handleSend() {
     setSending(true);
@@ -72,6 +77,7 @@ export function SendSubscriptionBrochureModal({ onClose }: { onClose: () => void
     try {
       const res = await api.post<{ results: SendResult[] }>(`/service-catalog/brochure/send`, {
         channels, email, phone, clientId: clientId || undefined, subject, message,
+        recipientAskedForText: needsTextConfirm ? recipientAskedForText : false,
       });
       setResults(res.results);
       const allOk = res.results.every((r) => r.ok);
@@ -113,6 +119,16 @@ export function SendSubscriptionBrochureModal({ onClose }: { onClose: () => void
             )}
             {sendSms && (
               <div className="field"><label htmlFor="send-brochure-phone">Phone number</label><input id="send-brochure-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(410) 555-0100" /></div>
+            )}
+            {sendSms && (
+              clientAllowsSms ? (
+                <div className="muted" style={{ fontSize: 12.5, margin: "4px 0 10px" }}>This client has agreed to text messages. The text must go to the number on their profile.</div>
+              ) : (
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13, margin: "4px 0 10px" }}>
+                  <input type="checkbox" checked={recipientAskedForText} onChange={(e) => setRecipientAskedForText(e.target.checked)} />
+                  <span>The recipient asked us to text them about this <span className="muted">(required for anyone who is not a client with texts turned on; your name is recorded. The text ends with "Reply STOP to opt out.")</span></span>
+                </label>
+              )
             )}
             <div className="field"><label htmlFor="send-brochure-subject">Subject</label><input id="send-brochure-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
             <div className="field"><label htmlFor="send-brochure-message">Message</label><textarea id="send-brochure-message" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} /></div>

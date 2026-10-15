@@ -2635,6 +2635,9 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
               <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Total Cost</div><div className="metric-value">{fmtMoney(preview.totalCost)}</div></div>
             </div>
           )}
+          {preview && Array.isArray(preview.warnings) && preview.warnings.map((w: string, i: number) => (
+            <p key={i} role="alert" style={{ fontSize: 12.5, margin: "0 0 12px", padding: "8px 10px", borderRadius: 6, background: "var(--amber-soft, #fff4d6)", color: "var(--ink, #3d2e00)" }}>{w}</p>
+          ))}
 
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Calculating…" : "Create Paycheck"}</button>
         </form>

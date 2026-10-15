@@ -38,6 +38,8 @@ export interface GovFormsMeta {
   form2553TaxYearTypes: string[];
   w9TaxClassifications: string[];
   w4FilingStatuses: string[];
+  /** Tax year of the bundled Form W-4 revision (the year an exemption from withholding claimed on it is for). */
+  w4FormYear?: number;
   ss4EntityTypes: string[];
   ss4Reasons: string[];
   ss4Activities: string[];

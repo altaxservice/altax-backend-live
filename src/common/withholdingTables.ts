@@ -140,13 +140,76 @@ function applyBrackets(annualTaxableIncome: number, brackets: Bracket[]): number
 export function calculateFederalWithholding(
   periodTaxableWages: number,
   payFrequency: string | null | undefined,
-  filingStatus: string | null | undefined
+  filingStatus: string | null | undefined,
+  w4Exemption?: W4ExemptionInput | null
 ): number {
   if (periodTaxableWages <= 0) return 0;
+  // Employee has an in-force "Exempt from withholding" W-4: no federal INCOME tax is withheld
+  // (Social Security/Medicare are computed elsewhere and are NOT affected). Once the exemption has
+  // lapsed (see w4ExemptionStatus) this falls straight through to normal bracket withholding.
+  if (w4Exemption && w4ExemptionStatus(w4Exemption) === "exempt") return 0;
   const periods = periodsPerYear(payFrequency);
   const annualWages = periodTaxableWages * periods;
   const annualTax = applyBrackets(annualWages, federalBracketsFor(filingStatus));
   return annualTax / periods;
+}
+
+// ---- W-4 exemption from withholding ----
+
+export interface W4ExemptionInput {
+  /** v3_employees.federal_w4_exempt — true when the employee's current W-4 claims exemption. */
+  exempt?: boolean | null;
+  /** v3_employees.federal_w4_exempt_year — the calendar year the exempt W-4 was claimed for. */
+  year?: number | string | null;
+  /** The paycheck's pay date (YYYY-MM-DD or Date). Missing = today (America/New_York not needed: date-only compare). */
+  payDate?: string | Date | null;
+}
+
+export type W4ExemptionStatus = "none" | "exempt" | "expired" | "future";
+
+/**
+ * Is an exempt W-4 in force for wages paid on `payDate`?
+ *
+ * Rule: Treas. Reg. 31.3402(f)(4)-1(b) — a withholding certificate that relies on the section 3402(n)
+ * exemption certifications is not effective for any wage payment made "after February 15 of the
+ * calendar year following the estimation year" (the year the employee furnished it); if the employee
+ * has not furnished a new W-4 by then they are treated as Single with the standard allowance, i.e.
+ * normal bracket withholding. (The 2026 Form W-4 itself tells the employee to submit a new form by
+ * February 16, 2027 because February 15, 2027 is a federal holiday; this engine keeps the regulation's
+ * February 15 cut-off, which is the conservative side for the employer. Staff can still type a manual
+ * federal override on a paycheck if a late-February W-4 is already in hand.)
+ *
+ *   none    - no exempt W-4 on file;
+ *   exempt  - exempt W-4 in force on payDate (withhold $0 federal income tax);
+ *   expired - an exempt W-4 is on file but payDate is after Feb 15 of the following year: withhold
+ *             normally AND tell staff a new W-4 is needed;
+ *   future  - exempt W-4 claimed for a year that has not started yet (a next-year form furnished
+ *             early does not take effect until January 1 of its year): withhold normally, no warning.
+ *
+ * Mandatory flat-rate supplemental wages (Reg. 31.3402(g)-1(a)(2), over $1,000,000) are not handled -
+ * an exemption never reaches them - and are far outside this firm's client base.
+ */
+export function w4ExemptionStatus(input: W4ExemptionInput | null | undefined): W4ExemptionStatus {
+  if (!input || !input.exempt) return "none";
+  const year = Number(input.year);
+  if (!Number.isInteger(year) || year < 2000) return "expired"; // exempt flag with no valid year can't be trusted: treat as lapsed
+  let pay: string;
+  if (input.payDate instanceof Date) pay = input.payDate.toISOString().slice(0, 10);
+  else if (input.payDate) pay = String(input.payDate).slice(0, 10);
+  else pay = new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pay)) return "expired";
+  if (pay < `${year}-01-01`) return "future";
+  if (pay > `${year + 1}-02-15`) return "expired";
+  return "exempt";
+}
+
+/** Plain-language staff warning for a paycheck whose employee has an exempt W-4 that is not (or no longer) in force; null when nothing to say. */
+export function w4ExemptionWarning(input: W4ExemptionInput | null | undefined, employeeName: string): string | null {
+  const status = w4ExemptionStatus(input);
+  if (status === "expired") {
+    return `${employeeName} claimed exemption from federal withholding on a W-4 for ${input?.year ?? "an earlier year"}. That exemption ended February 15 of the following year, so federal income tax was withheld normally on this paycheck. Send ${employeeName} a new Form W-4 (open the employee profile and use "Send to employee to sign") - until they return one, they are treated as Single with no adjustments.`;
+  }
+  return null;
 }
 
 // ---- Maryland ----

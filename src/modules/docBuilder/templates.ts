@@ -3274,6 +3274,20 @@ I received {{firmName}}'s Client Privacy Notice.
 CLIENT: {{clientName}}
 Signature: ______________________________   Date: ______________`,
   },
+  {
+    key: "immigration_office_notice", title: "Immigration Assistance Notice — Office Sign (Maryland)", category: CLIENT_SERVICE,
+    description: "The sign Maryland requires a non-attorney to post where immigration form help is given. Print it large and post it where clients can see it.",
+    reviewNote: "POST THIS before anyone gets immigration form help (Maryland Commercial Law §14-3305): print it, one copy at each office, where clients can see it. The English sentence is the one the law prescribes; do not change it. HOW TO HELP SAFELY (Commercial Law §§14-3301 to 14-3306): (1) Type or copy ONLY what the client tells you or shows you, word for word, on a form the client chose and obtained. (2) Never choose the form, never say which box to check, never say what the client 'qualifies for', and never fill in an answer the client did not give. (3) Never file, mail or submit anything for the client, and never speak to an immigration agency for them; the client signs and files it personally. (4) Sign the written agreement (Immigration Form Typing & Translation Agreement, English and Arabic) BEFORE you help, give the client a copy, and honor the 72-hour right to cancel. (5) Itemize the fee and take no fee for work not yet done. (6) Return the client's documents whenever they ask, even in a fee dispute. (7) Never claim a license or credential you do not hold, never promise results or special influence, and never take a fee for referring the client to someone else. (8) If the form asks who helped prepare it, list the firm truthfully as the person who typed or translated. A violation is a misdemeanor (up to $1,000 or one year) and the client can recover the fees paid plus attorney's fees.",
+    steps: [
+      { title: "Office", questions: [text("firmName", "Business name", { prefill: "firmName", required: true })] },
+    ],
+    body: `NOTICE
+
+{{firmName}}
+
+I am not an attorney licensed to practice law in Maryland, and may not provide legal forms, provide legal advice, or provide legal services.`,
+    pdfFontSize: 20,
+  },
   /* ─────────────── Batch 7: powers, sales and transfers ─────────────── */
   {
     key: "general_poa", title: "Power of Attorney", category: FAMILY,

@@ -197,24 +197,34 @@ serviceCatalogRouter.post("/brochure/send", requireAuth, requireRole("admin", "s
   const bcc = parseEmailList(body.bcc);
   const brochureUrl = `${publicBaseUrl(req) || ""}/public/subscription-brochure.pdf`;
 
+  const { checkSmsConsent, withSmsOptOut, emailOptOutBlockHtml } = await import("../../common/smsConsent");
+  const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const escHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
   const results: { channel: string; ok: boolean; error?: string }[] = [];
   for (const channel of channels) {
     let ok = false, error: string | undefined, sentTo = "";
+    let consentNote = "";
     try {
       if (channel === "email") {
         sentTo = String(body.email || "").trim();
         if (!sentTo) throw new Error("No email address provided.");
         const pdfBytes = await generateSubscriptionBrochurePdf();
+        // CAN-SPAM (15 USC 7704(a)(5)): sender identification + postal address + a working opt-out in every commercial email.
         await sendEmail({
           to: sentTo, cc, bcc, subject,
-          html: `<p>${message.replace(/\n/g, "<br/>")}</p>`,
+          html: await wrapEmailHtml(`<p>${escHtml(message).replace(/\n/g, "<br/>")}</p>${await emailOptOutBlockHtml()}`, req),
           attachments: [{ filename: "Subscription_Plans.pdf", content: Buffer.from(pdfBytes) }],
         });
       } else if (channel === "sms") {
         sentTo = String(body.phone || "").trim();
         if (!sentTo) throw new Error("No phone number provided.");
+        // TCPA, 47 CFR 64.1200(a)(10)-(12): a client must have SMS allowed; anyone else must have asked for the text (staff confirms).
+        const consent = await checkSmsConsent({ phone: sentTo, clientId, recipientConfirmed: body.recipientAskedForText });
+        if (!consent.allowed) throw new Error(consent.error || "Text messages are not allowed for this number.");
+        consentNote = consent.basis === "client" ? " (client has SMS allowed)" : ` (${req.user!.email} confirmed the recipient asked to be texted about this)`;
         if (!isSmsConfigured()) throw new Error("SMS is not configured yet (Twilio credentials are not set).");
-        await sendSms({ to: sentTo, body: `${message}\n\nView our subscription plans: ${brochureUrl}` });
+        await sendSms({ to: sentTo, body: withSmsOptOut(`${message}\n\nView our subscription plans: ${brochureUrl}`) });
       } else {
         throw new Error(`Unknown channel "${channel}".`);
       }
@@ -224,7 +234,8 @@ serviceCatalogRouter.post("/brochure/send", requireAuth, requireRole("admin", "s
     }
     results.push({ channel, ok, error });
 
-    if (clientId) {
+    // Logged for every send, tied to a client or not: this is the 36-month record of fee-related communications (Circular 230 section 10.30(c)).
+    {
       await query(
         `INSERT INTO altax.v3_communications
            (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
@@ -234,7 +245,7 @@ serviceCatalogRouter.post("/brochure/send", requireAuth, requireRole("admin", "s
       );
     }
     await logAudit("Billing", ok ? "SUBSCRIPTION_BROCHURE_SENT" : "SUBSCRIPTION_BROCHURE_SEND_FAILED", clientId || "—", "", "", sentTo,
-      ok ? `Subscription brochure sent via ${channel} to ${sentTo} by ${req.user!.email}.` : `Subscription brochure send via ${channel} to ${sentTo} failed: ${error}`,
+      ok ? `Subscription brochure sent via ${channel} to ${sentTo} by ${req.user!.email}${consentNote}.` : `Subscription brochure send via ${channel} to ${sentTo} failed: ${error}`,
       req.user!.email);
   }
 

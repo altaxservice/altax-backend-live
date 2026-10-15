@@ -341,11 +341,12 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
             </div>
             <div className="field">
               <label htmlFor="cp-new">New Password</label>
-              <input id="cp-new" type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              <input id="cp-new" type="password" required minLength={12} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>At least 12 characters. A long phrase of several words is easy to remember and hard to guess.</div>
             </div>
             <div className="field">
               <label htmlFor="cp-confirm">Confirm New Password</label>
-              <input id="cp-confirm" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+              <input id="cp-confirm" type="password" required minLength={12} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
             </div>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Update Password"}</button>
           </form>

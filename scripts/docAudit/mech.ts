@@ -84,12 +84,13 @@ for (const t of DOC_TEMPLATES as any[]) {
   // signers
   const signers = suggestSigners(key, sample(t, "alltrue"));
   const spec = signers.length;
-  if (!spec) add(key, "HIGH", "no signer spec — e-sign cannot suggest signers");
+  const NOT_SIGNED = new Set(["immigration_office_notice"]); // a posted sign: nobody signs it
+  if (!spec && !NOT_SIGNED.has(key)) add(key, "HIGH", "no signer spec — e-sign cannot suggest signers");
   const body = renderDocument(t, sample(t, "alltrue"), "en");
   const sigLines = (body.match(/_{6,}/g) || []).length;
   const notary = /NOTARY|Notary/.test(body);
   const witness = /WITNESS|Witness/.test(body);
-  if (sigLines === 0) add(key, "HIGH", "no signature line in the document text");
+  if (sigLines === 0 && !NOT_SIGNED.has(key)) add(key, "HIGH", "no signature line in the document text");
   if (spec && sigLines && !notary && Math.abs(sigLines - spec) > 0 && !witness) add(key, "LOW", `signature lines (${sigLines}) differ from suggested signers (${spec})`);
   if ((notary) && !NEEDS_NOTARY.has(key)) add(key, "MED", "body has a notary block but the notary warning flag is not set for this template");
   if (NEEDS_NOTARY.has(key) && !notary) add(key, "MED", "notary warning is set but the body has no notary block");

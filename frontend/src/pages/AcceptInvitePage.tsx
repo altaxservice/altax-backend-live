@@ -83,11 +83,12 @@ export function AcceptInvitePage() {
             </div>
             <div className="field">
               <label htmlFor="ai-password">New Password</label>
-              <input id="ai-password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+              <input id="ai-password" type="password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>At least 12 characters. A long phrase of several words is easy to remember and hard to guess.</div>
             </div>
             <div className="field">
               <label htmlFor="ai-confirm">Confirm Password</label>
-              <input id="ai-confirm" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+              <input id="ai-confirm" type="password" required minLength={12} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
             </div>
 
             <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 4 }} disabled={submitting || !token}>

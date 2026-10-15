@@ -10,6 +10,7 @@ import { rateLimit } from "../../common/rateLimit";
 import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { sendEmail, sendSms } from "../../common/notifications";
+import { checkSmsConsent, withSmsOptOut } from "../../common/smsConsent";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { escapeHtml } from "../../common/html";
 import { getFirmProfile } from "../../common/firmProfile";
@@ -83,7 +84,15 @@ async function deliver(req: AuthedRequest | null, s: any, token: string, doc: an
     ).catch(() => {});
   }
   if (wantsSms && s.phone) {
-    try { await sendSms({ to: s.phone, body: `${firm}: ${s.signer_name}, "${doc.contract_title}" is ready for your signature: ${link}` }); result.texted = true; }
+    try {
+      // TCPA, 47 CFR 64.1200(a)(10)-(12): a number that belongs to a client needs that client's SMS-allowed flag; any other number needs staff to confirm the person asked for the text.
+      const consent = await checkSmsConsent({ phone: s.phone, clientId: null, recipientConfirmed: s.recipient_confirmed });
+      if (!consent.allowed) throw new Error(`${s.signer_name}: ${consent.error}${reminder ? " Re-send from this panel with the confirmation box ticked to text them." : ""}`);
+      const text = `${firm}: ${s.signer_name}, "${doc.contract_title}" is ready for your signature: ${link}`;
+      await sendSms({ to: s.phone, body: consent.basis === "client" ? text : withSmsOptOut(text) });
+      result.texted = true;
+      await logAudit("Contracts", "DOC_SIGN_SMS_SENT", doc.contract_id, "signer", "", s.phone, `Signing link texted to ${s.signer_name} by ${requestedBy}${consent.basis === "client" ? " (client has SMS allowed)" : " (staff confirmed the recipient asked to be texted about this)"}.`, requestedBy);
+    }
     catch (e: any) { result.error = result.error || e?.message || "Could not send the text."; }
   }
   return { ...result, link };
@@ -188,6 +197,7 @@ export function registerSigningRoutes(router: Router) {
     const signers = raw.map((x: any, i: number) => ({
       role: String(x?.role || "Signer").trim().slice(0, 120) || "Signer", name: String(x?.name || "").trim().slice(0, 255), email: String(x?.email || "").trim().toLowerCase().slice(0, 255) || null,
       phone: String(x?.phone || "").trim().slice(0, 50) || null, delivery: ["email", "sms", "both", "link"].includes(x?.delivery) ? x.delivery : "email", order: i,
+      recipientConfirmed: x?.recipientAskedForText === true,
     }));
     for (const s of signers) {
       if (!s.name) return res.status(400).json({ error: "Every signer needs a name." });
@@ -203,7 +213,7 @@ export function registerSigningRoutes(router: Router) {
         await db.query(
           `INSERT INTO altax.v3_doc_signers (signer_id, doc_id, contract_id, sort_order, role_label, signer_name, email, phone, delivery, share_token, status, sent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Sent',now())`,
           [id, doc.doc_id, doc.contract_id, s.order, s.role, s.name, s.email, s.phone, s.delivery, token]);
-        inserted.push({ signer_id: id, role_label: s.role, signer_name: s.name, email: s.email, phone: s.phone, delivery: s.delivery, token });
+        inserted.push({ signer_id: id, role_label: s.role, signer_name: s.name, email: s.email, phone: s.phone, delivery: s.delivery, token, recipient_confirmed: s.recipientConfirmed });
       }
       await db.query(`UPDATE altax.v3_client_contracts SET status = 'Sent', sent_at = now(), updated_at = now() WHERE contract_id = $1`, [doc.contract_id]);
     });

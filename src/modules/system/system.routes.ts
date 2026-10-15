@@ -9,7 +9,7 @@ import { logAudit } from "../../common/audit";
 import { isEncryptionConfigured } from "../../common/encryption";
 import { isSmsConfigured, isWhatsAppConfigured } from "../../common/notifications";
 import { buildBackupObject, runDailyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
-import { WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
+import { WITHHOLDING_TAX_YEAR, w4ExemptionStatus } from "../../common/withholdingTables";
 import { persistRotatedJwtSecret } from "../../common/jwtSecret";
 
 export const systemRouter = Router();
@@ -404,6 +404,24 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
     checks.push({ id: "withholding-tax-year", label: "Payroll withholding bracket tables", status: "warning", detail: `Withholding tables are verified through tax year ${WITHHOLDING_TAX_YEAR}. Agencies typically publish ${neededByTaxYear} brackets around this time of year — source and verify them before January 1 so payroll doesn't run on stale numbers. ${withholdingSourcesNote}` });
   } else {
     checks.push({ id: "withholding-tax-year", label: "Payroll withholding bracket tables", status: "ok", detail: `Federal, MD, VA, DC, and DE withholding bracket tables are verified current for tax year ${WITHHOLDING_TAX_YEAR}.` });
+  }
+
+  // W-4 "Exempt from withholding" elections lapse on February 15 of the following year (Treas. Reg.
+  // 31.3402(f)(4)-1(b)). Payroll already stops honouring a lapsed exemption on its own (it withholds normally
+  // and flags the paycheck preview); this check lists the employees who still need to hand in a new W-4 so it
+  // does not depend on someone noticing a payroll preview. Reads columns added by sql/202_employee_w4_exemption.sql;
+  // if that migration has not been applied the query fails and the check says so instead of throwing.
+  try {
+    const exemptEmployees = await query<any>(
+      `SELECT employee_name, client_name, federal_w4_exempt_year FROM altax.v3_employees WHERE federal_w4_exempt = true ORDER BY client_name, employee_name`
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    const lapsed = exemptEmployees.filter((e) => w4ExemptionStatus({ exempt: true, year: e.federal_w4_exempt_year, payDate: today }) === "expired");
+    checks.push(lapsed.length === 0
+      ? { id: "w4-exemption-expired", label: "W-4 exemptions from withholding", status: "ok", detail: exemptEmployees.length === 0 ? "No employee currently claims exemption from federal withholding." : `${exemptEmployees.length} employee(s) claim exemption from federal withholding and every exemption is still in force.` }
+      : { id: "w4-exemption-expired", label: "W-4 exemptions from withholding", status: "warning", detail: `${lapsed.length} employee(s) claimed exemption from federal withholding on a W-4 for an earlier year; the exemption ended February 15 of the following year, so payroll is now withholding federal income tax normally for them. Each needs a new Form W-4: ${lapsed.slice(0, 5).map((e: any) => `${e.employee_name} (${e.client_name}, W-4 for ${e.federal_w4_exempt_year})`).join("; ")}${lapsed.length > 5 ? "…" : ""}. From the employee's profile use "Send to employee to sign".` });
+  } catch {
+    checks.push({ id: "w4-exemption-expired", label: "W-4 exemptions from withholding", status: "warning", detail: "Could not read the W-4 exemption columns on the employee table. Apply sql/202_employee_w4_exemption.sql; until then an employee's exemption claim is NOT applied by payroll (it withholds normally)." });
   }
 
   // Communications audit (2026-08-19) found best-effort notification catch blocks

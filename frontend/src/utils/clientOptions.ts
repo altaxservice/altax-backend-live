@@ -111,7 +111,7 @@ export const FIRM_SERVICES: { key: string; label: string; legacy?: boolean }[] =
   { key: "business_transfer", label: "Business Transfer Documents (Bill of Sale, Amendments, etc.)" },
   { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
   { key: "snap_retailer_application", label: "SNAP Retailer Application" },
-  { key: "immigration", label: "Immigration Document Preparation" },
+  { key: "immigration", label: "Immigration Form Typing & Translation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];
 

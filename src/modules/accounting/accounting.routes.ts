@@ -10,7 +10,7 @@ import { normalizeBlocks, resolveBlocks, hasAnyBlockAmount, type ResolvedBlocks,
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
-import { calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding, calculateDcWithholding, calculateDelawareWithholding, WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
+import { calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding, calculateDcWithholding, calculateDelawareWithholding, w4ExemptionWarning, WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
 import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning";
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
@@ -903,8 +903,15 @@ accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin")
  * federalWithholding override always wins over this when set (both call sites below
  * check that before ever calling this).
  */
-function estimateFederalWithholding(federalTaxableWages: number, employee: any): number {
-  return calculateFederalWithholding(federalTaxableWages, employee.pay_frequency, employee.federal_filing_status);
+function estimateFederalWithholding(federalTaxableWages: number, employee: any, payDate?: string | Date | null): number {
+  // An employee whose current W-4 claims exemption (federal_w4_exempt, set when that W-4 is signed -
+  // see govForms.routes.ts) gets $0 federal INCOME tax withheld, but only while the exemption is in
+  // force on the pay date; see w4ExemptionStatus in withholdingTables.ts for the Feb 15 cut-off.
+  // FICA is computed separately in calculatePaycheck and is unaffected.
+  return calculateFederalWithholding(
+    federalTaxableWages, employee.pay_frequency, employee.federal_filing_status,
+    { exempt: employee.federal_w4_exempt, year: employee.federal_w4_exempt_year, payDate }
+  );
 }
 
 /**
@@ -988,7 +995,7 @@ export async function calculatePaycheck(clientId: string, employeeName: string, 
   const payDate = String(body.payDate || "").trim() || null;
 
   const federal = body.federalWithholding === undefined || body.federalWithholding === ""
-    ? money(estimateFederalWithholding(federalTaxableWages, employee)) : money(body.federalWithholding);
+    ? money(estimateFederalWithholding(federalTaxableWages, employee, payDate)) : money(body.federalWithholding);
   const state = body.stateTax === undefined || body.stateTax === ""
     ? money(await estimateStateWithholding(stateTaxableWages, employee, payrollState, clientId)) : money(body.stateTax);
   // Social Security only applies up to the annual wage base (unlike Medicare, which is
@@ -1064,6 +1071,11 @@ export async function calculatePaycheck(clientId: string, employeeName: string, 
     // legitimately has no annual wage base.
     federalTaxableWages, socialSecurityWages: ssTaxableWages, medicareWages, stateTaxableWages, payDate,
     federal, state, ssEe, medEe, medEeAdditional, ssEr, medEr, futa, suta, employeeTaxes, employerTaxes, netPay, totalCost,
+    // Staff-visible notes about this paycheck (shown under the live payroll preview). Currently: an
+    // exempt W-4 that has lapsed (Feb 15 rule) so a new W-4 is needed.
+    warnings: [
+      w4ExemptionWarning({ exempt: employee.federal_w4_exempt, year: employee.federal_w4_exempt_year, payDate }, employeeName),
+    ].filter((w): w is string => !!w),
   };
 }
 
@@ -1542,7 +1554,7 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
 
   const federal = body.federalWithholding !== undefined && body.federalWithholding !== ""
     ? money(body.federalWithholding)
-    : Number(existing.federal_withholding) || (bracketsMatchPayYear ? money(estimateFederalWithholding(federalTaxableWages, employeeForState || {})) : 0);
+    : Number(existing.federal_withholding) || (bracketsMatchPayYear ? money(estimateFederalWithholding(federalTaxableWages, employeeForState || {}, payDate)) : 0);
   const state = body.stateTax !== undefined && body.stateTax !== ""
     ? money(body.stateTax)
     : Number(existing.state_tax) || (bracketsMatchPayYear ? money(await estimateStateWithholding(stateTaxableWages, employeeForState || {}, payrollState, clientId)) : 0);

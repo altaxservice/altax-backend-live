@@ -127,11 +127,13 @@ export const READINESS: Record<string, Readiness> = {
     "triggers": [
       "The preparer is a CPA, enrolled agent or attorney (this form is not for them).",
       "The preparer is not registered with the State Board.",
+      "The preparer's fee depends on the size of the refund or the result (not allowed for a registered preparer).",
       "Work on the return has already started."
     ],
     "checklist": [
       "One disclosure per preparer, handed over at the first meeting before any work.",
-      "List only exams that were taken AND passed.",
+      "List only exams that were taken AND passed, named exactly (for example the Maryland Registered Tax Preparer Examination).",
+      "A registration under the Board's 15-year experience waiver or an IRS Annual Filing Season Program certificate is not the Maryland exam: describe it as what it is, not as an exam passed.",
       "Keep the signed copy in the client file.",
       "Make sure the same information is on the firm website.",
       "Check whether the Maryland law was extended before July 1, 2027."
@@ -151,6 +153,20 @@ export const READINESS: Record<string, Readiness> = {
       "Do not rely on a sign in the office, an oral explanation or the website page alone.",
       "No yearly notice is needed while sharing stays within the allowed reasons.",
       "Compare once with the CFPB sample model form before the first printing."
+    ]
+  },
+  "immigration_office_notice": {
+    "level": "READY",
+    "why": "The exact sign text Maryland requires; the risk is not posting it.",
+    "triggers": [
+      "Anyone helps with an immigration form and the sign is not posted.",
+      "Staff choose the form, advise on answers, or file for the client."
+    ],
+    "checklist": [
+      "Print large and post at each office where clients can see it.",
+      "Do not change the English sentence.",
+      "Sign the bilingual agreement before helping and give the client a copy.",
+      "Only type what the client says; the client signs and files it personally."
     ]
   },
   "ein_closure_letter": {

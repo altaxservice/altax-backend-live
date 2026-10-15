@@ -12,6 +12,8 @@ import { applySignatureOverlay, type SignableFormType } from "./signOverlay";
 import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
 import { publicBaseUrl } from "../../common/publicUrl";
+import { logGovFormAccess, logGovFormListAccess } from "../../common/govFormAccessLog";
+import { normalizeW4Data, W4_FORM_YEAR } from "./w4";
 import {
   generateGovForm, CLIENT_GOV_FORM_TYPES, EMPLOYEE_GOV_FORM_TYPES,
   FORM2553_TAX_YEAR_TYPES, W9_TAX_CLASSIFICATIONS, W4_FILING_STATUSES,
@@ -115,6 +117,55 @@ function decryptFormData(raw: any): any {
   return raw && typeof raw === "object" ? raw : {};
 }
 
+/**
+ * W-4 exemption handling shared by every route that stores W-4 data.
+ * - An exempt W-4 keeps identity fields only (Treas. Reg. 31.3402(f)(5)-1(b)(2): an exemption claim
+ *   accompanied by other withholding entries is an unauthorized addition, i.e. an invalid W-4), so
+ *   steps 1(c)-4 are stripped here on the server no matter what the client sent.
+ * - exemptYear is stamped from the form revision the PDF template actually is (W4_FORM_YEAR), never
+ *   taken from the request, so a caller cannot extend an exemption into a year it was not claimed for.
+ * - Any other form type is returned untouched.
+ */
+function prepareFormDataForStorage(formType: string, formData: any): any {
+  if (formType !== "W4") return formData;
+  const clean: any = normalizeW4Data({ ...(formData || {}) });
+  delete clean.exemptCertified;
+  if (clean.exempt) {
+    clean.exempt = true;
+    clean.exemptYear = W4_FORM_YEAR;
+  } else {
+    delete clean.exemptYear;
+  }
+  return clean;
+}
+
+/**
+ * Once a W-4 is SIGNED, mirror its exemption election onto the employee record - this is what payroll
+ * reads (v3_employees.federal_w4_exempt / federal_w4_exempt_year; see sql/202_employee_w4_exemption.sql
+ * and calculateFederalWithholding). A later non-exempt W-4 clears the flag. Best-effort and logged: if the
+ * columns are missing (migration not applied yet) payroll simply keeps withholding normally, which is
+ * the safe direction, and the audit row says so.
+ */
+async function syncEmployeeW4Exemption(employeeId: string | null | undefined, formData: any, filingId: string, userEmail: string): Promise<void> {
+  if (!employeeId) return;
+  const exempt = !!formData?.exempt;
+  try {
+    await query(
+      `UPDATE altax.v3_employees SET federal_w4_exempt = $2, federal_w4_exempt_year = $3 WHERE employee_id = $1`,
+      [employeeId, exempt, exempt ? W4_FORM_YEAR : null]
+    );
+    await logAudit("Tools", exempt ? "W4_EXEMPT_ON" : "W4_EXEMPT_OFF", filingId, "federal_w4_exempt", "", exempt ? `true (${W4_FORM_YEAR})` : "false",
+      exempt
+        ? `Employee ${employeeId} claimed exemption from federal withholding for ${W4_FORM_YEAR} (W-4 ${filingId}); payroll withholds $0 federal income tax through Feb 15, ${W4_FORM_YEAR + 1}.`
+        : `Employee ${employeeId} signed a W-4 without exemption (${filingId}); any earlier exemption is cleared.`, userEmail);
+  } catch (err: any) {
+    try {
+      await logAudit("Tools", "W4_EXEMPT_SYNC_FAILED", filingId, "federal_w4_exempt", "", exempt ? "true" : "false",
+        `Could not record the W-4 exemption election on the employee record: ${err?.message || err}. Payroll keeps withholding normally until this is fixed.`, userEmail);
+    } catch { /* nothing more to do */ }
+  }
+}
+
 function validateGovFormRequiredFields(formType: string, formData: any): string | null {
   const s = (v: unknown) => String(v ?? "").trim();
   if (formType === "SS4") {
@@ -177,8 +228,12 @@ function validateGovFormRequiredFields(formType: string, formData: any): string 
   return null;
 }
 
-govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+// "employee" is allowed here too: the employee portal's own fill-in-and-sign page (MyTaxFormsPage) loads
+// these option lists (filing statuses, W-9 classifications, the W-4 form year). Nothing in this payload
+// is client or employee data - it is the same static labels/enums.
+govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff", "employee"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   res.json({
+    w4FormYear: W4_FORM_YEAR,
     clientFormTypes: CLIENT_GOV_FORM_TYPES.map((t) => ({ value: t, label: FORM_LABELS[t] })),
     employeeFormTypes: EMPLOYEE_GOV_FORM_TYPES.map((t) => ({ value: t, label: FORM_LABELS[t] })),
     form2553TaxYearTypes: FORM2553_TAX_YEAR_TYPES,
@@ -253,6 +308,7 @@ govFormsRouter.get("/client/:clientId", requireAuth, requireRole("admin", "staff
        FROM altax.v3_gov_form_filings WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );
+  await logGovFormListAccess(rows, req.user, "staff client filing list");
   res.json({ filings: rows.map((r) => ({ ...r, form_data: decryptFormData(r.form_data) })) });
 }));
 
@@ -301,6 +357,7 @@ govFormsRouter.get("/employee/:employeeId", requireAuth, requireRole("admin", "s
        FROM altax.v3_gov_form_filings WHERE employee_id = $1 ORDER BY created_at DESC`,
     [employeeId]
   );
+  await logGovFormListAccess(rows, req.user, "staff employee filing list");
   res.json({ filings: rows.map((r) => ({ ...r, form_data: decryptFormData(r.form_data) })) });
 }));
 
@@ -394,8 +451,9 @@ govFormsRouter.post("/employee/:employeeId", requireAuth, requireRole("admin", "
 
   const formType = String(req.body?.formType || "W4").trim();
   if (!(EMPLOYEE_GOV_FORM_TYPES as readonly string[]).includes(formType)) return res.status(400).json({ error: "Choose a form to generate." });
-  const formData = req.body?.formData;
-  if (!formData || typeof formData !== "object") return res.status(400).json({ error: "Form data is required." });
+  const rawFormData = req.body?.formData;
+  if (!rawFormData || typeof rawFormData !== "object") return res.status(400).json({ error: "Form data is required." });
+  const formData = prepareFormDataForStorage(formType, rawFormData);
 
   const requiredFieldError = validateGovFormRequiredFields(formType, formData);
   if (requiredFieldError) return res.status(400).json({ error: requiredFieldError });
@@ -535,6 +593,7 @@ govFormsRouter.get("/mine/:filingId/pdf", requireAuth, asyncHandler(async (req: 
   if (!filing || filing.status === "Draft" || !(await canAccessClient(req.user!, filing.client_id))) {
     return res.status(404).json({ error: "Filing not found." });
   }
+  await logGovFormAccess(filing, "DOWNLOAD", req.user, "client portal PDF");
 
   if (filing.attached_upload_id) {
     const upload = await queryOne<any>(`SELECT file_data, blob_backend, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
@@ -575,6 +634,7 @@ govFormsRouter.get("/my", requireAuth, asyncHandler(async (req: AuthedRequest, r
       ORDER BY created_at DESC`,
     [req.user!.employeeId]
   );
+  await logGovFormListAccess(rows, req.user, "employee portal list");
   res.json({ filings: rows.map((r) => ({ ...r, form_data: decryptFormData(r.form_data) })) });
 }));
 
@@ -587,7 +647,8 @@ govFormsRouter.get("/my/:filingId", requireAuth, asyncHandler(async (req: Authed
   if (!filing || !filing.sent_to_employee_at || filing.employee_id !== req.user!.employeeId) {
     return res.status(404).json({ error: "Form not found." });
   }
-  res.json({ filing: { ...filing, form_data: decryptFormData(filing.form_data) }, formTypes: { w9TaxClassifications: W9_TAX_CLASSIFICATIONS, w4FilingStatuses: W4_FILING_STATUSES } });
+  await logGovFormAccess(filing, "VIEW", req.user, "employee portal filing");
+  res.json({ filing: { ...filing, form_data: decryptFormData(filing.form_data) }, w4FormYear: W4_FORM_YEAR, formTypes: { w9TaxClassifications: W9_TAX_CLASSIFICATIONS, w4FilingStatuses: W4_FILING_STATUSES } });
 }));
 
 /**
@@ -621,7 +682,11 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
   const EMPLOYER_ONLY_FIELDS = ["employerName", "employerAddress", "employerEin", "firstDateOfEmployment"];
   const submittedFormData = { ...(req.body?.formData || {}) };
   for (const field of EMPLOYER_ONLY_FIELDS) delete submittedFormData[field];
-  const formData = { ...decryptFormData(filing.form_data), ...submittedFormData };
+  if (filing.form_type === "W4" && submittedFormData.exempt && req.body?.exemptCertified !== true) {
+    return res.status(400).json({ error: "To claim exemption from withholding you must check the box certifying that you meet both conditions for exemption." });
+  }
+  // Server-side: an exempt W-4 keeps identity fields only and is stamped with the form year (see prepareFormDataForStorage).
+  const formData = prepareFormDataForStorage(filing.form_type, { ...decryptFormData(filing.form_data), ...submittedFormData });
 
   let pdfBytes: Uint8Array;
   try {
@@ -656,7 +721,8 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
     [filing.filing_id, encryptFormDataForStorage(formData), signerName, signerIp, uploadId, req.user!.email]
   );
   await logAudit("Tools", "EMPLOYEE_SIGN_GOV_FORM", filing.filing_id, "status", "Draft", "Signed",
-    `${FORM_LABELS[filing.form_type]} electronically signed by ${employee.employee_name} via the employee portal (IP ${signerIp || "unknown"}).`, req.user!.email);
+    `${FORM_LABELS[filing.form_type]} electronically signed by ${employee.employee_name} (role: ${req.user!.role}) via the employee portal (IP ${signerIp || "unknown"})${filing.form_type === "W4" ? `; exemption from withholding ${formData.exempt ? `CLAIMED for ${W4_FORM_YEAR} with the two-condition certification` : "not claimed"}` : ""}.`, req.user!.email);
+  if (filing.form_type === "W4") await syncEmployeeW4Exemption(filing.employee_id, formData, filing.filing_id, req.user!.email);
 
   res.json({ ok: true, uploadId });
 }));
@@ -684,6 +750,7 @@ govFormsRouter.get("/:filingId", requireAuth, requireRole("admin", "staff"), asy
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  await logGovFormAccess(filing, "VIEW", req.user, "staff filing view");
   res.json({ filing });
 }));
 
@@ -694,8 +761,9 @@ govFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), a
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
   if (filing.status !== "Draft") return res.status(400).json({ error: "Only a Draft filing can be edited — this one has been signed." });
 
-  const formData = req.body?.formData;
-  if (!formData || typeof formData !== "object") return res.status(400).json({ error: "Form data is required." });
+  const rawFormData = req.body?.formData;
+  if (!rawFormData || typeof rawFormData !== "object") return res.status(400).json({ error: "Form data is required." });
+  const formData = prepareFormDataForStorage(filing.form_type, rawFormData);
 
   const requiredFieldError = validateGovFormRequiredFields(filing.form_type, formData);
   if (requiredFieldError) return res.status(400).json({ error: requiredFieldError });
@@ -726,6 +794,7 @@ govFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"),
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  await logGovFormAccess(filing, "DOWNLOAD", req.user, "staff PDF");
 
   if (filing.status !== "Draft" && filing.attached_upload_id) {
     const upload = await queryOne<any>(`SELECT file_data, blob_backend, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
@@ -803,6 +872,7 @@ govFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"
   );
   await logAudit("Tools", "SIGN_GOV_FORM", filing.filing_id, "status", "Draft", "Signed",
     `Recorded as signed in person by "${signerName}", logged by ${req.user!.email}.`, req.user!.email);
+  if (filing.form_type === "W4") await syncEmployeeW4Exemption(filing.employee_id, prepareFormDataForStorage("W4", filing.form_data), filing.filing_id, req.user!.email);
   res.json({ ok: true });
 }));
 

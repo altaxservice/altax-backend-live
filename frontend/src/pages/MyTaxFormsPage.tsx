@@ -124,6 +124,8 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
   const [data, setData] = useState<Record<string, any>>(filing.form_data || {});
   const [signerName, setSignerName] = useState("");
   const [agree, setAgree] = useState(false);
+  // Exemption from withholding (W-4 only): a separate, explicit certification, never implied by the signature box.
+  const [exemptCertified, setExemptCertified] = useState(false);
 
   useEffect(() => {
     api.get<GovFormsMeta>("/gov-forms/meta").then(setMeta).catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load form options."));
@@ -137,9 +139,21 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
     setSaveError(null);
     if (!signerName.trim()) { setSaveError("Type your full legal name to sign."); return; }
     if (!agree) { setSaveError("Check the box confirming this is your electronic signature."); return; }
+    let formData = data;
+    if (filing.form_type === "W4") {
+      if (data.exempt) {
+        if (!exemptCertified) { setSaveError(t("myTaxForms.exemptNeedCertify")); return; }
+        // An exempt W-4 carries identity fields only (the server enforces this too).
+        const { filingStatus: _fs, multipleJobsCheckbox: _mj, qualifyingChildrenAmount: _qc, otherDependentsAmount: _od, otherIncome: _oi, deductions: _de, extraWithholding: _ew, ...identity } = data;
+        formData = { ...identity, exempt: true };
+      } else {
+        // The dropdown shows its first option when nothing was picked; make sure that value is actually submitted.
+        formData = { ...data, exempt: false, filingStatus: data.filingStatus || meta?.w4FilingStatuses[0] };
+      }
+    }
     setSaving(true);
     try {
-      await api.post(`/gov-forms/my/${filing.filing_id}/sign`, { formData: data, signerName: signerName.trim(), agree });
+      await api.post(`/gov-forms/my/${filing.filing_id}/sign`, { formData, signerName: signerName.trim(), agree, ...(filing.form_type === "W4" && data.exempt ? { exemptCertified: true } : {}) });
       onDone();
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : "Could not submit this form.");
@@ -152,6 +166,9 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
   if (!meta) return <p className="muted" style={{ marginTop: 12 }}>{t("common.loading")}</p>;
 
   const idPrefix = `mtf-${filing.filing_id}`;
+  const formYear = meta.w4FormYear || new Date().getFullYear();
+  const yr = (key: string) => t(key).replace(/\{year\}/g, String(formYear)).replace(/\{prevYear\}/g, String(formYear - 1)).replace(/\{nextYear\}/g, String(formYear + 1));
+  const isExempt = filing.form_type === "W4" && !!data.exempt;
 
   return (
     <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
@@ -171,13 +188,16 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-ssn`}>{t("myTaxForms.ssn")}</label><input id={`${idPrefix}-ssn`} value={data.ssn || ""} onChange={(e) => set("ssn", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}>
-              <label htmlFor={`${idPrefix}-filing-status`}>{t("myTaxForms.filingStatus")}</label>
-              <select id={`${idPrefix}-filing-status`} value={data.filingStatus || meta.w4FilingStatuses[0]} onChange={(e) => set("filingStatus", e.target.value)}>
-                {meta.w4FilingStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
+            {!isExempt && (
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor={`${idPrefix}-filing-status`}>{t("myTaxForms.filingStatus")}</label>
+                <select id={`${idPrefix}-filing-status`} value={data.filingStatus || meta.w4FilingStatuses[0]} onChange={(e) => set("filingStatus", e.target.value)}>
+                  {meta.w4FilingStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
           </div>
+          {!isExempt && (<>
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "10px 0" }}>
             <input type="checkbox" checked={!!data.multipleJobsCheckbox} onChange={(e) => set("multipleJobsCheckbox", e.target.checked)} />
             {t("myTaxForms.multipleJobsCheckbox")}
@@ -190,6 +210,31 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
             <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step4a`}>{t("myTaxForms.step4a")}</label><input id={`${idPrefix}-step4a`} type="number" step="0.01" value={data.otherIncome || ""} onChange={(e) => set("otherIncome", e.target.value)} /></div>
             <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step4b`}>{t("myTaxForms.step4b")}</label><input id={`${idPrefix}-step4b`} type="number" step="0.01" value={data.deductions || ""} onChange={(e) => set("deductions", e.target.value)} /></div>
             <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step4c`}>{t("myTaxForms.step4c")}</label><input id={`${idPrefix}-step4c`} type="number" step="0.01" value={data.extraWithholding || ""} onChange={(e) => set("extraWithholding", e.target.value)} /></div>
+          </div>
+          </>)}
+
+          {/* Exemption from withholding - Treas. Reg. 31.3402(f)(5)-1(c)(2)(iii): an electronic W-4 must let the employee
+              claim exemption and must carry the two certifications. Sits with the withholding selections, before the jurat/signature. */}
+          <div style={{ marginTop: 14, padding: 12, border: "1px solid var(--line)", borderRadius: 8 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, margin: "0 0 6px" }}>{t("myTaxForms.exemptHeading")}</p>
+            <p style={{ fontSize: 13, margin: "0 0 4px" }}>{yr("myTaxForms.exemptIntro")}</p>
+            <p style={{ fontSize: 13, margin: "0 0 4px" }}>{yr("myTaxForms.exemptCond1")}</p>
+            <p style={{ fontSize: 13, margin: "0 0 8px" }}>{yr("myTaxForms.exemptCond2")}</p>
+            <p className="muted" style={{ fontSize: 12.5, margin: "0 0 8px" }}>{yr("myTaxForms.exemptWarning")}</p>
+            <label style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 13, margin: "6px 0", fontWeight: 600 }}>
+              <input type="checkbox" checked={isExempt} style={{ marginTop: 3 }}
+                onChange={(e) => { set("exempt", e.target.checked); if (!e.target.checked) setExemptCertified(false); }} />
+              {yr("myTaxForms.exemptClaim")}
+            </label>
+            {isExempt && (
+              <>
+                <p className="muted" style={{ fontSize: 12.5, margin: "4px 0 6px" }}>{t("myTaxForms.exemptOnlyNote")}</p>
+                <label style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 13, margin: "6px 0" }}>
+                  <input type="checkbox" checked={exemptCertified} style={{ marginTop: 3 }} onChange={(e) => setExemptCertified(e.target.checked)} />
+                  {yr("myTaxForms.exemptCertify")}
+                </label>
+              </>
+            )}
           </div>
         </>
       ) : (

@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { authenticateUser, buildAuthSuccess, AuthError, AuthSuccess } from "./auth.service";
 import { asyncHandler } from "../../common/asyncHandler";
 import { requireAuth, requireRole, AuthedRequest, invalidateActiveCache } from "../../common/requireAuth";
-import { verifyPassword, createPasswordHashFields } from "./password";
+import { verifyPassword, createPasswordHashFields, MIN_PASSWORD_LENGTH } from "./password";
 import { pool, query, queryOne } from "../../config/db";
 import { logAudit } from "../../common/audit";
 import {
@@ -600,7 +600,7 @@ authRouter.post("/accept-invite", asyncHandler(async (req: Request, res: Respons
 
   if (!email || !email.includes("@")) return res.status(400).json({ error: "Valid email is required." });
   if (!token) return res.status(400).json({ error: "Setup token is required." });
-  if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+  if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters. A long phrase of several words works well.` });
 
   const client = await pool.connect();
   try {
@@ -682,8 +682,8 @@ authRouter.post("/forgot-password", forgotLimiter, asyncHandler(async (req: Requ
 
 authRouter.post("/change-password", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { currentPassword, newPassword } = req.body || {};
-  if (!newPassword || String(newPassword).length < 8) {
-    return res.status(400).json({ error: "New password must be at least 8 characters." });
+  if (!newPassword || String(newPassword).length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: `New password must be at least ${MIN_PASSWORD_LENGTH} characters. A long phrase of several words works well.` });
   }
 
   const client = await pool.connect();

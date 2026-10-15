@@ -47,13 +47,18 @@
  * auto-sum 3(a)+3(b); line 3 is its own fillable field the filer (or this
  * generator) must total independently. All three are supported here.
  *
- * Also discovered but deliberately NOT implemented: c1_3[0] is a fourth
- * checkbox, "Exempt from withholding" ("I claim exemption from withholding
- * for 2026, and I certify that I meet both of the conditions for
- * exemption..."), positioned between Step 4 and Step 5. It wasn't in this
- * module's requested scope (exemption is a distinct, comparatively rare
- * filing situation with its own certification language) and is left
- * unchecked/unfilled.
+ * Exemption from withholding (the "Exempt from withholding" box between
+ * Step 4 and Step 5, AcroForm c1_3[0]): implemented. The 2026 form's own
+ * wording is "I claim exemption from withholding for 2026, and I certify that
+ * I meet both of the conditions for exemption for 2026." The two conditions
+ * (page 2, "Exemption from withholding"): no federal income tax liability in
+ * 2025, and expect none in 2026 — which tracks Treas. Reg. 31.3402(n)-1(a)(1)
+ * and (2). The form says to complete ONLY Steps 1(a), 1(b) and 5, and Treas.
+ * Reg. 31.3402(f)(5)-1(b)(2) makes an exemption claim that is "accompanied by
+ * other entries ... that could potentially affect the amount of income tax
+ * deducted and withheld" an unauthorized addition (an INVALID W-4), so when
+ * `exempt` is true this generator deliberately leaves Step 1(c) and Steps 2-4
+ * blank even if the caller passed values (see normalizeW4Data).
  *
  * Deliberately does NOT fill the employee's signature or date. The form
  * itself says "This form is not valid unless you sign it" — neither field
@@ -63,6 +68,15 @@
  * ready for a real pen signature at the moment the employee actually signs.
  */
 import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+
+/**
+ * The Form W-4 revision the bundled fw4.pdf template is. Only the revision in
+ * effect for a calendar year may be furnished and given effect in that year
+ * (Treas. Reg. 31.3402(f)(5)-1(a)(3)), so this is also the year an exemption
+ * claimed on this template is for. Bump together with the template file each
+ * January (the Fix Center "withholding-tax-year" check is the annual reminder).
+ */
+export const W4_FORM_YEAR = 2026;
 
 export interface W4Data {
   firstName: string;
@@ -86,10 +100,32 @@ export interface W4Data {
   deductions?: string;
   /** Step 4(c) — extra withholding per pay period. */
   extraWithholding?: string;
+  /**
+   * "Exempt from withholding" box. When true, only Steps 1(a), 1(b) and 5 are filled — filing status
+   * (1(c)) and Steps 2-4 are dropped. Server-side routes also stamp `exemptYear` (the form year).
+   */
+  exempt?: boolean;
+  /** Calendar year the exemption was claimed for (set by the server from W4_FORM_YEAR, never trusted from the client). */
+  exemptYear?: number;
   employerName?: string;
   employerAddress?: string;
   firstDateOfEmployment?: string;
   employerEin?: string;
+}
+
+/**
+ * Enforces the "exempt means nothing else" rule at the data level: an exempt W-4 keeps identity fields only.
+ * Applied by the sign routes before storing AND by the PDF generator, so a hand-crafted API call cannot
+ * produce an invalid (exempt + adjustments) certificate.
+ */
+export function normalizeW4Data<T extends Partial<W4Data>>(data: T): T {
+  if (!data || !data.exempt) {
+    const { exempt: _e, exemptYear: _y, ...rest } = (data || {}) as any;
+    return rest as T;
+  }
+  const out: any = { ...data, exempt: true };
+  for (const k of ["filingStatus", "multipleJobsCheckbox", "qualifyingChildrenAmount", "otherDependentsAmount", "otherIncome", "deductions", "extraWithholding"]) delete out[k];
+  return out as T;
 }
 
 /** Step 1(c) filing-status options — exact wording as printed on the real form. */
@@ -106,7 +142,8 @@ const FILING_STATUS_FIELD: Record<string, string> = {
   "Head of household": "c1_1[2]",
 };
 
-export async function generateW4(data: W4Data): Promise<Uint8Array> {
+export async function generateW4(input: W4Data): Promise<Uint8Array> {
+  const data = normalizeW4Data(input);
   const doc = await loadTemplate("fw4.pdf");
   const P = "topmostSubform[0].Page1[0]";
 
@@ -124,6 +161,9 @@ export async function generateW4(data: W4Data): Promise<Uint8Array> {
     cityStateZip: [data.city, [data.state, data.zip].filter(Boolean).join(" ")].filter(Boolean).join(", "),
     ssn: data.ssn || "",
   });
+
+  // "Exempt from withholding" box — only when exempt; see doc comment. Everything between Step 1(b) and Step 5 stays blank.
+  if (data.exempt) checkBox(doc, `${P}.c1_3[0]`);
 
   // Step 1(c) — filing status (independent checkboxes, not a PDFRadioGroup; see doc comment)
   const statusField = FILING_STATUS_FIELD[data.filingStatus];

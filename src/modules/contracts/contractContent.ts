@@ -57,7 +57,7 @@ export const FIRM_SERVICES: FirmService[] = [
   { key: "business_transfer", label: "Business Transfer Documents (Bill of Sale, Amendments, etc.)" },
   { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
   { key: "snap_retailer_application", label: "SNAP Retailer Application" },
-  { key: "immigration", label: "Immigration Document Preparation" },
+  { key: "immigration", label: "Immigration Form Typing & Translation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];
 
@@ -169,7 +169,10 @@ export const POA_RELEASE_TITLE = "Authorization to Act and Release of Informatio
 //    enforce a release of "intentional harms or ... reckless, wanton, or gross" negligence or one resulting from
 //    grossly unequal bargaining power (BJ's Wholesale Club v. Rosen, 435 Md. 714 (2013)); a contractual shortening
 //    of limitations must be reasonable and is tested for one-sidedness (Ceccone v. Carroll Home Services, 454 Md. 680
-//    (2017), which sent back a one-sided one-year clause). So: carve-outs for gross negligence/fraud, a 12-month
+//    (2017), which sent back a one-sided one-year clause). A pre-dispute jury waiver is enforceable if knowing and
+//    intelligent, which turns on conspicuousness, comprehensibility and bargaining power (Walther v. Sovereign Bank,
+//    386 Md. 412 (2005); see Bank of America v. Mitchell Living Trust, 822 F. Supp. 2d 505 (D. Md. 2011)); clause 14 is
+//    for Business Clients, in capitals, in its own paragraph, with a plain-language sentence and an Arabic edition. So: carve-outs for gross negligence/fraud, a 12-month
 //    fee cap, a two-year MUTUAL claims period.
 //  - E-sign: Maryland UETA (Commercial Law §21-104(b)(3)) — in a standard-form contract the electronic term must be
 //    "conspicuously displayed and separately consented to"; 15 USC §7001(c)(1) lists the consumer statements.
@@ -210,7 +213,7 @@ Firm will correct, at no extra fee, any error that Firm made in its own work. No
 13. ELECTRONIC SIGNATURE AND DELIVERY CONSENT (SEPARATE AND OPTIONAL). This section is separate from the rest of this agreement and is optional. Client does not have to sign or receive documents electronically; to use paper instead, Client tells Firm before signing, and Firm will provide a paper copy to sign by hand at no charge. By typing a name and ticking the box on the signing page, Client agrees that: (a) Client may sign this agreement and other documents for these services electronically, and an electronic signature has the same legal effect as a handwritten one; (b) Firm may send Client documents, invoices, returns, notices and other records about these services by email, text message link or Firm's secure client portal, and this consent covers all such records for as long as Firm provides services to Client; (c) Client may ask for any record on paper at any time at no charge, and may withdraw this consent at any time by written notice to Firm at no charge, after which Firm will use paper (records already sent electronically stay valid, and withdrawing does not end this agreement); (d) Client will tell Firm in writing if Client's email address or phone number changes; and (e) to receive and keep these records Client needs a device with internet access, a working email address, a current web browser and a program that opens and saves PDF files. Client confirms that Client was able to open and read this document in the form in which it was delivered.
 
 14. GOVERNING LAW; COURTS; JURY. This agreement is governed by the laws of the State of Maryland, without regard to conflict-of-law principles. A Business Client and Firm agree that any lawsuit arising from this agreement will be brought exclusively in the state or federal courts located in Maryland. An Individual Client may sue in any court that has jurisdiction as the law allows.
-A BUSINESS CLIENT AND FIRM EACH KNOWINGLY AND VOLUNTARILY WAIVE ANY RIGHT TO A TRIAL BY JURY IN ANY LAWSUIT ARISING OUT OF OR RELATING TO THIS AGREEMENT.
+A BUSINESS CLIENT AND FIRM EACH KNOWINGLY AND VOLUNTARILY WAIVE ANY RIGHT TO A TRIAL BY JURY IN ANY LAWSUIT ARISING OUT OF OR RELATING TO THIS AGREEMENT. THIS MEANS THAT IF EITHER OF US SUES THE OTHER IN COURT, A JUDGE, NOT A JURY, WILL DECIDE THE CASE.
 
 15. TIME LIMIT FOR CLAIMS — BUSINESS CLIENTS ONLY. A Business Client and Firm must each bring any claim against the other arising out of this engagement within two (2) years after the claim accrues (for a claim for unpaid fees, after the invoice due date), even if a longer period would otherwise apply, except where the law does not allow that period to be shortened. For an Individual Client the time limits set by law apply.
 
@@ -254,7 +257,7 @@ A BUSINESS CLIENT AND FIRM EACH KNOWINGLY AND VOLUNTARILY WAIVE ANY RIGHT TO A T
 
 13. الموافقة على التوقيع والتسليم الإلكترونيين (بند منفصل واختياري). هذا البند منفصل عن بقية الاتفاقية واختياري. فليس على العميل أن يوقّع المستندات أو يستلمها إلكترونياً؛ ولاستخدام الورق بدلاً من ذلك يُبلغ العميل الشركة قبل التوقيع، وتقدّم له الشركة نسخة ورقية ليوقّعها بخط يده دون مقابل. وبكتابة الاسم ووضع علامة في المربع في صفحة التوقيع، يوافق العميل على ما يلي: (أ) يجوز للعميل توقيع هذا الاتفاق وغيره من المستندات المتعلقة بهذه الخدمات إلكترونياً، وللتوقيع الإلكتروني نفس الأثر القانوني للتوقيع بخط اليد؛ (ب) يجوز للشركة أن ترسل إلى العميل المستندات والفواتير والإقرارات والإشعارات وغيرها من السجلات المتعلقة بهذه الخدمات بالبريد الإلكتروني أو برابط في رسالة نصية أو عبر بوابة العميل الآمنة لدى الشركة، وتشمل هذه الموافقة جميع هذه السجلات ما دامت الشركة تقدّم الخدمات للعميل؛ (ج) يجوز للعميل طلب أي سجل على الورق في أي وقت دون مقابل، كما يجوز له سحب هذه الموافقة في أي وقت بإشعار كتابي إلى الشركة دون مقابل، وعندها تستخدم الشركة الورق (وتبقى السجلات التي أُرسلت إلكترونياً سارية، ولا يُنهي سحب الموافقة هذا الاتفاق)؛ (د) يبلغ العميل الشركة كتابةً إذا تغيّر بريده الإلكتروني أو رقم هاتفه؛ (هـ) لاستلام هذه السجلات والاحتفاظ بها يحتاج العميل إلى جهاز متصل بالإنترنت وبريد إلكتروني فعّال ومتصفح حديث وبرنامج يفتح ملفات PDF ويحفظها. ويؤكد العميل أنه استطاع فتح هذا المستند وقراءته بالصيغة التي سُلّم بها.
 
-14. القانون المُطبَّق والمحاكم وهيئة المحلفين. يخضع هذا الاتفاق لقوانين ولاية ماريلاند، بصرف النظر عن مبادئ تنازع القوانين. ويتفق العميل التجاري والشركة على أن أي دعوى تنشأ عن هذا الاتفاق تُرفع حصراً أمام المحاكم الحكومية أو الفيدرالية الواقعة في ولاية ماريلاند. ويجوز للعميل الفرد رفع دعواه أمام أي محكمة مختصة وفق ما يسمح به القانون. ويتنازل العميل التجاري والشركة، كل منهما عن علم وبمحض إرادته، عن أي حق في المحاكمة أمام هيئة محلفين في أي دعوى تنشأ عن هذا الاتفاق أو تتعلق به.
+14. القانون المُطبَّق والمحاكم وهيئة المحلفين. يخضع هذا الاتفاق لقوانين ولاية ماريلاند، بصرف النظر عن مبادئ تنازع القوانين. ويتفق العميل التجاري والشركة على أن أي دعوى تنشأ عن هذا الاتفاق تُرفع حصراً أمام المحاكم الحكومية أو الفيدرالية الواقعة في ولاية ماريلاند. ويجوز للعميل الفرد رفع دعواه أمام أي محكمة مختصة وفق ما يسمح به القانون. ويتنازل العميل التجاري والشركة، كل منهما عن علم وبمحض إرادته، عن أي حق في المحاكمة أمام هيئة محلفين في أي دعوى تنشأ عن هذا الاتفاق أو تتعلق به. ويعني ذلك أنه إذا رفع أحدنا دعوى على الآخر أمام المحكمة، فسيفصل فيها قاضٍ وليس هيئة محلفين.
 
 15. المدة المحددة لتقديم المطالبات — للعملاء التجاريين فقط. يجب على العميل التجاري والشركة، كل تجاه الآخر، تقديم أي مطالبة ناشئة عن هذا التعاقد خلال سنتين (2) من نشوء المطالبة (وبالنسبة للمطالبة بالرسوم غير المسددة، من تاريخ استحقاق الفاتورة)، بصرف النظر عن أي مدة أطول قد ينص عليها القانون، إلا في الحالات التي لا يسمح فيها القانون بتقصير تلك المدة. أما العميل الفرد فتسري عليه المدد التي يحددها القانون.
 
@@ -326,7 +329,7 @@ SCOPE OF SERVICES. Firm will prepare Client's individual federal and applicable 
 
 CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accuracy and completeness of the information provided, including income, filing status, dependents, deductions and credits claimed. Client remains ultimately responsible for the contents of the filed return, even though Firm prepared it. Client should review the completed return carefully before signing or authorizing e-file.
 
-PREPARER INFORMATION. Maryland law requires a registered individual tax preparer to give the customer certain information in writing before the work begins: the preparer's name, address and telephone number; that the preparer is not a certified public accountant, enrolled agent or tax attorney (where that is so); the services the preparer is qualified to provide; and the preparer's education and training. Firm will give Client that written information before preparing Client's return where Maryland law requires it. Firm will not ask Client to sign a return or an authorization before the preparation is complete.
+PREPARER INFORMATION. Maryland law requires a registered individual tax preparer to give the customer certain information in writing before the work begins: the preparer's name, address and telephone number; that the preparer is not a certified public accountant, enrolled agent or tax attorney (where that is so); the services the preparer is qualified to provide; and the preparer's education and training, including examinations taken and successfully passed. The preparer gives it at the first meeting, before any work on the return begins, where Maryland law requires it. A registered preparer's fee may not depend on the amount of the refund or the result of the services, and Firm's fee for preparing a return does not. Firm will not ask Client to sign a return or an authorization before the preparation is complete.
 
 ${TAX_RETURN_TERMS_EN}
 
@@ -344,7 +347,7 @@ RECORD RETENTION. Client is responsible for retaining copies of all documents su
 
 مسؤولية العميل عن الدقة. العميل هو المسؤول الوحيد عن دقة واكتمال المعلومات المقدَّمة، بما في ذلك الدخل والحالة الضريبية والمعالون والخصومات والائتمانات الضريبية المطالَب بها. ويظل العميل مسؤولاً في النهاية عن محتويات الإقرار المقدَّم، ولو أعدّته الشركة. وينبغي للعميل مراجعة الإقرار المكتمل بعناية قبل التوقيع عليه أو الإذن بتقديمه إلكترونياً.
 
-معلومات المعدّ. يوجب قانون ولاية ماريلاند على معدّ الإقرارات الضريبية الفردية المسجَّل أن يقدّم للعميل كتابةً، قبل بدء العمل، معلومات معينة هي: اسم المعدّ وعنوانه ورقم هاتفه؛ وكونه ليس محاسباً قانونياً معتمداً (CPA) ولا وكيل ضرائب مسجَّلاً (Enrolled Agent) ولا محامي ضرائب (حيثما كان ذلك صحيحاً)؛ والخدمات المؤهَّل لتقديمها؛ وتعليمه وتدريبه. وتقدّم الشركة للعميل هذه المعلومات كتابةً قبل إعداد إقراره حيثما يوجب قانون ماريلاند ذلك. ولن تطلب الشركة من العميل التوقيع على إقرار أو تفويض قبل اكتمال الإعداد.
+معلومات المعدّ. يوجب قانون ولاية ماريلاند على معدّ الإقرارات الضريبية الفردية المسجَّل أن يقدّم للعميل كتابةً، قبل بدء العمل، معلومات معينة هي: اسم المعدّ وعنوانه ورقم هاتفه؛ وكونه ليس محاسباً قانونياً معتمداً (CPA) ولا وكيل ضرائب مسجَّلاً (Enrolled Agent) ولا محامي ضرائب (حيثما كان ذلك صحيحاً)؛ والخدمات المؤهَّل لتقديمها؛ وتعليمه وتدريبه، بما في ذلك الاختبارات التي أدّاها واجتازها بنجاح. ويقدّمها المعدّ في أول لقاء مع العميل وقبل بدء أي عمل على الإقرار، حيثما يوجب قانون ماريلاند ذلك. ولا يجوز أن تتوقف أتعاب المعدّ المسجَّل على مبلغ الاسترداد أو على نتيجة الخدمات، ولا تتوقف أتعاب الشركة عن إعداد الإقرار على ذلك. ولن تطلب الشركة من العميل التوقيع على إقرار أو تفويض قبل اكتمال الإعداد.
 
 ${TAX_RETURN_TERMS_AR}
 
@@ -709,7 +712,7 @@ By signing below, Principal confirms having read and understood this authorizati
   },
   {
     serviceKey: "immigration",
-    title: "Immigration Document Preparation Agreement",
+    title: "Immigration Form Typing & Translation Agreement",
     // Bilingual by design: most of the firm's immigration clients read Arabic more
     // comfortably than English, and a disclosure the client can't actually read is
     // not real informed consent — the highest-risk sentence in this whole template
@@ -736,7 +739,7 @@ By signing below, Principal confirms having read and understood this authorizati
     // appear "without direct or indirect renumeration"). So the scope is cut back to secretarial services; the firm no
     // longer files or submits an application. The two statements are alone in their own paragraphs so the PDF can print
     // them at 12 point (contractPdf.ts).
-    body: `IMMIGRATION DOCUMENT PREPARATION AGREEMENT
+    body: `IMMIGRATION FORM TYPING & TRANSLATION AGREEMENT
 
 This agreement confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for immigration document typing and translation services, effective {{effectiveDate}}. Client is an Individual Client under the General Terms.
 
@@ -766,7 +769,7 @@ ACKNOWLEDGMENT. By signing below, Client acknowledges having read and understood
 
 النسخة العربية — Arabic Translation
 
-اتفاقية تحضير مستندات الهجرة
+اتفاقية كتابة نماذج الهجرة وترجمة مستنداتها
 
 تؤكد هذه الاتفاقية شروط التعاقد بين {{clientName}} ("العميل") و{{firmName}} ("الشركة") لتقديم خدمات كتابة مستندات الهجرة وترجمتها، اعتباراً من {{effectiveDate}}. والعميل "عميل فرد" بموجب الشروط العامة.
 

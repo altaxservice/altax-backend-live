@@ -288,6 +288,7 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
 
   const { sendEmail } = await import("../../common/notifications");
   const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const { checkSmsConsent, withSmsOptOut, emailOptOutBlockHtml } = await import("../../common/smsConsent");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   let sent = false;
@@ -299,7 +300,8 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
         to, subject,
         html: await wrapEmailHtml(
           `<p>${esc(message).replace(/\n/g, "<br/>")}</p>
-           <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF. <bdi dir="rtl">التقدير الكامل مرفق بهذه الرسالة بصيغة PDF.</bdi></p>`,
+           <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF. <bdi dir="rtl">التقدير الكامل مرفق بهذه الرسالة بصيغة PDF.</bdi></p>
+           ${await emailOptOutBlockHtml()}`,
           req
         ),
         attachments: [{ filename: `Estimate_${est.estimate_number}.pdf`, content: Buffer.from(bytes) }],
@@ -316,10 +318,15 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
   // heads-up naming the total, pointing them at their email for the full PDF.
   let smsSent = false;
   let smsError: string | undefined;
+  let smsConsentNote = "";
   if (toPhone) {
     try {
       const { sendSms } = await import("../../common/notifications");
-      await sendSms({ to: toPhone, body: `AL TAX SERVICE: Your estimate for ${est.business_name} is ready — estimated total $${totals.total.toFixed(2)}.${to ? " Check your email for the full PDF." : ""}` });
+      // TCPA, 47 CFR 64.1200(a)(10)-(12): a client must have SMS allowed; a prospect must have asked for the text (staff confirms in the dialog).
+      const consent = await checkSmsConsent({ phone: toPhone, clientId: est.client_id || null, recipientConfirmed: req.body?.recipientAskedForText });
+      if (!consent.allowed) throw new Error(consent.error || "Text messages are not allowed for this number.");
+      smsConsentNote = consent.basis === "client" ? " (client has SMS allowed)" : ` (${req.user!.email} confirmed the recipient asked to be texted about this)`;
+      await sendSms({ to: toPhone, body: withSmsOptOut(`AL TAX SERVICE: Your estimate for ${est.business_name} is ready — estimated total $${totals.total.toFixed(2)}.${to ? " Check your email for the full PDF." : ""}`) });
       smsSent = true;
     } catch (err: any) {
       smsError = err?.message || "Send failed.";
@@ -351,7 +358,7 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
   }
 
   await logAudit("Tools", "SEND_ESTIMATE", est.estimate_id, "", "",
-    [sent ? `Emailed to ${to}` : to ? `Email failed: ${error}` : null, smsSent ? `Texted to ${toPhone}` : toPhone ? `SMS failed: ${smsError}` : null].filter(Boolean).join("; "),
+    [sent ? `Emailed to ${to}` : to ? `Email failed: ${error}` : null, smsSent ? `Texted to ${toPhone}${smsConsentNote}` : toPhone ? `SMS failed: ${smsError}` : null].filter(Boolean).join("; "),
     `Estimate send attempted by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: sent || smsSent, error, smsError });

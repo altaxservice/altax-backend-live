@@ -215,6 +215,8 @@ function QboConfirmSection({
 interface DraftPreview {
   gross: number; federalTaxableWages: number; totalDeductions: number; employeeTaxes: number; netPay: number; totalCost: number;
   regularHours: number; regularRate: number;
+  /** Staff-visible notes from the payroll engine (e.g. an expired W-4 exemption from withholding). */
+  warnings?: string[];
 }
 
 interface Draft {
@@ -324,6 +326,9 @@ function DraftRow({ draft, selected, onToggleSelect, onChanged }: { draft: Draft
           <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Employer Cost</div><div className="metric-value">{fmtMoney(livePreview.totalCost)}</div></div>
         </div>
       )}
+      {livePreview && !previewError && Array.isArray(livePreview.warnings) && livePreview.warnings.map((w, i) => (
+        <p key={i} role="alert" style={{ fontSize: 12.5, margin: "8px 0 0", padding: "8px 10px", borderRadius: 6, background: "var(--amber-soft, #fff4d6)", color: "var(--ink, #3d2e00)" }}>{w}</p>
+      ))}
     </div>
   );
 }

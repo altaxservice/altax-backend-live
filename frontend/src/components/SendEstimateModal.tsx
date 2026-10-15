@@ -22,6 +22,7 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
   const toast = useToast();
   const [email, setEmail] = useState(estimate.email || "");
   const [phone, setPhone] = useState(estimate.phone || "");
+  const [recipientAskedForText, setRecipientAskedForText] = useState(false);
   const [subject, setSubject] = useState(`Estimate ${estimate.estimate_number} from AL Tax Service`);
   const [message, setMessage] = useState(
     `Please find your estimate attached for ${estimate.business_name}. Total estimated: $${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
@@ -29,7 +30,7 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; error?: string; smsError?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,10 +52,10 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
     setResult(null);
     try {
       const res = await api.post<{ ok: boolean; error?: string; smsError?: string }>(`/estimates/${estimate.estimate_id}/send`, {
-        email, phone, subject, message,
+        email, phone, subject, message, recipientAskedForText: phone.trim() ? recipientAskedForText : false,
       });
       setResult(res);
-      toast(res.ok ? "Estimate sent." : `Could not send — ${res.error || res.smsError}`);
+      toast(res.ok ? (res.smsError ? `Sent, but the text was not sent — ${res.smsError}` : "Estimate sent.") : `Could not send — ${res.error || res.smsError}`);
       if (res.ok) onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send this estimate.");
@@ -73,14 +74,21 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
           <div>
             <div className="field"><label htmlFor="send-estimate-email">Email address</label><input id="send-estimate-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>
             <div className="field"><label htmlFor="send-estimate-phone">Phone (optional — sends a short SMS heads-up)</label><input id="send-estimate-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" /></div>
+            {phone.trim() && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13, margin: "-4px 0 10px" }}>
+                <input type="checkbox" checked={recipientAskedForText} onChange={(e) => setRecipientAskedForText(e.target.checked)} />
+                <span>The recipient asked us to text them about this <span className="muted">(not needed if this number is a client who allows texts; your name is recorded. The text ends with "Reply STOP to opt out.")</span></span>
+              </label>
+            )}
             <div className="field"><label htmlFor="send-estimate-subject">Subject</label><input id="send-estimate-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
             <div className="field"><label htmlFor="send-estimate-message">Message</label><textarea id="send-estimate-message" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
 
             {result && (
               <div className="card" style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 13, color: result.ok ? "var(--green)" : "var(--red)" }}>
-                  {result.ok ? "✓ Sent" : `✗ ${result.error}`}
+                  {result.ok ? "✓ Sent" : `✗ ${result.error || result.smsError}`}
                 </div>
+                {result.ok && result.smsError && <div style={{ fontSize: 13, color: "var(--red)", marginTop: 4 }}>Text not sent — {result.smsError}</div>}
               </div>
             )}
           </div>

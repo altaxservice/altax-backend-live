@@ -10,7 +10,7 @@ interface Info {
   doc: { docId: string; title: string; clientName: string; contractId: string; status: string; lang: string; body: string };
   signers: Signer[]; suggestions: { role: string; name: string }[]; needsNotary: boolean; locked: boolean; file: { name: string; pages: number | null } | null;
 }
-interface Row { role: string; name: string; email: string; phone: string; delivery: "email" | "sms" | "both" | "link" }
+interface Row { role: string; name: string; email: string; phone: string; delivery: "email" | "sms" | "both" | "link"; textOk?: boolean }
 
 const fmt = (v: string | null) => (v ? new Date(v).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "");
 const TONE: Record<string, string> = { Signed: "var(--green, #1a7f4b)", Declined: "var(--red, #b3261e)", Cancelled: "var(--muted, #888)", Viewed: "var(--teal, #0f766e)", Sent: "var(--muted, #666)", Pending: "var(--muted, #888)" };
@@ -42,7 +42,7 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
     const tab = signNow !== undefined ? window.open("", "_blank") : null;
     setBusy(true); setError(null);
     try {
-      const list = rows.map((r, i) => (i === signNow ? { ...r, delivery: "link" as const } : r));
+      const list = rows.map((r, i) => ({ ...(i === signNow ? { ...r, delivery: "link" as const } : r), recipientAskedForText: !!r.textOk }));
       const r = await api.post<{ results: { signerId: string; emailed: boolean; texted: boolean; error: string | null }[] }>(`/doc-builder/docs/${docId}/signing/send`, { signers: list });
       const failed = r.results.filter((x) => x.error);
       const fresh = await api.get<Info>(`/doc-builder/docs/${docId}/signing`);
@@ -99,6 +99,12 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
                   <select value={r.delivery} onChange={(e) => setRow(i, { delivery: e.target.value as Row["delivery"] })}>
                     <option value="email">Email</option><option value="sms">Text message</option><option value="both">Email + text</option><option value="link">Don't send — I'll share the link</option>
                   </select></div>
+                {(r.delivery === "sms" || r.delivery === "both") && (
+                  <label style={{ gridColumn: "1 / -1", display: "flex", gap: 6, alignItems: "flex-start", fontSize: 12.5 }}>
+                    <input type="checkbox" checked={!!r.textOk} onChange={(e) => setRow(i, { textOk: e.target.checked })} />
+                    <span>The recipient asked us to text them about this <span className="muted">(not needed if this number is a client who allows texts)</span></span>
+                  </label>
+                )}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <button type="button" className="btn btn-sm btn-primary" disabled={busy || !r.name.trim()} onClick={() => send(i)} title="Sign this one now on this device — the others still get their links">Sign now</button>
                   <button type="button" className="btn btn-sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>

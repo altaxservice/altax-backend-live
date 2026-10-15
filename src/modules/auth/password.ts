@@ -88,6 +88,9 @@ export function createPasswordHashFields(password: string): PasswordHashFields {
 export const SCRYPT_VERSION = "v3";
 const SCRYPT_N = 16384;
 const SCRYPT_R = 8;
+
+/** Minimum length for a NEW or CHANGED password (set-up, reset, change). Existing passwords keep working at login; this is never checked when signing in. */
+export const MIN_PASSWORD_LENGTH = 12;
 const SCRYPT_P = 1;
 const SCRYPT_KEYLEN = 64;
 
