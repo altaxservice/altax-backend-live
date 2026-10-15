@@ -162,7 +162,7 @@ docBuilderRouter.post("/pdf", asyncHandler(async (req: AuthedRequest, res: Respo
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return; const clientName = client?.client_name || "";
   const bytes = await generateContractPdf({
-    contractId: "PREVIEW", title: p.t.title, clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName, clientName }),
+    contractId: "PREVIEW", title: docTitle(p.t, p.lang, p.answers), clientName: client?.client_name || "", clientId: client?.client_id || "", renderedBody: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName, clientName }),
     effectiveDate: null, status: "Draft", signerName: null, signerTitle: null, signedAt: null, signerIp: null, signatureMethod: "Online", recordedBy: null, legal: true, bodySize: p.t.pdfFontSize,
   });
   res.setHeader("Content-Type", "application/pdf");
@@ -176,7 +176,7 @@ docBuilderRouter.post("/html", asyncHandler(async (req: AuthedRequest, res: Resp
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return; const clientName = client?.client_name || "";
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(renderDocumentHtml({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName, clientName }), autoPrint: Boolean(req.body?.print) }));
+  res.send(renderDocumentHtml({ title: docTitle(p.t, p.lang, p.answers), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName, clientName }), autoPrint: Boolean(req.body?.print) }));
 }));
 
 /** A Word (.docx) copy of the document as it stands, without saving anything. */
@@ -184,7 +184,7 @@ docBuilderRouter.post("/docx", asyncHandler(async (req: AuthedRequest, res: Resp
   const p = prep(req, res); if (!p) return; const firmName = (await getFirmProfile()).firmName;
   const client = await loadClient(req, res, String(req.body?.clientId || "").trim());
   if (client === undefined) return; const clientName = client?.client_name || "";
-  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName, clientName }), footerNote: "Draft" });
+  const buf = await buildDocumentDocx({ title: docTitle(p.t, p.lang, p.answers), body: renderDocument(p.t, p.answers, p.lang, { placeholders: true, firmName, clientName }), footerNote: "Draft" });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   res.setHeader("Content-Disposition", `attachment; filename="${p.t.key}.docx"`);
   res.send(buf);
@@ -203,7 +203,7 @@ docBuilderRouter.post("/create", asyncHandler(async (req: AuthedRequest, res: Re
   if (problems.length) return res.status(400).json({ error: `Please fix: ${problems.slice(0, 4).join(" ")}`, problems });
   const body = renderDocument(p.t, p.answers, p.lang, { firmName: (await getFirmProfile()).firmName, clientName: client?.client_name || "" });
   const effective = /^\d{4}-\d{2}-\d{2}$/.test(String(p.answers.effectiveDate || "")) ? String(p.answers.effectiveDate) : null;
-  const title = String(req.body?.title || "").trim().slice(0, 200) || docTitle(p.t, p.lang);
+  const title = String(req.body?.title || "").trim().slice(0, 200) || docTitle(p.t, p.lang, p.answers);
 
   const contractId = newId("CT");
   await query(

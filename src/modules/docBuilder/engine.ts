@@ -217,10 +217,14 @@ export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang =
   return renderOne(t, answers, "en", ph, fn, cn);
 }
 
-export function docTitle(t: DocTemplate, lang: DocLang): string {
-  if (lang === "ar" && t.titleAr) return t.titleAr;
-  if (lang === "both" && t.titleAr) return `${t.title} / ${t.titleAr}`;
-  return t.title;
+export function docTitle(t: DocTemplate, lang: DocLang, answers?: Answers): string {
+  // A residential lease made as a sublease (the "sublease" switch) is titled as one everywhere it is shown, saved or printed.
+  const sub = Boolean(answers?.sublease) && t.key === "lease_residential";
+  const en = sub ? t.title.replace("Lease", "Sublease") : t.title;
+  const ar = t.titleAr ? (sub ? `${t.titleAr} من الباطن` : t.titleAr) : undefined;
+  if (lang === "ar" && ar) return ar;
+  if (lang === "both" && ar) return `${en} / ${ar}`;
+  return en;
 }
 
 /** Labels of required questions that are visible but unanswered (including required fields inside list rows). */

@@ -2339,9 +2339,9 @@ The settlement agent keeps these certifications with the closing file. A single-
         area("extraClauses", "Additional clauses (optional — one per line)", { placeholder: "e.g. Tenant opens the gas and electric accounts in Tenant's own name before move-in" }),
       ] },
     ],
-    body: `RESIDENTIAL LEASE AGREEMENT
+    body: `{{#if sublease}}RESIDENTIAL SUBLEASE AGREEMENT{{else}}RESIDENTIAL LEASE AGREEMENT{{/if}}
 
-This Lease is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}}, phone {{landlordPhone}}{{#if landlordEmail}}, email {{landlordEmail}}{{/if}} ("Landlord"), and the following tenant(s), together "Tenant":
+This Lease{{#if sublease}} (a sublease of space that Landlord itself rents from the Owner named below){{/if}} is made on {{effectiveDate}} between {{landlord}}, {{landlordAddress}}, phone {{landlordPhone}}{{#if landlordEmail}}, email {{landlordEmail}}{{/if}} ("Landlord"), and the following tenant(s), together "Tenant":
 {{#list tenants}}• {{name}}
 {{/list}}
 1. THE HOME

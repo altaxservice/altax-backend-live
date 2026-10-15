@@ -79,3 +79,14 @@ test("sublease documents: a home cannot go in the commercial sublease, and a lea
   assert.deepEqual(problemsFor("lease_residential", { masterLeaseEnd: "2031-10-31", endDate: "2027-10-31" }), []);
   assert.deepEqual(problemsFor("lease_residential", { endDate: "2027-10-31" }), []);
 });
+
+test("a residential lease made as a sublease is titled as one, in English and Arabic", async () => {
+  const { docTitle } = await import("../modules/docBuilder/engine");
+  const { DOC_TEMPLATES } = await import("../modules/docBuilder/templates");
+  await import("../modules/docBuilder/templatesAr");
+  const t: any = (DOC_TEMPLATES as any[]).find((x) => x.key === "lease_residential");
+  assert.equal(docTitle(t, "en"), "Residential Lease Agreement");
+  assert.equal(docTitle(t, "en", { sublease: true }), "Residential Sublease Agreement");
+  assert.match(docTitle(t, "ar", { sublease: true }), /من الباطن/);
+  assert.equal(docTitle(t, "en", { sublease: false }), "Residential Lease Agreement");
+});

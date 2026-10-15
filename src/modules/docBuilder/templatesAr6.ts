@@ -15,9 +15,9 @@ export const AR_PART6: Record<string, ArabicEdition> = {
       utilities: { tenant: "يتحمل المستأجر جميع المرافق", landlord: "يتحمل المؤجِّر جميع المرافق", split: "كما هو مبيَّن أدناه" },
       yardCare: { none: "لا ينطبق", tenant: "يحافظ المستأجر على نظافة الحديقة ويزيل الثلج والجليد من منطقته", landlord: "يحافظ المؤجِّر على الحديقة ويزيل الثلج والجليد" },
     },
-    body: `عقد إيجار سكني
+    body: `{{#if sublease}}عقد إيجار سكني من الباطن{{else}}عقد إيجار سكني{{/if}}
 
-أُبرم هذا العقد بتاريخ {{effectiveDate}} بين {{landlord}}، العنوان: {{landlordAddress}}، هاتف {{landlordPhone}}{{#if landlordEmail}}، بريد إلكتروني {{landlordEmail}}{{/if}} («المؤجِّر»)، والمستأجرين التالية أسماؤهم، ويُسمَّون معًا «المستأجر»:
+أُبرم هذا العقد{{#if sublease}} (وهو إيجار من الباطن لمكان يستأجره المؤجِّر نفسه من المالك المذكور أدناه){{/if}} بتاريخ {{effectiveDate}} بين {{landlord}}، العنوان: {{landlordAddress}}، هاتف {{landlordPhone}}{{#if landlordEmail}}، بريد إلكتروني {{landlordEmail}}{{/if}} («المؤجِّر»)، والمستأجرين التالية أسماؤهم، ويُسمَّون معًا «المستأجر»:
 {{#list tenants}}• {{name}}
 {{/list}}
 1. المسكن
