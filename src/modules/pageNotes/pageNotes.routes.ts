@@ -45,7 +45,7 @@ function cleanDate(raw: unknown): string | null | false {
 
 function shape(r: any, me: string, isAdmin: boolean) {
   return {
-    noteId: r.note_id, pageKey: r.page_key, tab: r.tab, title: r.title, body: r.body, priority: r.priority, visibility: r.visibility,
+    noteId: r.note_id, pageKey: r.page_key, alsoPages: r.also_pages || [], tab: r.tab, title: r.title, body: r.body, priority: r.priority, visibility: r.visibility,
     showFrom: r.show_from, showUntil: r.show_until, hidden: Boolean(r.hidden),
     createdBy: r.created_by, createdByName: r.created_by_name, createdAt: r.created_at, updatedBy: r.updated_by, updatedAt: r.updated_at,
     ackedVersion: r.acked_version || null, ackedOn: r.acked_on || null,
@@ -67,7 +67,7 @@ pageNotesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandle
             ${TODAY_ET}::text AS today
        FROM altax.v3_page_notes n
        LEFT JOIN altax.v3_page_note_state s ON s.note_id = n.note_id AND s.user_email = $1
-      WHERE n.page_key = $3 AND (n.tab IS NULL OR n.tab = $4) AND ${VISIBLE_SQL}
+      WHERE ((n.page_key = $3 AND (n.tab IS NULL OR n.tab = $4)) OR $3 = ANY(n.also_pages)) AND ${VISIBLE_SQL}
       ORDER BY CASE n.priority WHEN 'Critical' THEN 0 WHEN 'Important' THEN 1 ELSE 2 END, n.updated_at DESC`,
     [me, isAdmin, page, tab || ""]
   );
@@ -88,7 +88,8 @@ function readInput(body: any, isAdmin: boolean): { error?: string; v?: any } {
   const showUntil = cleanDate(body?.showUntil);
   if (showFrom === false || showUntil === false) return { error: "Use real dates for 'show from' and 'show until'." };
   if (showFrom && showUntil && showUntil < showFrom) return { error: "'Show until' cannot be before 'show from'." };
-  return { v: { text, title, priority, visibility, showFrom, showUntil } };
+  const alsoPages = Array.from(new Set((Array.isArray(body?.alsoPages) ? body.alsoPages : []).map((p: unknown) => cleanPageKey(p)).filter((p: string | null): p is string => Boolean(p)))).slice(0, 12);
+  return { v: { text, title, priority, visibility, showFrom, showUntil, alsoPages } };
 }
 
 pageNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -103,9 +104,9 @@ pageNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandl
   const author = await queryOne<any>(`SELECT name FROM altax.v3_users WHERE lower(email) = $1`, [me]);
   const noteId = `PN-${idSuffix()}`;
   await query(
-    `INSERT INTO altax.v3_page_notes (note_id, page_key, tab, title, body, priority, visibility, show_from, show_until, created_by, created_by_name, updated_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10)`,
-    [noteId, page, tab, v.title, v.text, v.priority, v.visibility, v.showFrom, v.showUntil, me, author?.name || null]
+    `INSERT INTO altax.v3_page_notes (note_id, page_key, tab, title, body, priority, visibility, show_from, show_until, created_by, created_by_name, updated_by, also_pages)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10,$12)`,
+    [noteId, page, tab, v.title, v.text, v.priority, v.visibility, v.showFrom, v.showUntil, me, author?.name || null, v.alsoPages.filter((p: string) => p !== page)]
   );
   // The author already knows what it says: don't pop it open for them at once.
   await query(
@@ -127,13 +128,13 @@ async function loadEditable(req: AuthedRequest, res: Response): Promise<any | nu
 pageNotesRouter.patch("/:noteId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const n = await loadEditable(req, res); if (!n) return;
   const isAdmin = req.user!.role === "admin";
-  const parsed = readInput({ ...{ body: n.body, title: n.title, priority: n.priority, visibility: n.visibility, showFrom: n.show_from_t, showUntil: n.show_until_t }, ...req.body }, isAdmin);
+  const parsed = readInput({ ...{ body: n.body, title: n.title, priority: n.priority, visibility: n.visibility, showFrom: n.show_from_t, showUntil: n.show_until_t, alsoPages: n.also_pages }, ...req.body }, isAdmin);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const v = parsed.v;
   const tab = req.body && "tab" in req.body ? (req.body.tab ? cleanTab(req.body.tab) : null) : n.tab;
   await query(
-    `UPDATE altax.v3_page_notes SET title=$2, body=$3, priority=$4, visibility=$5, show_from=$6, show_until=$7, tab=$8, updated_by=$9, updated_at=now() WHERE note_id=$1`,
-    [n.note_id, v.title, v.text, v.priority, v.visibility, v.showFrom, v.showUntil, tab, req.user!.email.toLowerCase()]
+    `UPDATE altax.v3_page_notes SET title=$2, body=$3, priority=$4, visibility=$5, show_from=$6, show_until=$7, tab=$8, updated_by=$9, also_pages=$10, updated_at=now() WHERE note_id=$1`,
+    [n.note_id, v.title, v.text, v.priority, v.visibility, v.showFrom, v.showUntil, tab, req.user!.email.toLowerCase(), v.alsoPages.filter((p: string) => p !== n.page_key)]
   );
   // The editor has seen their own change; everyone else gets it re-opened.
   await query(

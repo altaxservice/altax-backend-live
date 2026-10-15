@@ -2056,3 +2056,7 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 .pnote-actions { display: flex; gap: 8px; margin-top: 10px; }
 html:not([data-skin="classic"]) .pnote { border-radius: 4px; }
 @media print { .pnote, .pnote-empty { display: none; } }
+.pnote-also { margin-top: 8px; font-size: 13px; }
+.pnote-also summary { cursor: pointer; font-weight: 700; }
+.pnote-also-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; margin-top: 6px; }
+.pnote-also-grid label { display: flex; gap: 6px; align-items: center; }

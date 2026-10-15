@@ -11,7 +11,7 @@ import { useConfirm } from "./ConfirmProvider";
  * that start with [ ] become tick-boxes, and a note can wait for a date or retire itself after one. Staff and admin only.
  */
 interface Note {
-  noteId: string; pageKey: string; tab: string | null; title: string | null; body: string;
+  noteId: string; pageKey: string; alsoPages: string[]; tab: string | null; title: string | null; body: string;
   priority: "Info" | "Important" | "Critical"; visibility: "firm" | "admin" | "me";
   showFrom: string | null; showUntil: string | null; hidden: boolean;
   createdBy: string; createdByName: string | null; createdAt: string; updatedBy: string | null; updatedAt: string;
@@ -25,6 +25,17 @@ export function pageKeyFor(pathname: string): string {
   if (!parts.length) return "/";
   return parts.length === 1 ? `/${parts[0]}` : `/${parts[0]}/:id`;
 }
+
+/** The pages a note can also be shown on (key = the page's address pattern). */
+const PAGE_CHOICES: [string, string][] = [
+  ["/dashboard", "Dashboard"], ["/clients", "Clients list"], ["/clients/:id", "Client page (any client)"], ["/accounting", "Accounting"], ["/payroll-agent", "Payroll Agent"],
+  ["/tasks", "Tasks"], ["/tasks/:id", "Task page"], ["/notes", "Notes"], ["/daily-log", "Daily Log"], ["/calendar", "Calendar"], ["/billing", "Billing"], ["/billing/:id", "Invoice page"],
+  ["/estimates", "Estimates"], ["/document-builder", "Document Builder"], ["/e-sign", "E-Sign"], ["/reports", "Reports"], ["/tax-payments", "Client Tax Payments"],
+  ["/time-tracking", "Time Tracking"], ["/rules", "Task Rules"], ["/labels", "Labels"], ["/pipeline", "Pipeline"], ["/communications", "Communications"], ["/documents", "Documents"],
+  ["/fix-center", "Fix Center"], ["/compliance", "Compliance"],
+];
+const PAGE_LABEL: Record<string, string> = Object.fromEntries(PAGE_CHOICES);
+const labelFor = (key: string) => PAGE_LABEL[key] || key;
 
 const TONE = { Info: "info", Important: "important", Critical: "critical" } as const;
 const VIS_LABEL = { firm: "Everyone on staff", admin: "Administrators only", me: "Only you" } as const;
@@ -65,8 +76,8 @@ function NoteBody({ note, onToggle }: { note: Note; onToggle: (lineIndex: number
   );
 }
 
-interface Draft { noteId: string | null; title: string; body: string; priority: Note["priority"]; visibility: Note["visibility"]; tabOnly: boolean; showFrom: string; showUntil: string }
-const EMPTY: Draft = { noteId: null, title: "", body: "", priority: "Info", visibility: "firm", tabOnly: false, showFrom: "", showUntil: "" };
+interface Draft { noteId: string | null; primary: string; alsoPages: string[]; title: string; body: string; priority: Note["priority"]; visibility: Note["visibility"]; tabOnly: boolean; showFrom: string; showUntil: string }
+const EMPTY: Draft = { noteId: null, primary: "", alsoPages: [], title: "", body: "", priority: "Info", visibility: "firm", tabOnly: false, showFrom: "", showUntil: "" };
 
 export function PageNote({ pageTitle }: { pageTitle: string }) {
   const { user } = useAuth();
@@ -119,7 +130,7 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
     setBusy(true); setError(null);
     const payload = {
       page, tab: draft.tabOnly && tab ? tab : null, title: draft.title, body: draft.body, priority: draft.priority, visibility: draft.visibility,
-      showFrom: draft.showFrom || null, showUntil: draft.showUntil || null,
+      showFrom: draft.showFrom || null, showUntil: draft.showUntil || null, alsoPages: draft.alsoPages,
     };
     try {
       if (draft.noteId) await api.patch(`/page-notes/${draft.noteId}`, payload); else await api.post("/page-notes", payload);
@@ -130,7 +141,7 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
     if (!(await confirm({ title: "Delete this page note?", message: n.title || n.body.slice(0, 80), confirmLabel: "Delete", danger: true }))) return;
     try { await api.delete(`/page-notes/${n.noteId}`); load(); } catch (e) { setError(e instanceof ApiError ? e.message : "Could not delete the note."); }
   }
-  const edit = (n: Note) => setDraft({ noteId: n.noteId, title: n.title || "", body: n.body, priority: n.priority, visibility: n.visibility, tabOnly: Boolean(n.tab), showFrom: n.showFrom || "", showUntil: n.showUntil || "" });
+  const edit = (n: Note) => setDraft({ noteId: n.noteId, primary: n.pageKey, alsoPages: n.alsoPages || [], title: n.title || "", body: n.body, priority: n.priority, visibility: n.visibility, tabOnly: Boolean(n.tab), showFrom: n.showFrom || "", showUntil: n.showUntil || "" });
 
   // ---------- the editor ----------
   const editor = draft && (
@@ -154,6 +165,15 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
         <div className="field"><label htmlFor="pn-from">Show from <span className="muted">(optional)</span></label><input id="pn-from" type="date" value={draft.showFrom} onChange={(e) => setDraft({ ...draft, showFrom: e.target.value })} /></div>
         <div className="field"><label htmlFor="pn-until">Show until <span className="muted">(optional)</span></label><input id="pn-until" type="date" value={draft.showUntil} onChange={(e) => setDraft({ ...draft, showUntil: e.target.value })} /></div>
       </div>
+      <details className="pnote-also" open={draft.alsoPages.length > 0}>
+        <summary>Also show this note on other pages{draft.alsoPages.length ? ` (${draft.alsoPages.length})` : ""}</summary>
+        <div className="pnote-also-grid">
+          {PAGE_CHOICES.filter(([k]) => k !== draft.primary).map(([k, label]) => (
+            <label key={k}><input type="checkbox" checked={draft.alsoPages.includes(k)}
+              onChange={(e) => setDraft({ ...draft, alsoPages: e.target.checked ? [...draft.alsoPages, k] : draft.alsoPages.filter((x) => x !== k) })} /> {label}</label>
+          ))}
+        </div>
+      </details>
       {tab && <label className="pnote-tabonly"><input type="checkbox" checked={draft.tabOnly} onChange={(e) => setDraft({ ...draft, tabOnly: e.target.checked })} /> Only on the “{tab}” tab (otherwise it shows on every tab of this page)</label>}
       {error && <div className="tender-warn" style={{ color: "var(--red)", marginTop: 8 }}>{error}</div>}
       <div className="pnote-actions">
@@ -175,6 +195,7 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
       <div className="pnote-meta">
         <span>{n.createdByName || n.createdBy}{n.updatedBy && n.updatedBy.toLowerCase() !== n.createdBy.toLowerCase() ? ` · edited by ${n.updatedBy}` : ""} · {ago(n.updatedAt)}</span>
         <span>{VIS_LABEL[n.visibility]}{n.tab ? ` · ${n.tab} tab only` : ""}{n.showUntil ? ` · until ${fmtDay(n.showUntil)}` : ""}</span>
+        <span>Shows on: {[n.pageKey, ...(n.alsoPages || [])].map(labelFor).join(", ")}</span>
         {n.canEdit && (
           <span className="pnote-item-actions">
             <button type="button" className="pnote-link" onClick={() => edit(n)}><Pencil size={12} aria-hidden="true" /> Edit</button>
@@ -189,7 +210,7 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
   if (data && !live.length && !draft) {
     return (
       <div className="pnote-empty">
-        <button type="button" className="pnote-link" onClick={() => setDraft({ ...EMPTY })}><Plus size={13} aria-hidden="true" /> Page note for {pageTitle}</button>
+        <button type="button" className="pnote-link" onClick={() => setDraft({ ...EMPTY, primary: page })}><Plus size={13} aria-hidden="true" /> Page note for {pageTitle}</button>
         {hiddenNotes.length > 0 && <button type="button" className="pnote-link" onClick={() => setShowHidden((v) => !v)}>{hiddenNotes.length} scheduled or expired</button>}
         {showHidden && <div className="pnote pnote-hiddenlist">{hiddenNotes.map(noteCard)}</div>}
       </div>
@@ -210,7 +231,7 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
           {live.length > 1 && <span className="pnote-chip muted">+{live.length - 1} more</span>}
           <ChevronDown size={14} aria-hidden="true" />
         </button>
-        <button type="button" className="pnote-link" onClick={() => setDraft({ ...EMPTY })} aria-label="Add a page note"><Plus size={13} aria-hidden="true" /> Add</button>
+        <button type="button" className="pnote-link" onClick={() => setDraft({ ...EMPTY, primary: page })} aria-label="Add a page note"><Plus size={13} aria-hidden="true" /> Add</button>
       </div>
     );
   }
@@ -219,7 +240,7 @@ export function PageNote({ pageTitle }: { pageTitle: string }) {
       <div className="pnote-head">
         <div className="pnote-eyebrow-row"><StickyNote size={16} aria-hidden="true" /><span className="pnote-eyebrow">Page note · {pageTitle}{tab ? ` · ${tab}` : ""}</span></div>
         <div className="pnote-head-actions">
-          {!draft && <button type="button" className="pnote-link" onClick={() => setDraft({ ...EMPTY })}><Plus size={13} aria-hidden="true" /> Add</button>}
+          {!draft && <button type="button" className="pnote-link" onClick={() => setDraft({ ...EMPTY, primary: page })}><Plus size={13} aria-hidden="true" /> Add</button>}
           {live.length > 0 && <button type="button" className="btn btn-sm btn-primary" onClick={ackAll}><Check size={13} aria-hidden="true" /> Got it</button>}
         </div>
       </div>
