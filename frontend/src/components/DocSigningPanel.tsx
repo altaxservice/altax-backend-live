@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Send } from "lucide-react";
+import { QrLinkButton } from "./QrLinkButton";
 import { api, ApiError, printFile, viewFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "./ConfirmProvider";
@@ -128,6 +129,7 @@ export function DocSigningPanel({ docId, onChanged, onClose }: { docId: string; 
                   <div className="muted" style={{ fontSize: 12 }}>{s.signedAt ? fmt(s.signedAt) : s.declinedAt ? `${fmt(s.declinedAt)}${s.declineReason ? ` — ${s.declineReason}` : ""}` : s.viewedAt ? `Opened ${fmt(s.viewedAt)}` : s.sentAt ? `Sent ${fmt(s.sentAt)}` : ""}{s.reminders ? ` · ${s.reminders} reminder${s.reminders === 1 ? "" : "s"}` : ""}</div></td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   {s.link && s.status !== "Cancelled" && <><button type="button" className="btn btn-sm" onClick={() => copy(s.link!)}><Copy size={12} aria-hidden="true" /> Copy link</button>{" "}
+                    <QrLinkButton link={s.link!} title={`Scan to sign — ${s.name}`} />{" "}
                     <a className="btn btn-sm" href={s.link} target="_blank" rel="noreferrer">Sign on this device</a>{" "}</>}
                   {(s.status === "Sent" || s.status === "Viewed") && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => remind(s.signerId)}>Remind</button>}
                 </td>

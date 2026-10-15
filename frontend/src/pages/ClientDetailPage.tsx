@@ -1,4 +1,5 @@
 import { DateInput } from "../components/DateInput";
+import { QrLinkButton } from "../components/QrLinkButton";
 import { WorkTrailCard, LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { ModifiedStamp } from "../components/ModifiedStamp";
 import { PermitTrackerSection } from "../components/PermitTrackerSection";
@@ -2392,7 +2393,10 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                         </button>
                       )}
                       {c.service_key !== POA_RELEASE_SERVICE_KEY && (c.status === "Sent" || c.status === "Signed") && c.share_token && (
+                        <>
                         <button type="button" className="btn btn-sm" onClick={() => handleCopyLink(c)}>Copy Link</button>
+                        <QrLinkButton link={`${window.location.origin}/public/contract/${c.share_token}`} title={`Scan to sign — ${c.title}`} />
+                        </>
                       )}
                       {(c.status === "Draft" || c.status === "Sent") && (
                         <button type="button" className="btn btn-sm" disabled={busy === `signip-${c.contract_id}`} onClick={() => openSignInPerson(c)}>
