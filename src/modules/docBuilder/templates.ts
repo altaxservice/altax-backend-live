@@ -2055,6 +2055,125 @@ GUARANTOR: {{guarantor}}
 Signature: ______________________________   Date: ______________
 {{/if}}`,
   },
+  {
+    key: "commercial_sublease", title: "Commercial Sublease Agreement", category: REAL_ESTATE,
+    description: "A business tenant rents all or part of its space to another business: ties the sublease to the master lease, sets rent and who is paid, insurance, default, and includes the landlord's consent page.",
+    reviewNote: "A sublease sits under the master lease: read the master lease first, because most commercial leases forbid subletting without the landlord's written consent and may limit the use, the term and the rent. This document includes a landlord consent page — get it signed before the subtenant moves in. The sublandlord stays responsible to the landlord for the master lease even after the sublease. The sublease term must not run past the master lease. Attach a copy of the master lease. Written with Maryland in mind and checked against a LawDepot-style sample; these parts of that sample were not copied because they are risky or unclear: ending all duties automatically when the master lease ends, a mandatory loser-pays attorney's-fee rule (it is an option here), and re-entry by the landlord's own hands (this document says possession is retaken only by lawful procedures). Confirm with an attorney: the default notice periods, the personal guarantee, tobacco, alcohol or lottery licenses (the subtenant must hold its own — a sublease does not transfer a license), and any local rental license. Companies must sign through an officer with a title.",
+    steps: [
+      { title: "Parties and master lease", questions: [text("sublandlord", "Sublandlord (the tenant who is subletting)", { required: true }), text("sublandlordAddress", "Sublandlord's address for notices", { required: true }), text("subtenant", "Subtenant (the new occupant)", { prefill: "clientName", required: true }), text("subtenantAddress", "Subtenant's address for notices", { prefill: "clientAddress", required: true }), text("landlord", "Landlord under the master lease", { required: true }), date("masterLeaseDate", "Date of the master lease", { required: true }), text("premises", "Address of the premises (include suite)", { required: true }), effective(), state()] },
+      { title: "The space and the term", questions: [
+        pick("scope", "What is sublet?", [["all", "All of the premises"], ["part", "Part of the premises"]], { required: true, default: "all" }), text("partDesc", "Describe the part sublet", { showIf: { id: "scope", equals: "part" }, required: true, placeholder: "e.g. The front retail room and the storage room on the first floor" }),
+        date("startDate", "Sublease starts", { required: true }), date("endDate", "Sublease ends", { required: true, help: "Not later than the end of the master lease." }),
+        text("use", "Permitted use (leave empty to use whatever the master lease allows)", { placeholder: "e.g. Retail convenience store" }),
+      ] },
+      { title: "Rent and costs", questions: [
+        pick("rentBasis", "Rent", [["same", "The same rent the master lease requires"], ["amount", "A different monthly rent set here"]], { required: true, default: "same" }), money("rent", "Monthly rent", { showIf: { id: "rentBasis", equals: "amount" }, required: true }),
+        num("rentDay", "Rent due on day", { default: "1", required: true }), num("graceDays", "Days before rent is late", { default: "5", required: true }),
+        pick("payTo", "Who is the rent paid to?", [["landlord", "The Subtenant pays the landlord directly"], ["sublandlord", "The Subtenant pays the Sublandlord, who pays the landlord"]], { required: true, default: "sublandlord" }), text("payHow", "How it is paid (optional)", { placeholder: "e.g. By Zelle to the landlord's account, or by check" }),
+        yesno("lateFee", "Charge a late fee"), money("lateFeeAmount", "Late fee", { showIf: { id: "lateFee", equals: true }, required: true }), money("nsfFee", "Fee for a returned check or payment (optional)", { default: "25" }),
+        money("deposit", "Security deposit paid to the Sublandlord (optional)"),
+        pick("utilities", "Utilities and other charges", [["subtenant", "The Subtenant pays all utilities and charges the master lease makes the Sublandlord pay"], ["split", "As listed below"]], { required: true, default: "subtenant" }), text("utilitiesNote", "Which charges, and who pays", { showIf: { id: "utilities", equals: "split" }, required: true }),
+      ] },
+      { title: "Insurance, default and extras", questions: [
+        money("liabilityAmount", "Subtenant's liability insurance (minimum per occurrence)", { default: "1000000", required: true }),
+        num("payNoticeDays", "Days after written notice before unpaid rent is a default", { default: "10", required: true }), num("fixDays", "Days to fix any other breach after written notice", { default: "30", required: true }), num("entryHours", "Hours' notice before the sublandlord or landlord enters (except in an emergency)", { default: "24", required: true }),
+        yesno("attorneyFees", "In a lawsuit about this sublease the losing party pays the winner's reasonable attorney's fees and court costs", { default: false }),
+        yesno("guarantee", "Someone personally guarantees the subtenant's obligations"), text("guarantor", "Guarantor's name", { showIf: { id: "guarantee", equals: true }, required: true }),
+        area("extraClauses", "Any additional terms (optional)"),
+      ] },
+    ],
+    body: `COMMERCIAL SUBLEASE AGREEMENT
+
+This Sublease is made on {{effectiveDate}} between {{sublandlord}}, {{sublandlordAddress}} ("Sublandlord") and {{subtenant}}, {{subtenantAddress}} ("Subtenant").
+
+1. BACKGROUND AND MASTER LEASE
+The Sublandlord rents the premises at {{premises}} (the "Premises") from {{landlord}} (the "Landlord") under a lease dated {{masterLeaseDate}} (the "Master Lease"). The Sublandlord wishes to sublet {{#if scope=part}}part of the Premises, described as {{partDesc}}{{else}}all of the Premises{{/if}} (the "Subleased Premises") to the Subtenant, and the Subtenant wishes to take it, on these terms. The Sublandlord has given the Subtenant a copy of the Master Lease, which the parties will attach to this Sublease. This Sublease is subject to the Master Lease; if the two conflict, the Master Lease controls unless this Sublease clearly says otherwise.
+
+2. TERM
+The term of this Sublease runs from {{startDate}} to {{endDate}} (the "Term"), at 12:00 noon on each date. The Term will not run past the end of the Master Lease.
+
+3. LANDLORD'S CONSENT
+This Sublease is not binding on either party until both have signed and delivered it and the Landlord has consented to it in writing on the consent page at the end. The Landlord's consent does not release the Sublandlord from the Master Lease.
+
+4. RENT
+{{#if rentBasis=same}}The Subtenant pays rent in the same amount, on the same dates and on the same terms as the Master Lease requires for the Subleased Premises.{{else}}The Subtenant pays rent of {{rent}} per month, due on day {{rentDay}} of each month, without set-off or deduction.{{/if}} {{#if payTo=landlord}}The Subtenant pays the rent directly to the Landlord{{#if payHow}} ({{payHow}}){{/if}}, and each payment counts as payment under this Sublease.{{else}}The Subtenant pays the rent to the Sublandlord{{#if payHow}} ({{payHow}}){{/if}}, who passes on to the Landlord what the Master Lease requires.{{/if}} Rent not received within {{graceDays}} days after the due date is {{#if lateFee}}subject to a late fee of {{lateFeeAmount}} and {{/if}}late.{{#if nsfFee}} The Subtenant pays {{nsfFee}} for each check or payment returned by its bank.{{/if}} All sums the Subtenant owes under this Sublease are additional rent and may be collected like unpaid rent.
+
+{{#if deposit}}5. SECURITY DEPOSIT
+The Subtenant pays the Sublandlord a security deposit of {{deposit}} when this Sublease is signed. The Sublandlord holds it, without interest unless the law requires it, and returns it within 45 days after the Term ends and the Subtenant has given the Subleased Premises back, less amounts needed for unpaid rent or for damage beyond normal wear, with a written list of deductions. It is separate from any deposit under the Master Lease and is not a limit on what the Subtenant owes.
+
+{{/if}}6. USE
+The Subtenant and its employees and agents will use the Subleased Premises only for {{#if use}}{{use}}, which must also be allowed by the Master Lease{{else}}a purpose the Master Lease permits{{/if}}, will comply with every law and with every license and permit the use requires (the Subtenant must hold its own licenses; a sublease does not transfer a license), and will not do anything that would break the Master Lease.
+
+7. THE MASTER LEASE
+From {{startDate}} until the Term ends, the Subtenant will perform every duty of the Sublandlord under the Master Lease that applies to the Subleased Premises, except that rent is paid as set out above. As to the Subtenant, the Sublandlord has the rights and remedies the Landlord has against the Sublandlord under the Master Lease. The Sublandlord stays responsible to the Landlord for the Master Lease. The Sublandlord states that the Master Lease is in force and unchanged and that, to its knowledge, neither the Sublandlord nor the Landlord is in default under it. The Sublandlord will not change or end the Master Lease, or give up any of its rights under it, in a way that harms the Subtenant, without the Subtenant's written consent, and will promptly give the Subtenant a copy of any notice the Landlord sends about the Subleased Premises. If the Master Lease ends early because of the Subtenant's default, the Subtenant is liable for the resulting loss; if it ends because of the Sublandlord's default or act, the Sublandlord is liable to the Subtenant for the Subtenant's resulting loss.
+
+8. UTILITIES AND OTHER CHARGES
+{{#if utilities=subtenant}}The Subtenant pays all utilities and other charges for the Subleased Premises that the Master Lease makes the Sublandlord pay, during the Term.{{else}}{{utilitiesNote}}{{/if}}
+
+9. CARE, REPAIRS AND SURRENDER
+The Subtenant keeps the Subleased Premises clean and in good condition, reports needed repairs and maintenance problems at once to both the Sublandlord and the Landlord, and is liable to the Sublandlord and the Landlord for damage done to the Subleased Premises, their contents or the building by the Subtenant or its employees, customers and guests. At the end of the Term the Subtenant gives back the Subleased Premises, and any furniture and decoration in them, in as good a condition as at the start, normal wear and damage by the elements excepted. Improvements left on the Subleased Premises at the end stay with the Sublandlord, free of any lien.
+
+10. ALTERATIONS
+The Subtenant may make alterations and improvements only with the prior written consent of the Sublandlord and, where the Master Lease requires it, the Landlord. The work must comply with all building laws, and the Subtenant keeps the Subleased Premises free of liens for work or materials it orders.
+
+11. INSURANCE AND INDEMNITY
+The Subtenant, at its own cost, carries the kinds of insurance the Master Lease requires of the Sublandlord, with commercial general liability of at least {{liabilityAmount}} per occurrence, naming the Sublandlord and the Landlord as additional insureds, and gives both proof of it when the policy is issued and each time it is renewed. The Subtenant protects the Sublandlord and the Landlord from claims arising from the Subtenant's use of the Subleased Premises, except those caused by their negligence.
+
+12. TAXES
+The Subtenant pays all license, privilege, excise and other taxes assessed on its business, on the Subleased Premises during the Term to the extent the Master Lease makes the Sublandlord pay them, and on any personal property on the Subleased Premises, and will avoid late fees and penalties.
+
+13. ENTRY
+The Sublandlord and the Landlord may enter the Subleased Premises on {{entryHours}} hours' notice to inspect them, maintain them or make repairs they are responsible for, and at any time in an emergency.
+
+14. DEFAULT
+The Subtenant is in default if:
+• it does not pay rent when due and does not pay within {{payNoticeDays}} days after written notice;
+• it does not perform another duty under this Sublease or the Master Lease and does not fix it within {{fixDays}} days after written notice;
+• it becomes insolvent or bankrupt, makes an assignment for the benefit of creditors, or a receiver is appointed for its affairs;
+• it abandons the Subleased Premises or any part of them;
+• it uses the Subleased Premises for an unpermitted or illegal purpose; or
+• the Subleased Premises are damaged by fire or other casualty caused by the Subtenant's negligence or willful act, or that of its employees, agents or guests.
+
+15. REMEDIES
+If the Subtenant is in default, the Sublandlord may end this Sublease after the longer of the notice this Sublease, the Master Lease or the law requires; do what the Subtenant failed to do and charge the Subtenant for it; retake possession of the Subleased Premises by the lawful procedures available under the law; and recover unpaid rent, damages and reasonable collection costs, giving credit for amounts received from re-renting. Using one remedy does not prevent using any other, and the remedies in the Master Lease and the law are also available.
+
+16. ASSIGNMENT AND FURTHER SUBLETTING
+The Subtenant will not assign this Sublease or sublet or transfer any part of the Subleased Premises without the prior written consent of both the Sublandlord and the Landlord.
+
+17. NOTICES
+Notices must be in writing and delivered personally, by courier, or by certified or registered mail, to the Sublandlord at {{sublandlordAddress}} and to the Subtenant at {{subtenantAddress}}, or to another address a party gives in writing.
+
+{{#if attorneyFees}}18. ATTORNEY'S FEES
+In a lawsuit about this Sublease, the losing party pays the winning party's reasonable attorney's fees and court costs as the court decides.
+
+{{/if}}{{#if guarantee}}19. GUARANTEE
+{{guarantor}} personally and unconditionally guarantees that the Subtenant will pay the rent and perform all its duties under this Sublease, as extended or changed, and signs below to confirm it. The guarantee continues despite any change, release of the Subtenant or delay by the Sublandlord, and the Sublandlord need not first pursue the Subtenant.
+
+{{/if}}{{#if extraClauses}}20. ADDITIONAL TERMS
+{{extraClauses}}
+
+{{/if}}21. GENERAL
+This Sublease is the whole agreement of the parties and may be changed only in writing signed by them and, where the Master Lease requires, consented to by the Landlord. It binds the parties' heirs, successors and permitted assigns and is governed by the laws of the State of {{state}}, whose courts may settle any dispute about it. If it conflicts with a {{state}} law that cannot be changed by agreement, that law applies and this Sublease is treated as changed to the extent needed. If there is more than one Subtenant, each is jointly and severally liable. The Sublandlord and the Subtenant are not agents of each other and are not partners. Time is of the essence. If a term cannot be enforced, the rest stays in force. This Sublease may be signed in counterparts, including electronically. Headings are for convenience only, the singular includes the plural, and any gender includes every gender. Each person who signs for a company states that he or she is authorized to do so, and each signer acknowledges receiving a signed copy.
+
+SUBLANDLORD: {{sublandlord}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+
+SUBTENANT: {{subtenant}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________
+{{#if guarantee}}
+GUARANTOR: {{guarantor}}
+Signature: ______________________________   Date: ______________
+{{/if}}
+[page break]
+CONSENT OF LANDLORD TO SUBLEASE
+The undersigned is the landlord under the lease dated {{masterLeaseDate}} for the premises at {{premises}}, and consents to the Sublease above between {{sublandlord}} and {{subtenant}}. This consent does not release {{sublandlord}} from its duties under that lease, and it is not consent to any further assignment or subletting. The landlord will send both the Sublandlord and the Subtenant notice of any breach by the Subtenant of the lease.
+
+LANDLORD: {{landlord}}
+Signature: ______________________________   Date: ______________
+If a company — By: ______________________________   Name: ______________________________   Title: ______________________________`,
+  },
   /* ─────────────── Batch 7: powers, sales and transfers ─────────────── */
   {
     key: "general_poa", title: "Power of Attorney", category: FAMILY,

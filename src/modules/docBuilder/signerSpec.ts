@@ -37,6 +37,7 @@ const SPEC: Record<string, Spec[]> = {
   child_travel_consent: [{ role: "Parent / guardian", nameId: "parent" }, { role: "Second parent / guardian", nameId: "parent2", onlyIf: "secondParent" }],
   lease_residential: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", listId: "tenants", listNameId: "name" }],
   lease_commercial: [{ role: "Landlord", nameId: "landlord" }, { role: "Tenant", nameId: "tenant" }, { role: "Guarantor", nameId: "guarantor", onlyIf: "guarantee" }],
+  commercial_sublease: [{ role: "Sublandlord", nameId: "sublandlord" }, { role: "Subtenant", nameId: "subtenant" }, { role: "Guarantor", nameId: "guarantor", onlyIf: "guarantee" }, { role: "Landlord (consent)", nameId: "landlord" }],
   property_sale_residential: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   property_sale_commercial: [{ role: "Seller", nameId: "seller" }, { role: "Buyer", nameId: "buyer" }],
   business_poa: [{ role: "Owner (for the business)", nameId: "owner" }, { role: "Agent", nameId: "agent" }],
