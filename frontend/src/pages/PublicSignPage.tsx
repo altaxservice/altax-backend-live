@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { TopazPadCapture, isWindowsComputer } from "../components/TopazPadCapture";
 import { useParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ContractBodyText } from "../components/ContractBodyText";
@@ -117,7 +118,7 @@ export function PublicSignPage() {
           <div className="command-panel"><div className="command-panel-header"><h2 className="command-panel-title">Sign</h2></div>
             <div style={{ padding: 16, display: "grid", gap: 14 }}>
               <div className="field"><label htmlFor="sg-name">Type your full legal name<span style={{ color: "var(--red)" }}> *</span></label><input id="sg-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
-              <div className="field"><label>Draw your signature <span className="muted">(optional)</span></label><SignaturePad onChange={setImage} /></div>
+              <div className="field"><label>Draw your signature <span className="muted">(optional)</span></label><SignaturePad onChange={setImage} />{isWindowsComputer() && <TopazPadCapture onChange={setImage} />}</div>
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13.5 }}>
                 <input type="checkbox" checked={consentE} onChange={(e) => setConsentE(e.target.checked)} style={{ marginTop: 3 }} />
                 <span>

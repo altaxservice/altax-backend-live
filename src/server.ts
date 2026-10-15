@@ -126,6 +126,9 @@ app.use(helmet({
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       "frame-src": ["'self'", "blob:"],
+      // Topaz SigWeb: the signature-pad service that runs on the office computer is reached at this address (it resolves to the
+      // same computer); the page loads Topaz's SigWebTablet.js from /vendor/ on this site.
+      "connect-src": ["'self'", "https://tablet.sigwebtablet.com:47290"],
       // Every marketing-site page (marketing-site/*.html) carries one small
       // inline <script> that reads localStorage before first paint and sets
       // lang="ar"/dir="rtl" early, to avoid a flash of the wrong direction
