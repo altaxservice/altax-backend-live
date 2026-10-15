@@ -645,7 +645,7 @@ export const READINESS: Record<string, Readiness> = {
       "Hand the tenant the State mold pamphlet at signing",
       "Pre-1978 answer is correct; MDE lead papers given and the inspection certificate number and date written in",
       "Deposit is no more than one month's rent and the signed deposit receipt goes to the tenant",
-      "Rental license number, landlord phone and all tenant names are filled in",
+      "Landlord holds any rental license the city or county requires (Baltimore City: to rent and to collect rent); landlord phone and all tenant names are filled in",
       "If it is a sublease: sublease switch on, master lease read, owner's consent page signed before move-in"
     ]
   },
