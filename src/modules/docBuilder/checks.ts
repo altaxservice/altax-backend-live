@@ -77,6 +77,7 @@ const GENERAL_SUBJECTS = ["sReal", "sPersonal", "sStocks", "sBanks", "sInsurance
 export const CHECKS: Record<string, Check[]> = {
   ach_authorization: [{ type: "max", id: "returnFee", value: 35, message: "A fee for a returned debit may not be more than $35." }, after("endDate", "startDate", ENDS, { id: "billing", equals: "monthly" })],
   ein_closure_letter: [{ type: "mustEqual", id: "returnsFiled", value: "yes", message: "The IRS will not close the account until every required return is filed and every tax is paid — finish those first, then send this letter." }],
+  client_privacy_notice: [{ type: "atLeastOne", ids: ["noAffiliates"], message: "The privacy notice text assumes no affiliates; change the notice before using it." }],
   fee_agreement: [{ type: "max", id: "lateFeePercent", value: 0.67, message: "Interest above 8% a year (0.67% a month) is not allowed here — Maryland limits interest on a written agreement to 8% (Commercial Law §12-103)." }],
   engagement_letter: [after("endDate", "effectiveDate", "The end date must be after the date of the letter.", { id: "term", equals: "fixed" })],
   authorization_release: [after("expires", "effectiveDate", "The expiry date must be after the date of the authorization.", { id: "duration", equals: "date" })],

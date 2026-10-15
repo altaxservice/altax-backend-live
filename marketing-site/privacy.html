@@ -11,6 +11,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -27,11 +29,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -56,18 +62,22 @@
 
 <section class="section section-cream">
   <div class="container legal-content reveal">
-    <p class="updated" data-i18n="legal.lastUpdated">Last updated: July 18, 2026</p>
+    <p class="updated" data-i18n="legal.lastUpdated">Last updated: October 15, 2026</p>
 
     <h2 data-i18n="privacy.overviewHeading">Overview</h2>
-    <p data-i18n="privacy.overviewBody">AL TAX SERVICE ("we," "us," or "our") respects your privacy. This Privacy Policy explains what information we collect through this website, how we use it, and the choices you have — including your choices around SMS and WhatsApp messages.</p>
+    <p data-i18n="privacy.overviewBody">AL TAX SERVICE ("we," "us," or "our") respects your privacy. This Privacy Policy explains what information we collect through this website and our client portal, how we use it, who we share it with, and the choices you have &mdash; including your choices around text and WhatsApp messages.</p>
 
     <h2 data-i18n="privacy.collectHeading">Information We Collect</h2>
-    <p data-i18n="privacy.collectIntro">We collect information you provide directly to us, including:</p>
+    <p data-i18n="privacy.collectIntro">We collect the information below. Some of it you give us directly; some is collected automatically when you visit.</p>
     <ul>
-      <li data-i18n="privacy.collect1">Contact form submissions (name, company name, phone number, email address, and the details of your inquiry)</li>
-      <li data-i18n="privacy.collect2">Newsletter sign-up (email address)</li>
-      <li data-i18n="privacy.collect3">Mobile phone number and consent status, if you opt in to receive SMS or WhatsApp messages from us</li>
+      <li data-i18n="privacy.collect1">Contact form: name, company name, phone number, email address, your message, whether you ticked the text-message box (with the date and time), and the IP address the form was sent from</li>
+      <li data-i18n="privacy.collect5">Appointment booking: your name, phone number and/or email, the time you chose, and any notes you add. If your email address matches an existing client record, the appointment is linked to that record.</li>
+      <li data-i18n="privacy.collect2">Newsletter sign-up: your email address, the IP address it was sent from, and the date you confirmed or unsubscribed</li>
+      <li data-i18n="privacy.collect6">Free tools: if you ask us to follow up from a tool page, your name, email, phone number, and the answers you entered in that tool. Nothing is sent to us until you submit the follow-up form.</li>
+      <li data-i18n="privacy.collect3">Mobile phone number and consent status, if you opt in to receive text or WhatsApp messages from us</li>
+      <li data-i18n="privacy.collect7">Visit counts: the page you viewed, the domain name of the site that referred you, whether you use a phone or a computer, and a one-way scrambled code made from your IP address, browser and the date, which lets us count visitors without storing your IP address. This is skipped if your browser sends a Do Not Track signal.</li>
       <li data-i18n="privacy.collect4">Your language preference, stored locally in your browser</li>
+      <li data-i18n="privacy.collect8">If you become a client: the personal and financial information needed to do the work &mdash; for example Social Security numbers, EINs, bank account details, income and payroll records, and the documents you give us in person, by phone or email, or through the client portal. See &ldquo;Client Information and Tax Return Privacy&rdquo; below.</li>
     </ul>
 
     <h2 data-i18n="privacy.useHeading">How We Use Your Information</h2>
@@ -75,27 +85,34 @@
     <ul>
       <li data-i18n="privacy.use1">Respond to your inquiries and schedule consultations</li>
       <li data-i18n="privacy.use2">Provide the tax, accounting, payroll, and corporate compliance services you request</li>
-      <li data-i18n="privacy.use3">Send appointment reminders, tax deadline reminders, and service-related updates by phone, email, SMS, or WhatsApp — only where you've consented</li>
-      <li data-i18n="privacy.use4">Improve our website and services</li>
+      <li data-i18n="privacy.use3">Send appointment confirmations and reminders, tax deadline reminders, and service-related updates by phone, email, text, or WhatsApp &mdash; text and WhatsApp only where you've consented or given us your number for that purpose</li>
+      <li data-i18n="privacy.use4">Count visits to understand which pages are useful, keep the website secure, and prevent abuse</li>
+      <li data-i18n="privacy.use5">Keep the records we need and meet our legal and professional obligations</li>
     </ul>
 
+    <h2 data-i18n="privacy.clientHeading">Client Information and Tax Return Privacy</h2>
+    <p data-i18n="privacy.clientBody">When you become a client, we collect the personal and financial information needed to do the work. We use and disclose tax return information only to prepare and file your returns and provide the services you ask for, as the law requires or allows, or with your written consent. Federal law (Internal Revenue Code section 7216) restricts what a tax return preparer may do with tax return information. As a tax preparation business we are also a &ldquo;financial institution&rdquo; under the Gramm-Leach-Bliley Act: we do not sell your nonpublic personal information or share it with outside companies for their own marketing. Individual clients receive our written Client Privacy Notice when the engagement begins, and you can ask us for another copy at any time.</p>
+
     <h2 data-i18n="privacy.smsHeading">SMS &amp; WhatsApp Communications</h2>
-    <p data-i18n="privacy.smsBody">If you opt in to receive text messages or WhatsApp messages from AL TAX SERVICE, your mobile phone number and consent will never be sold, shared, or rented to any third party or affiliate for marketing or promotional purposes. Opt-in data collected for SMS/WhatsApp messaging is used solely to deliver the communications you signed up for. Message and data rates may apply, and you may opt out at any time by replying <bdi dir="ltr">STOP</bdi>. Full program details are available in our <a href="/sms-terms" data-i18n-inner="privacy.smsTermsLink">SMS &amp; WhatsApp Terms</a>.</p>
+    <p data-i18n="privacy.smsBody">If you opt in to receive text or WhatsApp messages from AL TAX SERVICE, your mobile phone number and consent will never be sold, shared, or rented to any third party or affiliate for marketing or promotional purposes. We share the number only with the messaging provider that delivers our messages (Twilio, and WhatsApp for WhatsApp messages). Opt-in data is used solely to deliver the communications you signed up for. Message and data rates may apply, message frequency varies, and you may opt out at any time by replying <bdi dir="ltr">STOP</bdi>. Full program details are available in our <a href="/sms-terms" data-i18n-inner="privacy.smsTermsLink">SMS &amp; WhatsApp Terms</a>.</p>
 
     <h2 data-i18n="privacy.shareHeading">How We Share Information</h2>
-    <p data-i18n="privacy.shareBody">We do not sell your personal information. We may share information with trusted service providers who help us deliver our services (such as e-filing and payroll processing platforms), and only to the extent necessary to perform those services. We may also disclose information if required by law.</p>
+    <p data-i18n="privacy.shareBody">We do not sell your personal information. We share information only with: (1) service providers that help us run our services, limited to what they need &mdash; our hosting and database providers (Railway and Neon), our email delivery provider (Resend), and our text and WhatsApp provider (Twilio); (2) the IRS, the Comptroller of Maryland, and other agencies, e-filing platforms and payroll platforms, when we file or process something for you; (3) anyone you ask us to share with; and (4) others where required by law, subpoena or court order, or to protect our rights.</p>
 
-    <h2 data-i18n="privacy.cookiesHeading">Cookies &amp; Local Storage</h2>
-    <p data-i18n="privacy.cookiesBody">This website uses your browser's local storage to remember your language preference (English/Arabic). We do not currently use tracking or advertising cookies.</p>
+    <h2 data-i18n="privacy.cookiesHeading">Cookies, Local Storage &amp; Third-Party Content</h2>
+    <p data-i18n="privacy.cookiesBody">This website does not set cookies, and we do not use advertising or cross-site tracking. It stores your language choice (English/Arabic) in your browser's local storage. We count visits with our own privacy-friendly counter, described above. Our pages load fonts from Google Fonts, so your browser contacts Google's servers (Google receives your IP address and browser information, as with any website that loads those fonts). Our hosting provider may keep standard server logs, which include IP addresses, for security and troubleshooting. Some forms (contact, newsletter and tools) also record the IP address they were sent from, to prevent abuse.</p>
 
     <h2 data-i18n="privacy.securityHeading">Data Security</h2>
-    <p data-i18n="privacy.securityBody">We use reasonable administrative and technical safeguards to protect the information you share with us. No method of transmission over the internet is completely secure, and we cannot guarantee absolute security.</p>
+    <p data-i18n="privacy.securityBody">We use administrative, technical, and physical safeguards to protect the information you share with us. In our systems, Social Security numbers, EINs, bank account and routing numbers, saved payment details, secure-vault passwords, uploaded documents, government-form data, and two-factor secrets are encrypted in storage; account passwords are stored only as one-way hashes; connections to this website and the portal use HTTPS; access is limited by role; and backups are encrypted. Other information, such as names, addresses, phone numbers, email addresses, and invoice amounts, is protected by access controls and by our hosting providers but is not separately encrypted field by field. No method of transmission or storage is completely secure, and we cannot guarantee absolute security. Please do not send Social Security numbers, bank details, or passwords through the contact form, a text message, or ordinary email &mdash; use the secure client portal or call us.</p>
+
+    <h2 data-i18n="privacy.retentionHeading">How Long We Keep Information</h2>
+    <p data-i18n="privacy.retentionBody">We keep client records for as long as we need them to provide services and to meet legal and professional requirements. Tax return records are generally kept for several years (the IRS periods for auditing or amending a return are commonly 3 to 7 years, and longer in some cases). Website messages, appointment requests, and tool follow-up requests that do not lead to a client engagement are kept only as long as needed to respond to them and for our business records. Newsletter addresses are kept until you unsubscribe, after which we keep a record of the unsubscribe so we do not email you again. Visit counts contain no personal identifiers.</p>
 
     <h2 data-i18n="privacy.choicesHeading">Your Choices</h2>
     <ul>
-      <li data-i18n="privacy.choice1">Opt out of SMS/WhatsApp messages at any time by replying <bdi dir="ltr">STOP</bdi>, or by contacting us directly</li>
+      <li data-i18n="privacy.choice1">Opt out of text/WhatsApp messages at any time by replying <bdi dir="ltr">STOP</bdi>, or by telling us in any reasonable way</li>
       <li data-i18n="privacy.choice2">Unsubscribe from our email newsletter using the link in any newsletter email</li>
-      <li data-i18n="privacy.choice3">Contact us to ask what information we hold about you, or to request it be corrected or deleted</li>
+      <li data-i18n="privacy.choice3">Contact us to ask what personal information we hold about you, to have it corrected, or to ask us to delete it. We honor reasonable requests, except where we must keep information to meet legal or professional obligations (for example, tax return records).</li>
     </ul>
 
     <h2 data-i18n="privacy.childrenHeading">Children's Privacy</h2>
@@ -105,9 +122,11 @@
     <p data-i18n="privacy.changesBody">We may update this Privacy Policy from time to time. The "Last updated" date above reflects the most recent revision.</p>
 
     <h2 data-i18n="privacy.contactHeading">Contact Us</h2>
-    <p data-i18n="privacy.contactBody">Questions about this policy? Reach us at <bdi dir="ltr">+1 (443) 835-4492</bdi> or <bdi dir="ltr">1714 Saint Paul St. STE 1A, Baltimore, MD 21202</bdi>.</p>
+    <p data-i18n="privacy.contactBody">Questions about this policy, or a request about your information? Reach us at <bdi dir="ltr">+1 (443) 835-4492</bdi>, <bdi dir="ltr">al@altaxgroup.com</bdi>, or <bdi dir="ltr">1714 Saint Paul St. STE 1A, Baltimore, MD 21202</bdi>.</p>
   </div>
 </section>
+
+</main>
 
 <footer class="site-footer">
   <div class="container">
@@ -115,14 +134,9 @@
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -138,7 +152,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -147,13 +161,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">

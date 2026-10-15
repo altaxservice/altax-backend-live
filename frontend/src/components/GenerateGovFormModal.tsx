@@ -649,6 +649,12 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
 
             {formType === "SS4" && (
               <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Applies for an EIN. The responsible party must be a real person (not a company) unless the applicant is a government entity.
+                  A person who buys an existing business needs his or her own EIN: the IRS instructions say not to use the former owner's EIN unless
+                  the buyer became the owner of a corporation by acquiring its stock. A change of owners of an entity that keeps its EIN is reported
+                  on Form 8822-B within 60 days, not on a new SS-4.
+                </p>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-ss4-legal-name">Legal name of entity</label>
@@ -793,6 +799,13 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
 
             {formType === "2553" && (
               <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Elects S corporation status. File it no more than 2 months and 15 days after the start of the tax year the election takes effect, or at any
+                  time in the tax year before it. Every shareholder must be an eligible holder (an individual who is a U.S. citizen or resident, or another holder
+                  the tax law allows; not a company or a partnership), the corporation may have only one class of stock, and every shareholder must sign the consent
+                  (a spouse with a community-property interest also consents). If the shareholders are more than the four lines here, attach a continuation sheet.
+                  Each signature is by hand.
+                </p>
                 <div className="field">
                   <label htmlFor="gf-2553-corp-name">Corporation name</label>
                   <input id="gf-2553-corp-name" value={f2553.corporationName} onChange={(e) => setF2553({ ...f2553, corporationName: e.target.value })} />
@@ -890,6 +903,11 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     {meta.w9TaxClassifications.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+                <p className="muted" style={{ fontSize: 12, margin: "-4px 0 10px" }}>
+                  Line 1 is the name on the person's tax return. For a sole proprietor or a disregarded single-member LLC, enter the owner's own name as the
+                  name and the business name below it, and check the box for the OWNER's classification (the IRS form says a disregarded entity should not check "LLC").
+                  Check "LLC" and enter C, S or P only when the LLC is taxed as a corporation or a partnership. Enter an SSN or an EIN: a W-9 without a number is incomplete.
+                </p>
                 {w9.taxClassification === "LLC" && (
                   <div className="field" style={{ maxWidth: 200 }}>
                     <label htmlFor="gf-w9-llc-code">LLC tax classification (C, S, or P)</label>
@@ -1356,7 +1374,9 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
               <div>
                 <p className="muted" style={{ fontSize: 12 }}>
                   Maryland SDAT's Articles of Amendment for a Limited Liability Company — must be approved by unanimous
-                  consent of the members. Both signature lines are physical-signature-only and are not filled in by this app.
+                  consent of the members, and filing is signed by an authorized person. A change of members needs no SDAT filing; a new resident agent or
+                  principal office is filed on SDAT's own statement (Corporations and Associations Article Section 4A-210). Both signature lines are
+                  physical-signature-only and are not filled in by this app.
                 </p>
                 <div className="field">
                   <label htmlFor="gf-mdallc-name">Full name of the LLC</label>
@@ -1382,7 +1402,8 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
             {formType === "MD_AMEND_CORP" && (
               <div>
                 <p className="muted" style={{ fontSize: 12 }}>
-                  Maryland SDAT's Articles of Amendment for a Corporation. Two different officers must sign (Attested by /
+                  Maryland SDAT's Articles of Amendment for a Corporation. File it only after the amendment was really approved (usually the directors and
+                  the stockholders; the form's approval line must say how). Two different officers must sign (Attested by /
                   Signed by) unless this is a close or professional services corporation — both lines are
                   physical-signature-only and are not filled in by this app.
                 </p>
@@ -1447,6 +1468,15 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   Maryland SDAT's Articles of Dissolution — ends the existence of a Maryland domestic corporation. Both
                   certification signature blocks and the resident agent's consent are physical-signature-only and are not
                   filled in by this app.
+                </p>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Before filing (Corporations and Associations Article, Title 3, Subtitle 4): (1) the dissolution must be approved. For a corporation with stock
+                  the board declares it advisable and the stockholders approve by two-thirds of all the votes entitled to be cast (Section 3-403); a close corporation
+                  with no directors needs only its stockholders. (2) At least 20 days before filing, mail notice that the dissolution was approved to ALL known
+                  creditors AND to the employees (Section 3-404). SDAT's form asks only about creditors, but the law also requires the employee notice. (3) With known
+                  creditors, file after the 19th day following the mailing (Section 3-407). (4) The corporation must be active (not pending forfeiture). After filing it
+                  continues only to wind up: collect assets, pay debts, then distribute the rest (Sections 3-408 and 3-410). (5) Also file the final returns
+                  (Maryland MW506FR and SUT202FR here; final federal returns) and IRS Form 966 within 30 days after the dissolution plan is adopted.
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>

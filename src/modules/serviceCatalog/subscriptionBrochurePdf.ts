@@ -167,10 +167,15 @@ function sectionHeading(c: Cursor, y: number, fonts: Fonts, title: string, subti
   return y + 6;
 }
 
+/** "October 15, 2026" - the date this sheet was produced. Printed on every page so a fee quoted from an older copy can be traced to the schedule it came from. */
+function asOfDate(): string {
+  return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
 function drawFooter(c: Cursor, firmName: string, phone: string, email: string) {
   c.line(L, PAGE_H - 40, R, PAGE_H - 40, LINE, 1);
   c.text(L, PAGE_H - 26, `${firmName.toUpperCase()}  ·  ${phone}  ·  ${email}`, { size: 8, color: MUTED });
-  c.text(R, PAGE_H - 26, "Prices shown are minimums — actual fees may vary by engagement scope.", { size: 8, color: MUTED, align: "right" });
+  c.text(R, PAGE_H - 26, `Starting prices as of ${asOfDate()} - see Important Information (page 3).`, { size: 8, color: MUTED, align: "right" });
 }
 
 /** The dotted-leader table header row: left label + right-aligned amount column title, with a thin rule beneath. */
@@ -254,7 +259,7 @@ export async function generateSubscriptionBrochurePdf(): Promise<Uint8Array> {
   for (const line of calloutLines) { p1.c.text(L + 20, cy2, line, { size: 10.5, color: INK }); cy2 += 15; }
   y += calloutH + 14;
 
-  y = drawTableHeader(p1.c, y, "MONTHLY FEE");
+  y = drawTableHeader(p1.c, y, "STARTING MONTHLY FEE");
   for (const group of Array.from(new Set(recurring.map((s) => s.group_name)))) {
     p1.c.tracked(L, y, group.toUpperCase(), 1.2, { size: 7.5, bold: true, color: GOLD_TEXT });
     y += 13;
@@ -298,13 +303,13 @@ export async function generateSubscriptionBrochurePdf(): Promise<Uint8Array> {
   for (const line of scopedLines) { p2.c.text(L + 20, cy3, line, { size: 10.5, color: INK }); cy3 += 15; }
   y += scopedH + 20;
 
-  y = sectionHeading(p2.c, y, fonts, "How These Engagements Are Priced", "A flat fee, agreed before any work begins.");
+  y = sectionHeading(p2.c, y, fonts, "How These Engagements Are Priced", "A fee agreed in writing before any work begins.");
   y += 8;
   const stepTop = y;
   const steps = [
     { n: "01", label: "SCOPE", body: "We review what the matter involves — entity type, filings required, documents on hand — before quoting anything." },
-    { n: "02", label: "WRITTEN QUOTE", body: "You receive a flat fee in writing, along with what is included and what would fall outside it." },
-    { n: "03", label: "DELIVER", body: "Work is completed to the agreed dates and billed once. Nothing is added to your monthly subscription." },
+    { n: "02", label: "WRITTEN QUOTE", body: "You receive the fee in writing, along with what is included and what falls outside it." },
+    { n: "03", label: "DELIVER", body: "Work is done by the quoted dates, once we have your documents, and billed once. Nothing joins your monthly fee." },
   ];
   const stepW = (R - L) / 3;
   p2.c.line(L, stepTop - 8, R, stepTop - 8, LINE, 1);
@@ -334,6 +339,37 @@ export async function generateSubscriptionBrochurePdf(): Promise<Uint8Array> {
   p2.c.text(R - 24, y + ctaH / 2 + 8, profile.email, { size: 10, color: GOLD, align: "right" });
 
   drawFooter(p2.c, profile.firmName, profile.phone, profile.email);
+
+  // ---------- Page 3: Important information (what the prices do and do not include) ----------
+  // Fee-information rules for tax practitioners (Circular 230, 31 CFR 10.30(b)) require that a published fee statement say whether clients are
+  // responsible for costs, and that it not mislead; this page also keeps "no guarantee" and "not a law firm" in front of every prospect.
+  const p3 = await newPage(doc, fonts.sans, fonts.sansBold);
+  y = drawLetterhead(p3.page, p3.c, fonts, profile, logo, "Important Information", "What these prices include and what they do not");
+  y = sectionHeading(p3.c, y, fonts, "Please read before you decide", `Fee schedule as of ${asOfDate()}.`);
+  y += 4;
+  const notes: [string, string][] = [
+    ["Starting prices.", "Monthly figures are starting prices, and items marked \"By quote\" have no published price. The fee for your business depends on the services you choose and the size of the job, and we confirm it to you in writing before work begins. The price in your signed agreement or written quote is the price that applies."],
+    ["Costs that are not part of our fees.", "Government and agency fees (for example filing, license, permit, registration and annual report fees), taxes, penalties and interest, payroll and sales tax amounts, and charges from outside companies are separate from our fees, and you are responsible for them. Your written quote shows them and says whether you pay the agency directly or we pay it and bill you."],
+    ["No guarantee of results.", "We prepare and file from the information and documents you give us. We cannot promise any refund, any tax amount, or that an agency will approve a license, permit, application or filing, or how an audit or notice will turn out. Those decisions belong to the agency."],
+    ["What we are and are not.", "We are not a law firm and do not give legal advice. Where this sheet lists document preparation (including formation, transfer and immigration documents), we prepare forms and standard documents from information you provide; you decide what they say. Representing you before the IRS or a state agency needs your signed authorization."],
+    ["Your information.", "Fees assume the information you give us is complete and correct and arrives on time. If the work turns out to be larger than we quoted, we tell you and agree the change with you before we do the extra work."],
+    ["Monthly services.", "Monthly services run under the signed agreement. A change in your monthly fee needs 30 days' written notice to you, or a new signed agreement."],
+  ];
+  for (const [lead, rest] of notes) {
+    const lines = p3.c.wrapLines(`${lead} ${rest}`, R - L - 24, { size: 10 });
+    p3.c.rect(L, y - 8, 3, lines.length * 14 + 4, GOLD);
+    p3.c.text(L + 14, y, lead, { size: 10, bold: true, color: INK });
+    const leadW = fonts.sansBold.widthOfTextAtSize(lead + " ", 10);
+    // Draw the first line after the bold lead-in, the remainder wrapped below at full width.
+    const restWords = rest.split(" ");
+    let first = ""; let idx = 0;
+    while (idx < restWords.length && fonts.sans.widthOfTextAtSize(`${first} ${restWords[idx]}`.trim(), 10) <= R - L - 24 - leadW) { first = `${first} ${restWords[idx]}`.trim(); idx++; }
+    p3.c.text(L + 14 + leadW + 2, y, first, { size: 10, color: INK });
+    y += 14;
+    if (idx < restWords.length) y = p3.c.wrapped(L + 14, y, restWords.slice(idx).join(" "), R - L - 24, { size: 10, color: INK, lineHeight: 14 });
+    y += 10;
+  }
+  drawFooter(p3.c, profile.firmName, profile.phone, profile.email);
 
   return doc.save();
 }

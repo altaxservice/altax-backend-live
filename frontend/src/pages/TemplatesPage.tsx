@@ -280,7 +280,7 @@ function ContractTemplateForm({ serviceKey, onSaved, onCancel }: { serviceKey: s
         <label htmlFor="ctpl-body">Body</label>
         <textarea id="ctpl-body" rows={16} style={{ fontFamily: "monospace", fontSize: 12.5 }} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} />
         <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>
-          Placeholders: {"{{clientName}}"}, {"{{firmName}}"}, {"{{effectiveDate}}"}, {"{{feeAmount}}"} (already includes the fee description, e.g. "$400.00 (per month)").
+          Placeholders: {"{{clientName}}"}, {"{{firmName}}"}, {"{{effectiveDate}}"}, {"{{feeAmount}}"} (already includes the fee description, e.g. "$400.00 (per month)"). {"{{feeAmountAr}}"} is the same fee in Arabic wording, for the Arabic edition.
         </div>
       </div>
       <div className="field"><label htmlFor="ctpl-notes">Internal Notes</label><textarea id="ctpl-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Not shown to clients" /></div>

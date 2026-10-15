@@ -12,6 +12,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -28,11 +30,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -56,18 +62,18 @@
 
 <section class="section section-cream">
   <div class="container legal-content reveal">
-    <p class="updated" data-i18n="news.publishedNote">Published August 2026 &middot; General information, not personalized tax advice — see note below.</p>
+    <p class="updated" data-i18n="ref.publishedNote">Reviewed October 2026 &middot; General information, not personalized tax advice &mdash; see note below.</p>
 
     <h2 data-i18n="retention.s1Heading">The general rule: 3 years</h2>
-    <p data-i18n="retention.s1Body">For most individual and business tax returns, keep records for at least 3 years from the date you filed the return (or 2 years from the date you paid the tax, whichever is later). This covers the standard IRS time limit to audit a return or for you to file an amended return claiming a refund.</p>
+    <p data-i18n="retention.s1Body">For most individual and business tax returns, keep records for at least 3 years from the date you filed the original return (or 2 years from the date you paid the tax, if you later file a claim for refund, whichever is later). Returns filed before the due date are treated as filed on the due date. This covers the standard IRS time limit to audit a return or for you to file an amended return claiming a refund.</p>
 
     <h2 data-i18n="retention.s2Heading">When you should keep records longer</h2>
-    <p data-i18n="retention.s2Body">The 3-year rule doesn't apply in every case. Per IRS Publication 552, keep records longer if any of these apply to your situation:</p>
+    <p data-i18n="retention.s2Body">The 3-year rule doesn't apply in every case. Per the IRS's &ldquo;How long should I keep records?&rdquo; guidance (see also IRS Publications 552 and 583), keep records longer if any of these apply to your situation:</p>
     <ul>
       <li data-i18n="retention.li1"><strong>6 years</strong> — if you failed to report income that you should have, and it's more than 25% of the gross income shown on your return.</li>
       <li data-i18n="retention.li2"><strong>7 years</strong> — if you claimed a deduction for a bad debt or a loss from worthless securities.</li>
       <li data-i18n="retention.li3"><strong>Indefinitely</strong> — if you didn't file a return, or if you filed a fraudulent return.</li>
-      <li data-i18n="retention.li4"><strong>Indefinitely</strong> — for employment tax records, keep at least 4 years after the date the tax becomes due or is paid, whichever is later.</li>
+      <li data-i18n="retention.li4"><strong>At least 4 years</strong> &mdash; for employment tax records, keep them at least 4 years after the date the tax becomes due or is paid, whichever is later.</li>
     </ul>
 
     <h2 data-i18n="retention.s3Heading">Property and asset records: a different clock</h2>
@@ -79,7 +85,7 @@
     <h2 data-i18n="retention.s5Heading">A simple habit that makes this easy</h2>
     <p data-i18n="retention.s5Body">Keep one folder (physical or digital) per tax year, and don't clear it out until the retention period for that specific year has actually passed — not just "a few years," since the exceptions above can extend a single year's records well past 3.</p>
 
-    <p style="margin-top:2rem; padding-top:1.5rem; border-top:1px solid var(--color-border);" data-i18n="retention.disclaimer"><strong>A note on this page:</strong> this summarizes general IRS retention guidance (Publication 552) and is not personalized advice — your specific situation, or a state's own requirements, may call for keeping certain records longer. Always confirm current guidance at <a href="https://www.irs.gov" target="_blank" rel="noopener">IRS.gov</a>, or <a href="/contact">talk with our team</a> about your specific records.</p>
+    <p style="margin-top:2rem; padding-top:1.5rem; border-top:1px solid var(--color-border);" data-i18n="retention.disclaimer"><strong>A note on this page:</strong> this summarizes general IRS retention guidance (&ldquo;How long should I keep records?&rdquo; and Publications 552 and 583) and is not personalized advice &mdash; your specific situation, or a state's own requirements, may call for keeping certain records longer. Always confirm current guidance at <a href="https://www.irs.gov" target="_blank" rel="noopener">IRS.gov</a>, or <a href="/contact">talk with our team</a> about your specific records.</p>
   </div>
 </section>
 
@@ -92,20 +98,17 @@
   </div>
 </section>
 
+</main>
+
 <footer class="site-footer">
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -120,7 +123,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -129,13 +132,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">

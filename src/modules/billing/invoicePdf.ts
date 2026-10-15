@@ -152,6 +152,9 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   }
   c.text(textL, y, profile.firmName.toUpperCase(), { size: 18, bold: true, color: TEAL });
   c.text(R, y, "INVOICE", { size: 22, bold: true, align: "right" });
+  // A cancelled invoice must not be mistaken for a live one when the PDF is forwarded or printed on its own.
+  const isVoid = String(data.status || "").trim().toLowerCase() === "void";
+  if (isVoid) c.text(R, y + 18, "VOID - this invoice was cancelled and nothing is owed on it", { size: 8, bold: true, color: rgb(0.7, 0.1, 0.1), align: "right" });
   for (const line of [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim())) { y += 13; c.text(textL, y, line, { size: 9, color: MUTED }); }
   y += 13; c.text(textL, y, profile.phone, { size: 9, color: MUTED });
   y += 13; c.text(textL, y, profile.email, { size: 9, color: MUTED });
@@ -193,7 +196,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   if (data.terms) {
     c.text(R, metaY, "Terms", { size: 8, bold: true, color: MUTED, align: "right" });
     metaY += 12;
-    c.text(R, metaY, data.terms, { size: 10, align: "right" });
+    c.text(R, metaY, fitText(font, data.terms, 10, 170), { size: 10, align: "right" });
     metaY += 16;
   }
 
@@ -222,6 +225,9 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     // otherwise descriptions claim that space too instead of sitting next to an
     // empty column.
     const hasServiceDates = lineItems.some((li) => li.serviceDate);
+    // The "T" (taxable) mark is only meaningful when sales tax is actually charged on this invoice; on a no-tax invoice it would wrongly suggest tax was owed.
+    const taxCharged = Number(data.salesTaxAmount || 0) > 0;
+    let shown = 0;
     const colDesc = hasServiceDates ? L + 60 : L;
     const colQty = R - 210, colRate = R - 140, colAmt = R;
     const descMaxWidth = colQty - colDesc - 30; // 30pt reserve for the right-aligned Qty digits
@@ -241,10 +247,17 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
       labelLines.forEach((ln, i) => c.text(colDesc, y + i * 13, ln, { size: 10 }));
       c.text(colQty, y, String(li.quantity), { size: 10, align: "right" });
       c.text(colRate, y, `$${money(li.rate)}`, { size: 10, align: "right" });
-      c.text(colAmt, y, `$${money(li.amount)}${li.taxable === false ? "" : "T"}`, { size: 10, align: "right" });
+      c.text(colAmt, y, `$${money(li.amount)}${taxCharged && li.taxable !== false ? " T" : ""}`, { size: 10, align: "right" });
       y += 18 + (labelLines.length - 1) * 13;
-      if (y > PAGE_H - 220) break; // single-page layout; overflow items are omitted rather than mis-rendered
+      shown++;
+      if (y > PAGE_H - 300) break; // single-page layout; overflow items are not drawn, and the notice below says so
     }
+    if (shown < lineItems.length) {
+      // The printed Total always includes every line, so never let the page silently show fewer lines than the total covers.
+      c.text(L, y, `Plus ${lineItems.length - shown} more line item${lineItems.length - shown === 1 ? "" : "s"} included in the total below but not listed here. Contact us for the full itemized statement.`, { size: 8.5, bold: true, color: MUTED });
+      y += 14;
+    }
+    if (taxCharged) { c.text(L, y, "T = subject to sales tax", { size: 8, color: MUTED }); y += 10; }
     y += 6;
     c.line(L, y, R, y, LINE, 0.75);
     y += 26;
@@ -309,28 +322,31 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   const qrSize = 110;
   const qrTopY = y;
   const qrBottomY = qrTopY + 12 + qrSize + 12;
-  if (zelleQr) {
+  if (zelleQr && !isVoid) {
     c.text(R, qrTopY, "Scan to Pay via Zelle", { size: 8, bold: true, color: MUTED, align: "right" });
     page.drawImage(zelleQr, { x: R - qrSize, y: PAGE_H - qrTopY - 12 - qrSize, width: qrSize, height: qrSize });
   }
 
-  if (profile.zellePhone) {
+  if (profile.zellePhone && !isVoid) {
     c.text(L, y, "Pay by Zelle", { size: 9, bold: true });
     y += 13;
     c.text(L, y, `Zelle by phone number: ${profile.zellePhone}`, { size: 10, bold: true });
     y += 22;
   }
-  if (data.paymentInstructions) {
+  if (data.paymentInstructions && !isVoid) {
     c.text(L, y, "Payment Instructions", { size: 9, bold: true });
     y += 13;
-    c.text(L, y, data.paymentInstructions.slice(0, 120), { size: 9, color: MUTED });
-    y += 20;
+    // Wrapped (not cut at a character count) so payment instructions are never printed half-finished; kept clear of the Zelle QR column.
+    const instrWidth = zelleQr ? R - L - qrSize - 20 : R - L;
+    for (const ln of wrapText(font, data.paymentInstructions, 9, instrWidth, 4)) { c.text(L, y, ln, { size: 9, color: MUTED }); y += 12; }
+    y += 8;
   }
   if (data.clientNote) {
-    c.text(L, y, data.clientNote.slice(0, 140), { size: 9, color: MUTED });
-    y += 20;
+    const noteWidth = zelleQr ? R - L - qrSize - 20 : R - L;
+    for (const ln of wrapText(font, data.clientNote, 9, noteWidth, 4)) { c.text(L, y, ln, { size: 9, color: MUTED }); y += 12; }
+    y += 8;
   }
-  if (zelleQr) y = Math.max(y, qrBottomY);
+  if (zelleQr && !isVoid) y = Math.max(y, qrBottomY);
 
   if (data.payments.length && y < PAGE_H - 120) {
     c.text(L, y, "Payment History", { size: 9, bold: true });
@@ -354,6 +370,10 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   footerLines.forEach((line, i) => {
     c.text(L, PAGE_H - 30 - (footerLines.length - 1 - i) * 12, line, { size: 9, color: MUTED });
   });
+  const contactBits = [profile.phone, profile.email].filter((x) => x && x.trim()).join("  |  ");
+  if (!isVoid && contactBits) {
+    c.text(L, PAGE_H - 30 - footerLines.length * 12 - 4, `Questions about this invoice, or think something is wrong? Contact us before paying: ${contactBits}`, { size: 8, color: MUTED });
+  }
 
   return doc.save();
 }

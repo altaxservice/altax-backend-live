@@ -9,6 +9,7 @@ import { applyPersistedJwtSecret } from "./common/jwtSecret";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep, runClientMdSalesTaxDeadlineNotifications } from "./modules/clients/clients.routes";
 import { runComplianceDeadlineReminders } from "./common/complianceReminders";
+import { runReportingAgentStatements } from "./common/reportingAgentStatement";
 import { runSalesLoggingNudges } from "./common/salesLoggingNudges";
 import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
 import { permitsRouter } from "./modules/clients/permits.routes";
@@ -628,6 +629,9 @@ console.log("Client MD sales tax deadline notice scheduled for 6:27AM America/Ne
 cron.schedule("29 6 * * *", runScheduledJob("Client Compliance Deadline Reminders", () => runComplianceDeadlineReminders("System (Compliance Reminder Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Client compliance deadline reminders scheduled for 6:29AM America/New_York.");
+
+// Quarterly reporting-agent statement (IRS Rev. Proc. 2012-32, section 5.05): first week of Jan/Apr/Jul/Oct, once per client per quarter.
+cron.schedule("36 6 1-7 1,4,7,10 *", runScheduledJob("Quarterly Reporting Agent Statement", () => runReportingAgentStatements("System (Reporting Agent Statement Job)")), { timezone: "America/New_York" });
 
 // "You haven't logged sales" client portal nudge — a real My Books value-add,
 // not a deadline reminder (see salesLoggingNudges.ts's own doc comment for

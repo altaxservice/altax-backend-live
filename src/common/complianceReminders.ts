@@ -88,19 +88,23 @@ export function buildComplianceReminderMessage(clientName: string, label: string
   // (complianceCalendar.ts), only clientName is untrusted here.
   const safeClientName = escapeHtml(clientName);
   const dateUs = fmtUsDate(dueDate);
-  const dayWordEn = daysUntil < 0 ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? "" : "s"} overdue` : daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
-  const dayWordAr = daysUntil < 0 ? `متأخر ${Math.abs(daysUntil)} يومًا` : daysUntil === 0 ? "اليوم" : daysUntil === 1 ? "غدًا" : `خلال ${daysUntil} يومًا`;
-  const subject = `Reminder: ${label} Due ${dateUs}`;
+  const overdue = daysUntil < 0;
+  const dayWordEn = overdue ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? "" : "s"} ago` : daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
+  const dayWordAr = overdue ? `قبل ${Math.abs(daysUntil)} يومًا` : daysUntil === 0 ? "اليوم" : daysUntil === 1 ? "غدًا" : `خلال ${daysUntil} يومًا`;
+  // "was due" (not "is due ... overdue") once the date has passed: the firm may already have this in hand, and a reminder must not tell the client a filing is late unless that is known.
+  const verbEn = overdue ? "was due on" : "is due on";
+  const verbAr = overdue ? "كان مستحقًا بتاريخ" : "مستحق بتاريخ";
+  const subject = overdue ? `Reminder: ${label} Was Due ${dateUs}` : `Reminder: ${label} Due ${dateUs}`;
 
   // white-space:nowrap on the date keeps "April 15, 2026" from breaking
   // mid-date across lines on a narrow (phone) screen — direct owner
   // feedback, 2026-08-26, from a real received email screenshot.
-  const calloutEn = `<div style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-left:4px solid #a9834a; border-radius:4px;"><strong>${label}</strong> is due on <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordEn}).</div>`;
-  const calloutAr = `<div dir="rtl" style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-right:4px solid #a9834a; border-radius:4px; text-align:right;"><strong>${label}</strong> مستحق بتاريخ <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordAr}).</div>`;
-  const en = `Dear ${safeClientName},\n\nThis is a reminder that your\n${calloutEn}\nPlease contact us regarding this matter.\n\nThank you,\n${firmName}`;
-  const ar = `عزيزنا ${safeClientName}،\n\nهذا تذكير بأن\n${calloutAr}\nيرجى التواصل معنا بخصوص هذا الأمر.\n\nشكراً لكم،\n${firmName}`;
+  const calloutEn = `<div style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-left:4px solid #a9834a; border-radius:4px;"><strong>${label}</strong> ${verbEn} <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordEn}).</div>`;
+  const calloutAr = `<div dir="rtl" style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-right:4px solid #a9834a; border-radius:4px; text-align:right;"><strong>${label}</strong> ${verbAr} <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordAr}).</div>`;
+  const en = `Dear ${safeClientName},\n\nThis is a reminder that\n${calloutEn}\nPlease contact us regarding this matter. If it has already been taken care of, please disregard this message.\n\nThank you,\n${firmName}`;
+  const ar = `عزيزنا ${safeClientName}،\n\nهذا تذكير بأن\n${calloutAr}\nيرجى التواصل معنا بخصوص هذا الأمر. وإذا تمت معالجته بالفعل فيرجى تجاهل هذه الرسالة.\n\nشكراً لكم،\n${firmName}`;
   const body = `${en}\n\n---\n\n${ar}`;
-  const smsBody = `Reminder: your ${label} is due ${dateUs} (${dayWordEn}). Please contact us regarding this matter.`;
+  const smsBody = `Reminder: your ${label} ${verbEn} ${dateUs} (${dayWordEn}). Please contact us regarding this matter, or ignore this text if it is already done.`;
   return { subject, body, smsBody };
 }
 

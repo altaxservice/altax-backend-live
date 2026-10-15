@@ -3138,6 +3138,142 @@ CUSTOMER: {{customer}}
 Signature: ______________________________   Date: ______________
 If a business account — By: ______________________________   Name: ______________________________   Title: ______________________________`,
   },
+  {
+    key: "tax_preparer_disclosure", title: "Individual Tax Preparer Disclosure (Maryland)", category: CLIENT_SERVICE,
+    description: "The written disclosure a registered Maryland individual tax preparer must give a customer before preparing a personal income tax return: who the preparer is, that the preparer is not a CPA, enrolled agent or tax attorney, and the preparer's training.",
+    reviewNote: "BEFORE THE CLIENT SIGNS: (1) Make one disclosure for each preparer who will prepare the client's personal return, and hand it over at the first meeting BEFORE any work starts (Business Occupations and Professions §21-403(b)). (2) Every fact must be true and come from the preparer's own records: education, training, and the examinations taken AND passed. Do not list an exam that was not passed. (3) This form is only for preparers registered with the State Board of Individual Tax Preparers who are NOT a CPA, enrolled agent or tax attorney. If the preparer is one of those, do not use it. (4) The same information must also appear on the firm's website. (5) Keep the signed copy in the client's file; the preparer must also keep records of returns prepared. (6) The law also says the preparer must sign the client's return and may not get the client's signature on a return or authorizing document before the work is complete. Why it matters: a violation is an unfair trade practice with a $500 penalty per violation plus the client's actual damages. The Maryland law behind this (Title 21) is scheduled to end on July 1, 2027 unless the legislature extends it; check for changes before then.",
+    steps: [
+      { title: "The client", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), date("effectiveDate", "Date of the first meeting", { prefill: "today", required: true })] },
+      { title: "The preparer", questions: [
+        text("preparerName", "Preparer's full name", { required: true }),
+        text("regNumber", "Board registration number (optional)", { help: "Printing it is allowed and helps the client check the registration; leave blank if you do not want it shown." }),
+        text("preparerAddress", "Preparer's business address", { prefill: "firmAddress", required: true }),
+        text("preparerPhone", "Preparer's business telephone", { required: true }),
+      ] },
+      { title: "Qualifications", questions: [
+        area("services", "Services the preparer is qualified to provide", { required: true, default: "Preparing federal and Maryland individual income tax returns.", help: "List only what the preparer is actually qualified to do." }),
+        area("education", "Education and training", { required: true, placeholder: "e.g. Completed the Board's required 3 hours of continuing education; IRS Annual Filing Season Program; 2 years preparing returns" }),
+        area("exams", "Examinations taken and successfully passed", { required: true, help: "Write each exam taken and passed. If none, write 'None'." }),
+        area("otherInfo", "Anything else the Board requires to be disclosed (optional)"),
+      ] },
+    ],
+    body: `INDIVIDUAL TAX PREPARER DISCLOSURE
+(Maryland Business Occupations and Professions Article, Title 21)
+
+Customer: {{clientName}}
+Date: {{effectiveDate}}
+
+Before I prepare your individual income tax return, Maryland law requires me to give you this written information.
+
+1. WHO I AM. My name is {{preparerName}}. I am a registered individual tax preparer in Maryland{{#if regNumber}}, registration number {{regNumber}}{{/if}}. My business address is {{preparerAddress}}. My telephone number is {{preparerPhone}}.
+
+2. WHAT I AM NOT. I am not a certified public accountant, an enrolled agent, or a tax attorney.
+
+3. SERVICES I AM QUALIFIED TO PROVIDE.
+{{services}}
+
+4. MY EDUCATION AND TRAINING.
+{{education}}
+
+5. EXAMINATIONS I HAVE TAKEN AND SUCCESSFULLY PASSED.
+{{exams}}
+{{#if otherInfo}}
+6. OTHER INFORMATION.
+{{otherInfo}}
+{{/if}}
+YOUR RIGHTS. I will sign your individual tax return as the preparer. I will not ask you to sign your return, or any other document that authorizes me to act, before the preparation work is complete. I will not share information I receive to prepare your federal or Maryland income tax return unless you agree in writing, the law allows it, it is needed to prepare your return, or a court orders it.
+
+If you have a complaint, you may contact the State Board of Individual Tax Preparers.
+
+I received this disclosure at our first meeting, before any services were provided.
+
+CUSTOMER: {{clientName}}
+Signature: ______________________________   Date: ______________
+
+PREPARER: {{preparerName}}
+Signature: ______________________________   Date: ______________`,
+  },
+  {
+    key: "client_privacy_notice", title: "Client Privacy Notice (Federal Privacy Rule)", category: CLIENT_SERVICE,
+    description: "The written privacy notice the federal privacy rule (Regulation P) requires a tax preparer to give each individual client: what personal information the firm collects, how it is protected, and that it is shared only for the reasons the law allows. Follows the government's model privacy form.",
+    reviewNote: "WHO GETS IT: every individual client for personal (Form 1040 / Maryland 502 or 505) work, including business owners; it is not needed for companies. WHEN AND HOW: hand over or mail a printed copy (or post it in the client portal and have the client confirm receipt) when the client is engaged, before or with the engagement letter. Explaining it out loud, a sign in the office or the website page alone is not enough. KEEP the signed receipt line in the client file. NO YEARLY NOTICE is needed while the firm shares information only to run the service, at the client's request and as the law requires, and has not changed that. BEFORE THE FIRM EVER SHARES client information for any other reason (selling it, marketing by others, an affiliate company), stop and issue a new notice with an opt-out first; also get the client's signed consent before using return information for anything other than the return (Internal Revenue Code §7216). Do not add sections: the government form allows only the sections shown. COMPARE ONCE with the CFPB's sample 'Model privacy form' (consumerfinance.gov) before the first printing. The notice relies on these facts, so change it if any becomes untrue: the firm sells nothing, gives client information to no outside company for its own marketing, and has no affiliates; outside providers (hosting, email, text messages, tax agencies, e-file and payroll platforms) receive information only to run the service. If the firm has an affiliate, the form will not save. A client who reads Arabic better can be given the Arabic copy (a courtesy translation; the English is the official notice).",
+    steps: [
+      { title: "The client", questions: [text("clientName", "Client name", { prefill: "clientName", required: true }), date("effectiveDate", "Date the notice is given", { prefill: "today", required: true })] },
+      { title: "The firm", questions: [
+        text("firmName", "Firm name", { prefill: "firmName", required: true }),
+        text("firmAddress", "Firm address", { prefill: "firmAddress", required: true }),
+        text("firmPhone", "Firm telephone for questions", { default: "+1 (443) 835-4492", required: true }),
+        text("website", "Website page about privacy", { default: "www.altaxgroup.com/privacy", required: true }),
+        yesno("noAffiliates", "The firm has no affiliates (no other company under common ownership or control that receives client information)", { default: true, help: "If this is not true, the notice text must be changed before it is used; the form will not save." }),
+      ] },
+    ],
+    body: `CLIENT PRIVACY NOTICE
+(Federal privacy rule for financial companies: Regulation P, 12 CFR Part 1016)
+
+Client: {{clientName}}
+Date: {{effectiveDate}}
+
+FACTS
+What does {{firmName}} do with your personal information?
+
+Why?
+Financial companies choose how they share your personal information. Federal law gives consumers the right to limit some but not all sharing. Federal law also requires us to tell you how we collect, share, and protect your personal information. Please read this notice carefully to understand what we do.
+
+What?
+The types of personal information we collect and share depend on the product or service you have with us. This information can include:
+• Social Security number and income
+• checking account information and employment information
+• assets and transaction history
+
+How?
+All financial companies need to share customers' personal information to run their everyday business. In the section below, we list the reasons financial companies can share their customers' personal information; the reasons {{firmName}} chooses to share; and whether you can limit this sharing.
+
+Reasons we can share your personal information (for each reason: whether {{firmName}} shares, and whether you can limit this sharing)
+• For our everyday business purposes — such as to process your transactions, maintain your account(s), respond to court orders and legal investigations, or report to credit bureaus — we share: Yes; you can limit: No
+• For our marketing purposes — to offer our products and services to you — we share: Yes; you can limit: No
+• For joint marketing with other financial companies — we share: No; you can limit: We don't share
+• For our affiliates' everyday business purposes — information about your transactions and experiences — we share: No; you can limit: We don't share
+• For our affiliates' everyday business purposes — information about your creditworthiness — we share: No; you can limit: We don't share
+• For our affiliates to market to you — we share: No; you can limit: We don't share
+• For nonaffiliates to market to you — we share: No; you can limit: We don't share
+
+Questions? Call {{firmPhone}} or go to {{website}}
+
+WHO WE ARE
+Who is providing this notice?
+{{firmName}}, {{firmAddress}}
+
+WHAT WE DO
+How does {{firmName}} protect my personal information?
+To protect your personal information from unauthorized access and use, we use security measures that comply with federal law. These measures include computer safeguards and secured files and buildings. We encrypt Social Security numbers, bank account numbers, uploaded documents and other sensitive fields where we store them. We limit access to the staff who need it to do your work.
+
+How does {{firmName}} collect my personal information?
+We collect your personal information, for example, when you
+• give us your contact information
+• provide employment information
+• show your government-issued ID
+We also collect your personal information from other companies.
+
+Why can't I limit all sharing?
+Federal law gives you the right to limit only
+• sharing for affiliates' everyday business purposes — information about your creditworthiness
+• affiliates from using your information to market to you
+• sharing for nonaffiliates to market to you
+State laws and individual companies may give you additional rights to limit sharing.
+
+DEFINITIONS
+Affiliates: Companies related by common ownership or control. They can be financial and nonfinancial companies. {{#if noAffiliates}}{{firmName}} has no affiliates.{{else}}[WRITE THE AFFILIATE NAMES HERE]{{/if}}
+
+Nonaffiliates: Companies not related by common ownership or control. They can be financial and nonfinancial companies. {{firmName}} does not share with nonaffiliates so they can market to you.
+
+Joint marketing: A formal agreement between nonaffiliated financial companies that together market financial products or services to you. {{firmName}} doesn't jointly market.
+
+RECEIPT OF THIS NOTICE
+I received {{firmName}}'s Client Privacy Notice.
+
+CLIENT: {{clientName}}
+Signature: ______________________________   Date: ______________`,
+  },
   /* ─────────────── Batch 7: powers, sales and transfers ─────────────── */
   {
     key: "general_poa", title: "Power of Attorney", category: FAMILY,

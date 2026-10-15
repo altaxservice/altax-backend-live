@@ -169,7 +169,41 @@ export interface MdDissolutionData {
   residentAgentConsentSignerName?: string;
 }
 
+/** SDAT's own instructions (Rev. 04/2025, SECOND and FOURTH): a post office box, drop box, mail rental facility, virtual address, Staples or UPS Store, or storage facility is not acceptable. */
+const NOT_A_PHYSICAL_ADDRESS = /\b(p\.?\s?o\.?\s?box|post office box|drop box|ups store|staples|mailbox|pmb\b|virtual office|storage (facility|unit))/i;
+
+/**
+ * Things SDAT's own instructions say will make it return the articles. Checked before the PDF is made so staff see
+ * the reason instead of a rejected filing. Source: Instructions for Filing Articles of Dissolution (SDAT, Rev. 04/2025).
+ */
+export function mdDissolutionProblems(data: MdDissolutionData): string[] {
+  const out: string[] = [];
+  if (NOT_A_PHYSICAL_ADDRESS.test(data.principalOfficeAddress || "")) out.push("SECOND: SDAT does not accept a post office box, mail-rental store, virtual or storage address as the principal office. Enter the physical Maryland street address.");
+  if (NOT_A_PHYSICAL_ADDRESS.test(data.residentAgentAddress || "")) out.push("FOURTH: SDAT does not accept a post office box, mail-rental store, virtual or storage address for the resident agent. Enter a physical Maryland street address.");
+  const closeApproval = data.approvalManner === MD_DISSOLUTION_APPROVAL_MANNERS[4];
+  const names = [data.officers.president, data.officers.treasurer, data.officers.secretary].map((o) => String(o?.name || "").trim().toLowerCase());
+  const allSame = names.every((n) => n) && names[0] === names[1] && names[1] === names[2];
+  const stockApproval = MD_DISSOLUTION_APPROVAL_MANNERS.slice(0, 4).includes(data.approvalManner);
+  if (allSame && !data.officers.other?.name?.trim() && stockApproval) {
+    out.push("SIXTH: one person is listed as President, Treasurer and Secretary. SDAT accepts that only for a close or professional services corporation. Otherwise list a different person on the Other Officer line (that person also signs the certification).");
+  }
+  if (!closeApproval && !(data.directors || []).some((d) => String(d?.name || "").trim())) {
+    out.push("FIFTH: list at least one director (only a close corporation that has elected to have no directors may leave this blank).");
+  }
+  return out;
+}
+
 export async function generateMdDissolution(data: MdDissolutionData): Promise<Uint8Array> {
+  const problems = mdDissolutionProblems(data);
+  if (problems.length) throw new Error(problems.join(" "));
+  // SDAT's instructions: for the first two approval choices the TENTH article must say when the dissolution happens.
+  let tenth = data.additionalProvisions || "";
+  if (data.approvalManner === MD_DISSOLUTION_APPROVAL_MANNERS[0] && !/organizational meeting/i.test(tenth)) {
+    tenth = `${tenth ? tenth + " " : ""}The dissolution is occurring before the organizational meeting of the directors.`;
+  } else if (data.approvalManner === MD_DISSOLUTION_APPROVAL_MANNERS[1] && !/organizational meeting/i.test(tenth)) {
+    tenth = `${tenth ? tenth + " " : ""}The dissolution is occurring after the organizational meeting of the directors but before stock was issued.`;
+  }
+  data = { ...data, additionalProvisions: tenth };
   const doc = await loadTemplate("mddissolution.pdf");
 
   const directors = data.directors.slice(0, 4);

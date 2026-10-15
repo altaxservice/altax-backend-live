@@ -59,7 +59,8 @@ export async function wrapEmailHtml(bodyHtml: string, req?: Request): Promise<st
                 ${profile.firmName}${addressLine ? " — " + addressLine : ""}<br>
                 ${profile.phone ? `Phone: ${profile.phone}` : ""}${profile.phone && profile.email ? " · " : ""}${profile.email ? `Email: ${profile.email}` : ""}<br>
                 ${COPYRIGHT}<br>
-                This is an automated message from ${APP_NAME}.
+                This message was sent through ${APP_NAME}. For your protection: we will never ask you for a password, or to change where you send a payment, by email or text. If anything looks wrong, call our office at the number above before you reply or pay.
+                <div dir="rtl" style="text-align:right; margin-top:6px;">لحمايتكم: لن نطلب منكم أبداً كلمة مرور، ولا تغيير الجهة التي ترسلون إليها أي دفعة، عبر البريد الإلكتروني أو الرسائل النصية. وإذا بدا أي شيء غير سليم فاتصلوا بمكتبنا على الرقم الوارد أعلاه قبل الرد أو الدفع.</div>
               </td>
             </tr>
           </table>
@@ -134,7 +135,7 @@ export function welcomeClientEmailHtml(
   <p><strong>What to expect in your first month:</strong></p>
   <ul>
     <li>We'll reach out directly if we need any documents from you.</li>
-    <li>You'll get a reminder ahead of every filing deadline — nothing falls through the cracks.</li>
+    <li>For the services we handle for you, we send reminders ahead of the filing deadlines. We can only file what you send us, so please get us your documents promptly.</li>
     <li>Questions anytime — just reply to this email${firmPhone ? ` or call us at ${escapeHtml(firmPhone)}` : ""}.</li>
   </ul>
 </div>`;
@@ -145,7 +146,7 @@ export function welcomeClientEmailHtml(
   <p><strong>ما يمكن توقعه خلال الشهر الأول:</strong></p>
   <ul>
     <li>سنتواصل معكم مباشرة إذا احتجنا إلى أي مستندات منكم.</li>
-    <li>ستصلكم رسالة تذكير قبل كل موعد تقديم نهائي — لن يفوتكم أي موعد.</li>
+    <li>بالنسبة للخدمات التي نتولاها عنكم، سنرسل لكم تذكيرات قبل مواعيد التقديم. ولا يمكننا تقديم إلا ما ترسلونه لنا، فيرجى تزويدنا بمستنداتكم في أقرب وقت.</li>
     <li>لأي استفسار، يمكنكم الرد على هذا البريد الإلكتروني${firmPhone ? ` أو الاتصال بنا على ${escapeHtml(firmPhone)}` : ""}.</li>
   </ul>
 </div>`;

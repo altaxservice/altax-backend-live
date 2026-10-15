@@ -26,6 +26,11 @@
  *      on; director/officer data comes entirely from what staff typed on
  *      that step, since there's no client-profile column to source it from.
  *
+ *   6. A "closing checklist" Task (buildClosingChecklist below) listing the legal, tax and agency steps that
+ *      the documents above do NOT do by themselves — bulk-transfer notice, unemployment-insurance notice, new
+ *      EIN, licenses, payroll accounts. It is internal (clients never see task notes) and is the only place
+ *      the app tells staff the order these steps go in.
+ *
  * Each output is generated independently and wrapped in its own try/catch:
  * a client missing a street address (say) shouldn't block the Bill of Sale
  * from being created just because CRA's address requirement can't be met
@@ -47,7 +52,7 @@ import { generateBillOfSalePdf } from "../govForms/billOfSale";
 import { generateBillOfSaleDocx } from "../govForms/billOfSaleDocx";
 import { generateStockTransferPackageDocx, validateStockPackage, type StockPackageInput } from "../govForms/stockTransferPackage";
 import {
-  generateGovForm, type CraData, type Form8822bData,
+  generateGovForm, MD_DISSOLUTION_APPROVAL_MANNERS, type CraData, type Form8822bData,
   type MdAmendLlcData, type MdAmendCorpData, type MdDissolutionData, type MdDissolutionPerson,
 } from "../govForms/govForms.service";
 // Reused, not reinvented, for "Apply New Owner to Client Profile" below —
@@ -168,6 +173,67 @@ function sumAllocations(lines: AssetAllocationLine[]): number {
   return Math.round(lines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100;
 }
 
+/** Entity types whose owner IS the taxpayer: a sale to a new person makes the buyer a different taxpayer who needs his or her own EIN and registrations. */
+const OWNER_IS_THE_TAXPAYER = new Set(["Sole Proprietorship", "Individual"]);
+
+/**
+ * The steps a transfer needs that no generated document performs. Every rule below was read from its primary source
+ * (Maryland statutes at mgaleg.maryland.gov; Instructions for Form SS-4 and Form 8822-B; IRS Pub. 1635); the sections are
+ * named so staff can look them up. Wording stays "ask the agency" wherever the rule depends on an agency's own practice.
+ */
+export function buildClosingChecklist(entityType: string | null, clientName: string, transferId: string): string {
+  const t = String(entityType || "");
+  const isLlc = t === "LLC";
+  const isCorp = t === "C-Corp" || t === "S-Corp";
+  const ownerIsTaxpayer = OWNER_IS_THE_TAXPAYER.has(t);
+  const L: string[] = [];
+  L.push(`CLOSING CHECKLIST for the sale of ${clientName} (transfer ${transferId}). Internal working paper. The firm prepares forms from the parties' facts and does not give legal advice; the parties decide the terms.`);
+  L.push("");
+  L.push("0. FIRST, WHAT IS BEING SOLD?");
+  if (isCorp) {
+    L.push("- A corporation can be sold two ways. (A) The owners sell their SHARES: the corporation, its EIN, licenses, bank accounts and ALL of its debts stay and the buyer inherits them; use the Stock Transfer Package. (B) The corporation sells its ASSETS: the buyer gets only the assets listed and needs its own EIN and registrations; use the Bill of Sale (the corporation is the seller; its board and stockholders approve the sale as its charter and Corporations and Associations Article Section 3-105 require). Do not mix the two on one deal.");
+  } else if (isLlc) {
+    L.push("- An LLC is usually sold by selling the MEMBERSHIP INTEREST (the Bill of Sale is written that way): the LLC, its EIN, licenses and debts stay. If the buyer is only buying the equipment and inventory instead, change the structure with the clients before signing.");
+  } else if (ownerIsTaxpayer) {
+    L.push("- A sole proprietorship is sold as ASSETS. The buyer is a different taxpayer. The buyer needs his or her own EIN and Maryland registrations; the seller's EIN stays with the seller (Instructions for Form SS-4, \"Purchased going business\": do not use the former owner's EIN unless you became the owner of a corporation by acquiring its stock). For that reason Form 8822-B and the Maryland CRA update were NOT generated for this client; prepare an SS-4 and a new-registration CRA for the buyer instead.");
+  } else {
+    L.push("- Confirm with the clients whether the owners' interests or the business's assets are being sold, and use the matching documents.");
+  }
+  L.push("");
+  L.push("1. BEFORE THE CLIENTS SIGN");
+  L.push("- Read the lease. If it needs the landlord's consent to an assignment or a change of owners, get it in writing first.");
+  L.push("- Licences and permits do not follow a sale automatically. Ask EACH issuing office, before closing: tobacco and vapor (a retail license cannot be assigned: Business Regulation Article Sections 16-208(a)(1) and 16.5-207(a)(1)); Maryland Lottery (COMAR 36.02.03.15, as read for the Document Builder research, says a change of ownership ends the license; ask before closing); alcohol board (approval needed); SNAP (USDA); county health permit; trader's license (it can move with the stock-in-trade and place of business, Section 17-1810); the sales-and-use-tax license is not transferable (Tax-General Section 11-709). Restricted products (cigarettes, tobacco, vapor, alcohol, lottery tickets) are not handed over until the buyer holds the license for them.");
+  if (!isCorp && !isLlc) L.push("- Get a written account-status statement from the Comptroller for the seller's sales-and-use-tax and withholding accounts; there is no statutory clearance certificate for a bulk sale, so ask in writing.");
+  if (isCorp || isLlc) {
+    L.push("- If the entity itself owns Maryland real estate that is at least 80% of its assets and worth $1,000,000 or more, a sale of more than 80% of its stock or membership interests can carry recordation and transfer tax (Tax-Property Article Section 12-117). Ask before closing. This is rare for a leased store.");
+  }
+  L.push("");
+  {
+    L.push("2. IF ASSETS ARE BEING SOLD (Bill of Sale, or a corporation's asset sale)");
+    L.push("- Bulk transfer (stores, delis, restaurants, alcohol sellers: a major part of the inventory sold outside the ordinary course; Commercial Law Article Sections 6-102 to 6-107; Tax-General Sections 11-505 and 13-802). The seller gives the buyer a signed and sworn list of creditors. The buyer sends the notice by personal delivery or registered or certified mail to the Comptroller (always) and to the creditors AT LEAST 10 DAYS BEFORE it takes possession or pays, whichever is first. Keep the list and the property schedule for six months. The buyer withholds the amount of any Comptroller claim for unpaid sales tax and applies the price to the listed creditors' debts filed within 30 days of the notice. A buyer who skips this can be personally liable for the seller's sales tax.");
+    L.push("- Unemployment insurance: the buyer gives the Maryland Department of Labor written notice by certified mail, return receipt requested, at least 10 days BEFORE the acquisition (Labor and Employment Article Section 8-633). Otherwise the acquisition is void as to the Secretary if the seller owes unpaid contributions.");
+    L.push("- Sales tax on equipment and fixtures (tangible personal property) may be due on the sale; goodwill is not tangible property. Use the price allocation in the Bill of Sale. Both parties file IRS Form 8594 with their income tax returns when the sale is a business purchase.");
+    L.push("- Vehicles: each vehicle needs its own title assignment and odometer statement at the Maryland Motor Vehicle Administration. The Bill of Sale does not transfer a vehicle.");
+    L.push("- Alcohol: a license and inventory move only on an application, with all sales and use, amusement, admission and withholding taxes paid to the Comptroller, a bulk transfer permit, the local licensing board's approval, and the transferor's affidavit of compliance with the bulk-transfer law (Alcoholic Beverages and Cannabis Article Sections 4-302 and 4-304).");
+    L.push("- The BUYER needs its own EIN (Form SS-4) and its own Maryland Combined Registration (CRA, new registration), sales-tax license and withholding and unemployment-insurance accounts. The SELLER files final returns and the Comptroller's final-return forms (MW506FR for withholding, SUT202FR for sales tax; both are in Government Forms).");
+    L.push("");
+  }
+  if (isCorp || isLlc) {
+    L.push("3. IF SHARES OR A MEMBERSHIP INTEREST ARE BEING SOLD (the entity stays)");
+    if (isCorp) L.push("- Corporation: use the Stock Transfer Package. A change of stockholders is not an Articles of Amendment filing. The consent is kept in the minute book. If the corporation is an S corporation, every new stockholder must be an eligible holder (individual who is a U.S. citizen or resident, not a company or partnership), or the S election ends. Close corporation certificates must refer to close-corporation status (Corporations and Associations Article Section 4-202).");
+    if (isLlc) L.push("- LLC: the sale of the interest and the new member's admission need the operating agreement's approval or all members' consent (Corporations and Associations Article Sections 4A-603 and 4A-604). Update the operating agreement. SDAT needs no filing for a change of members; it does need a filing if the resident agent or principal office changes (Section 4A-210(b)).");
+    L.push("- IRS: file Form 8822-B within 60 days of a change of responsible party (Instructions for Form SS-4). The entity keeps its EIN when it is a corporation sold by its stock. For an LLC, if the number of owners changes so that its tax classification changes (partnership to one owner, or the reverse), ask the IRS Business and Specialty Tax Line before relying on the old EIN (IRS Pub. 1635, Limited Liability Company) and have the tax preparer handle Form 8594 / final partnership return questions.");
+    L.push("- Maryland Comptroller: update the responsible officer or member on the Combined Registration (CRA update is generated). The entity keeps its Maryland registrations unless the agency says otherwise.");
+    L.push("- Debts: the entity keeps ALL of its debts and tax history; the buyer is buying the company with them. Get the seller's disclosure in writing and a Comptroller account-status statement.");
+    L.push("");
+  }
+  L.push("4. AFTER CLOSING");
+  L.push("- Payroll: new responsible person on EFTPS and Forms 941/940; if the firm is the reporting agent, the new owner signs a new Form 8655; update the Maryland withholding and unemployment-insurance (BEACON) accounts and the Maryland UI power of attorney.");
+  L.push("- Bank signature cards, merchant processor, insurance, utilities, suppliers, and the firm's own client record (Apply New Owner to Client Profile after every generated filing is Submitted).");
+  L.push("- Hand the clients copies of everything signed, and keep the signed originals and the closing notes in the client file.");
+  return L.join("\n");
+}
+
 ownershipTransferRouter.get("/:clientId/ownership-transfers", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
@@ -284,9 +350,14 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
     ]
   );
 
-  const created: { billOfSale: boolean; form8822b: boolean; craUpdate: boolean; mdAmendmentTask: boolean; amendment: boolean; dissolution: boolean } = {
-    billOfSale: includeBillOfSale, form8822b: false, craUpdate: false, mdAmendmentTask: false, amendment: false, dissolution: false,
+  const created: { billOfSale: boolean; form8822b: boolean; craUpdate: boolean; mdAmendmentTask: boolean; amendment: boolean; dissolution: boolean; checklistTask: boolean } = {
+    billOfSale: includeBillOfSale, form8822b: false, craUpdate: false, mdAmendmentTask: false, amendment: false, dissolution: false, checklistTask: false,
   };
+  // A sole proprietorship's EIN and registrations belong to the seller as a person; the buyer is a different taxpayer
+  // (Instructions for Form SS-4, "Purchased going business": don't use the former owner's EIN unless you became the owner of a
+  // corporation by acquiring its stock). A change-of-responsible-party 8822-B or a CRA "update" on the seller's own numbers
+  // would put the buyer on the seller's account, so neither is drafted for these clients.
+  const ownerIsTaxpayer = OWNER_IS_THE_TAXPAYER.has(String(client.entity_type || ""));
   // Every filing_id this create actually generated — reported back so the
   // frontend wizard's Step 4 can deep-link straight into each one's own
   // existing view/sign/submit flow in the Government Forms section, instead
@@ -299,6 +370,8 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   // return has that box apply the moment its responsible party changes.
   if (!include8822b) {
     skippedReasons.push("Form 8822-B was not requested.");
+  } else if (ownerIsTaxpayer) {
+    skippedReasons.push("Form 8822-B was not generated: this client is a sole proprietorship, so the buyer is a different taxpayer who needs his or her own EIN (Form SS-4), not a change of responsible party on the seller's EIN.");
   } else {
     try {
       const form8822bData: Form8822bData = {
@@ -334,6 +407,8 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   // the buyer.
   if (!includeCra) {
     skippedReasons.push("Maryland CRA update was not requested.");
+  } else if (ownerIsTaxpayer) {
+    skippedReasons.push("Maryland CRA update was not generated: this client is a sole proprietorship, so the buyer registers with the Comptroller in his or her own name (new registration, own EIN) and the seller closes the old accounts with the final-return forms.");
   } else {
     try {
       if (!client.street_address || !client.city || !client.zip_code) {
@@ -485,7 +560,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
             taskId, clientId, client.client_name, client.assigned_to || req.user!.email,
             `Business ownership transferred from ${namesList(sellerName, additionalSellers)} to ${namesList(buyerName, additionalBuyers)}` +
               (body.effectiveDate ? ` effective ${body.effectiveDate}` : "") +
-              `. File Maryland Articles of Amendment reflecting the new principal/resident agent as needed — no MD SDAT Amendment generator applies to this client's entity type ("${client.entity_type || "not set"}"), so this is tracked as a manual task instead (see transfer ${transferId}).`,
+              `. File Maryland Articles of Amendment only if the entity's charter documents change (a sale of owners' interests does not need one; a new resident agent or principal office is filed on SDAT's own statement) — no MD SDAT Amendment generator applies to this client's entity type ("${client.entity_type || "not set"}"), so this is tracked as a manual task instead (see transfer ${transferId}).`,
             transferId,
           ]
         );
@@ -516,9 +591,10 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
           .map((d: any) => ({ name: String(d?.name || "").trim(), address: String(d?.address || "").trim() }))
           .filter((d: MdDissolutionPerson) => d.name)
         : [];
-      if (!directors.length) throw new Error("add at least one director or trustee");
       const approvalManner = String(dissolutionInput.approvalManner || "").trim();
       if (!approvalManner) throw new Error("manner of approval (SEVENTH) is required");
+      // SDAT: a close corporation that has elected to have no directors leaves FIFTH blank; everyone else needs at least one director.
+      if (!directors.length && approvalManner !== MD_DISSOLUTION_APPROVAL_MANNERS[4]) throw new Error("add at least one director or trustee");
       const creditorNotice = dissolutionInput.creditorNotice === "Mailed to known creditors" ? "Mailed to known creditors" : "No known creditors";
       const effectiveDate = dissolutionInput.effectiveDate === "immediate" || !dissolutionInput.effectiveDate
         ? "immediate"
@@ -571,6 +647,20 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
     } catch (err: any) {
       skippedReasons.push(`MD Articles of Dissolution was not generated: ${err?.message || "missing data."}`);
     }
+  }
+
+  // Internal closing checklist — the legal/tax/agency steps no generated document performs.
+  try {
+    const checklistTaskId = `TASK-${idSuffix()}-CL`;
+    await query(
+      `INSERT INTO altax.v3_tasks
+         (task_id, client_id, client_name, service_line, task_name, period, status, assigned_to, notes, source_system, source_record_id)
+       VALUES ($1,$2,$3,'Compliance','Ownership transfer closing checklist (bulk-sale notice, licenses, EIN, payroll)','Ownership Transfer','Not Started',$4,$5,'Ownership Transfer Checklist',$6)`,
+      [checklistTaskId, clientId, client.client_name, client.assigned_to || req.user!.email, buildClosingChecklist(client.entity_type || null, client.client_name, transferId), transferId]
+    );
+    created.checklistTask = true;
+  } catch (err: any) {
+    skippedReasons.push(`The closing checklist task was not created: ${err?.message || "unknown error."}`);
   }
 
   await logAudit("Clients", "OWNERSHIP_TRANSFER_CREATED", transferId, "buyer_name", "", buyerName,
@@ -725,6 +815,8 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/delete"
     else if (f) left.push(`The MD Articles of Dissolution is already ${f.status} — left in place.`);
   }
 
+  // The closing-checklist task exists only because of this transfer; remove it if nobody has started it.
+  await query(`DELETE FROM altax.v3_tasks WHERE source_system = 'Ownership Transfer Checklist' AND source_record_id = $1 AND status = 'Not Started'`, [transferId]);
   await query(`DELETE FROM altax.v3_ownership_transfers WHERE transfer_id = $1`, [transferId]);
   await logAudit("Clients", "OWNERSHIP_TRANSFER_DELETED", transferId, "", `${transfer.seller_name} -> ${transfer.buyer_name}`, "",
     `Ownership transfer deleted by ${req.user!.email}.${left.length ? " " + left.join(" ") : ""}`, req.user!.email);

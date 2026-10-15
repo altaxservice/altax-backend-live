@@ -808,7 +808,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
 
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
                 <input type="checkbox" checked={form.includeCra} onChange={(e) => setForm((f) => ({ ...f, includeCra: e.target.checked }))} />
-                Maryland CRA Update — Change of Entity
+                Maryland CRA Update — Purchased going business
               </label>
               {form.includeCra && (
                 <p className="muted" style={{ fontSize: 11.5, margin: "2px 0 10px 24px" }}>

@@ -91,6 +91,7 @@ function buildSections(firm: FirmProfile, data: WispPdfData): Section[] {
     {
       title: "1. PURPOSE AND SCOPE",
       body: [
+        `Legal basis in brief: a business that completes income tax returns is a "financial institution" under the FTC Safeguards Rule (16 CFR 314.2(h)(2)(viii)). Some of that rule's written requirements (a written risk assessment, penetration testing and vulnerability scans, a written incident response plan, and an annual written report) do not apply to a firm with customer information on fewer than 5,000 consumers (16 CFR 314.6); the Firm follows them anyway, in short form, because the IRS expects a written plan and Maryland law (Commercial Law section 14-3503) requires reasonable security practices appropriate to the personal information the Firm holds.`,
         `This Written Information Security Plan ("WISP") describes the administrative, technical, and physical safeguards ${firmName} ("the Firm") uses to protect taxpayer and client data, in fulfillment of the requirement in IRS Publication 4557, "Safeguarding Taxpayer Data," that every paid tax return preparer maintain a written security plan, and of the FTC Safeguards Rule (16 CFR Part 314), which classifies tax preparation businesses as "financial institutions" subject to the data-security requirements of the Gramm-Leach-Bliley Act.`,
         `This WISP applies to all client and taxpayer data handled by the Firm in any form — electronic or paper — across every system the Firm uses to prepare, file, store, or transmit that data, including the Firm's own practice-management system, its e-file/preparation software, accounting platforms used on clients' behalf, government filing portals, and firm email.`,
       ],
@@ -125,9 +126,9 @@ function buildSections(firm: FirmProfile, data: WispPdfData): Section[] {
         `The Firm limits access to client data to what each role actually requires, and requires every person with access to be trained, agreed to confidentiality, and accountable for their access.`,
       ],
       bullets: [
-        "A signed confidentiality/non-disclosure agreement is required before any staff member is granted access to client data.",
+        "Every staff member must sign a confidentiality statement before being granted access to client data.",
         "Access is role-based: staff accounts are scoped to the clients assigned to them; only an Administrator has firm-wide visibility.",
-        "New-hire onboarding and departure/offboarding follow a documented checklist covering account setup, device policy sign-off, and timely access revocation.",
+        "New-hire onboarding and departure follow a checklist covering account setup, device policy sign-off, and access removal on the staff member's last day.",
         "Every staff member reviews this WISP and completes annual security-awareness training (phishing recognition, password hygiene, secure data handling), acknowledged and timestamped in the Firm's practice-management system.",
         "Violations of this WISP or the Firm's data-handling policies are grounds for disciplinary action, up to and including termination of access or employment.",
       ],
@@ -138,8 +139,8 @@ function buildSections(firm: FirmProfile, data: WispPdfData): Section[] {
         `The Firm's practice-management system implements the following technical controls over client data:`,
       ],
       bullets: [
-        "Sensitive fields — including Social Security Numbers, EINs, and bank account details captured on government forms — are encrypted at rest, not stored as plain text.",
-        "Two-factor authentication (time-based one-time codes) is mandatory for every user account before it can access client data.",
+        "Sensitive fields — Social Security Numbers, EINs and bank account details (clients, employees and contractors), saved payment methods, vault and portal credentials, two-factor secrets, government-form data, and uploaded documents — are encrypted at rest, not stored as plain text. Names, addresses, phone numbers, email addresses and invoice amounts are not field-encrypted; they are protected by access control, HTTPS and the database provider.",
+        "Two-factor sign-in with an authenticator app is required for administrator and staff accounts; client and employee portal sign-in uses an emailed one-time code. These settings are on by default and must not be switched off.",
         "Passwords are stored only as salted cryptographic hashes; the Firm itself cannot read a user's password.",
         "Access is enforced by role at the application layer, with every material change to a user's role or assignment immediately invalidating that user's active session.",
         "All access to and changes affecting client records are recorded in an audit log, attributing each action to the individual who performed it.",
@@ -155,7 +156,8 @@ function buildSections(firm: FirmProfile, data: WispPdfData): Section[] {
       bullets: [
         "Office access is restricted to authorized personnel; areas where paper client records are stored are locked when unattended.",
         "A clean-desk practice is followed for any printed document containing Social Security Numbers, bank information, or other sensitive data.",
-        "Paper records containing client data are cross-cut shredded, and retired electronic storage media are securely wiped or destroyed, once the applicable retention period has passed.",
+        "Paper records containing client data are shredded, and retired electronic storage media are securely wiped or destroyed, once the applicable retention period has passed.",
+        "Retention: tax return work papers and copies are kept 7 years (never less than 3), then deleted; employment-tax records for client payroll are kept at least 4 years after the tax is due or paid; copies of identity documents are deleted when the engagement ends or 2 years after last use, whichever is first, unless a pending filing needs them; website messages from people who do not become clients are deleted after 2 years.",
       ],
     },
     {
@@ -166,7 +168,9 @@ function buildSections(firm: FirmProfile, data: WispPdfData): Section[] {
       bullets: [
         "A passcode or biometric lock, with automatic screen lock after a short period of inactivity, and full-disk encryption enabled.",
         "Current antivirus/anti-malware protection and up-to-date operating system security patches.",
-        "Remote-wipe capability, so the device can be remotely cleared of firm and client data if it is lost, stolen, or the employment relationship ends.",
+        "Remote-wipe turned on where the device supports it, so the device can be cleared of firm and client data if it is lost, stolen, or the employment relationship ends.",
+        "Client documents are not downloaded to personal devices or USB drives; if a download is unavoidable it is deleted the same day. Public Wi-Fi is not used for firm work (use a phone hotspot).",
+        "Social Security numbers and bank details are not discussed or sent by text message, WhatsApp or ordinary email; clients are asked to use the secure portal.",
         "No client data may be transmitted over personal, unencrypted, or non-firm-approved channels (personal email, unsecured messaging apps, unencrypted removable media, etc.).",
       ],
     },
@@ -183,20 +187,21 @@ function buildSections(firm: FirmProfile, data: WispPdfData): Section[] {
         `If a Data Security Coordinator or any staff member suspects or confirms that client data has been accessed, disclosed, or acquired without authorization, the Firm follows this response sequence:`,
       ],
       bullets: [
-        "Contain: immediately limit further exposure — revoke or reset affected credentials, isolate the affected system or account, and preserve evidence of the incident.",
+        "Contain (first hour): reset the affected account's password and two-factor sign-in (which also ends its open sessions), disconnect an infected computer from the network, revoke a lost kiosk device, and preserve evidence — do not delete anything; save the audit-log entries and emails involved.",
         "Assess: determine what data was involved, how many clients are affected, and the likely cause, with a Data Security Coordinator directing the assessment.",
         "Notify the IRS: contact the local IRS Stakeholder Liaison and follow the reporting steps published at IRS.gov under \"Data Theft Information for Tax Professionals\"; report suspected e-file account compromise as instructed by the Firm's e-file provider.",
         "Notify affected states: report through the Federation of Tax Administrators' state-notification process for any state whose residents' data was involved.",
-        "Notify affected individuals and, where required, state regulators: provide written notice to affected clients and comply with applicable state breach-notification law, including Maryland's Personal Information Protection Act for Maryland residents.",
+        "Notify affected individuals and, where required, state regulators: provide written notice to affected clients and comply with applicable state breach-notification law. For Maryland residents (Commercial Law section 14-3504) that means written notice as soon as reasonably practicable and not later than 45 days after the breach is discovered, with prior notice to the Office of the Maryland Attorney General before residents are notified.",
+        "Notify the FTC: if the event involves 500 or more consumers, notify the Federal Trade Commission through its online form as soon as possible and no later than 30 days after discovery (16 CFR 314.4(j)). If clients' returns were filed fraudulently, tell the clients to file IRS Form 14039 (Identity Theft Affidavit). If the Firm has cyber insurance, call the carrier first.",
         "Notify law enforcement where warranted: local police and/or the FBI Internet Crime Complaint Center (IC3) for suspected criminal activity.",
         "Remediate and document: rotate all potentially affected credentials, apply any necessary patches or configuration changes, and record what happened, what was done, and when — for the Firm's own records and for any regulator that later asks.",
-        "Review: after any incident, the Data Security Coordinators review this WISP and update it to address the cause.",
+        "Review: within 30 days after any incident, the Data Security Coordinators review what failed, update this WISP, and retrain staff.",
       ],
     },
     {
       title: "11. PLAN ADMINISTRATION AND ANNUAL REVIEW",
       body: [
-        `This WISP was adopted on ${fmtDate(data.adoptedDate)} and was last reviewed on ${fmtDate(data.lastReviewedDate)}. The Data Security Coordinators review this WISP at least annually, and additionally after any security incident, any material change to the systems or service providers described in this plan, or any relevant change in law.`,
+        `This WISP was adopted on ${fmtDate(data.adoptedDate)} and was last reviewed on ${fmtDate(data.lastReviewedDate)}. The Data Security Coordinators review this WISP at least annually, and additionally after any security incident, any material change to the systems or service providers described in this plan, or any relevant change in law. Every six months the Coordinators clear the warnings in the practice-management system's Fix Center and confirm that two-factor settings and the daily backup emails are working; once a year they test a restore from a backup, review who has access and remove anyone who no longer needs it, and review each service provider.`,
         `Every staff member with access to client data is provided this WISP and must acknowledge having read and understood it — both when first granted access, and again each time the plan is materially updated. The Firm maintains a timestamped record of each acknowledgment.`,
       ],
     },

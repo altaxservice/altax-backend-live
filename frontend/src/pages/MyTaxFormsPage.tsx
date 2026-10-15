@@ -224,6 +224,18 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
       )}
 
       <div style={{ marginTop: 16, padding: 12, background: "var(--surface)", borderRadius: 8 }}>
+        {filing.form_type === "W4" ? (
+          <p style={{ fontSize: 13, margin: "0 0 10px", fontWeight: 600 }}>{t("myTaxForms.w4Jurat")}</p>
+        ) : (
+          <div style={{ fontSize: 13, margin: "0 0 10px" }}>
+            <p style={{ margin: "0 0 6px", fontWeight: 600 }}>{t("myTaxForms.w9CertHeading")}</p>
+            <p style={{ margin: "0 0 4px" }}>{t("myTaxForms.w9Cert1")}</p>
+            <p style={{ margin: "0 0 4px" }}>{t("myTaxForms.w9Cert2")}</p>
+            <p style={{ margin: "0 0 4px" }}>{t("myTaxForms.w9Cert3")}</p>
+            <p style={{ margin: "0 0 6px" }}>{t("myTaxForms.w9Cert4")}</p>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{t("myTaxForms.w9CertNote")}</p>
+          </div>
+        )}
         <p style={{ fontSize: 12.5, margin: "0 0 10px" }}>
           {t("myTaxForms.signatureLegal")}
         </p>

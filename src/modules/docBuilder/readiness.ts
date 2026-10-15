@@ -121,6 +121,38 @@ export const READINESS: Record<string, Readiness> = {
       "Both sides sign and the debtor gets a signed copy."
     ]
   },
+  "tax_preparer_disclosure": {
+    "level": "CARE",
+    "why": "A short statutory disclosure; it is only safe if every fact about the preparer is true and it is given before any work starts.",
+    "triggers": [
+      "The preparer is a CPA, enrolled agent or attorney (this form is not for them).",
+      "The preparer is not registered with the State Board.",
+      "Work on the return has already started."
+    ],
+    "checklist": [
+      "One disclosure per preparer, handed over at the first meeting before any work.",
+      "List only exams that were taken AND passed.",
+      "Keep the signed copy in the client file.",
+      "Make sure the same information is on the firm website.",
+      "Check whether the Maryland law was extended before July 1, 2027."
+    ]
+  },
+  "client_privacy_notice": {
+    "level": "READY",
+    "why": "The government's model privacy form with the firm's facts filled in; safe as long as the firm really shares information only for the allowed reasons.",
+    "triggers": [
+      "The firm starts sharing client information for any new reason (selling it, marketing by others, an affiliate company).",
+      "The firm has an affiliate company (the form will not save).",
+      "The firm wants to add sections to the form (the model form allows only those shown)."
+    ],
+    "checklist": [
+      "Give it to every individual client for personal return work, at engagement, in writing.",
+      "Have the client sign the receipt line (or confirm receipt in the portal) and keep it in the client file.",
+      "Do not rely on a sign in the office, an oral explanation or the website page alone.",
+      "No yearly notice is needed while sharing stays within the allowed reasons.",
+      "Compare once with the CFPB sample model form before the first printing."
+    ]
+  },
   "ein_closure_letter": {
     "level": "READY",
     "why": "A short letter whose conditions are easy to check; the IRS simply refuses if returns are missing.",

@@ -17,12 +17,19 @@
  * (RepresentativesName1, CAFNumber1, etc.) and matched on inspection alone.
  *
  * Deliberately does NOT fill any signature field. None of these forms are
- * signed inside this app: the IRS only honors an electronic signature on
- * 2848/8821 if the form is then submitted through the IRS's own online
- * portal (a typed signature is invalid for mail/fax), and Maryland has no
- * e-file path for Form 548 at all. Leaving every signature line untouched
- * means the printed page is always ready for the one signature method every
- * submission channel accepts: a real pen.
+ * signed inside this app. The IRS instructions for Forms 2848 and 8821 say
+ * that an electronic signature may only be used when the form is submitted
+ * to the IRS online (IRS.gov/Submit2848 and IRS.gov/Submit8821); "Digital,
+ * electronic, or typed-font signatures are not valid signatures for Forms
+ * 2848 filed by mail or by fax" (Instructions for Form 2848, Rev. 09-2021,
+ * Line 7; the Form 8821 instructions say the same). This app cannot submit to
+ * either agency, and for Maryland Form 548 it does not know of an electronic
+ * path, so every signature line is left for a real pen.
+ *
+ * Form revisions checked 2026-10-15 against irs.gov/pub/irs-pdf: Form 2848
+ * (Rev. 1-2021) and Form 8821 (Rev. 1-2021) are still the current revisions
+ * and match the bundled templates; Maryland Form 548 is the bundled COM/RAD-548
+ * 08/24 revision.
  */
 import { PDFDocument } from "pdf-lib";
 import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
@@ -128,6 +135,31 @@ function wrapAcrossLines(text: string | undefined, widths: number[]): string[] {
   }
   if (current) lines.push(current);
   return lines;
+}
+
+/**
+ * Splits "street, city, ST, 12345" or "street, city, ST 12345" into the four
+ * boxes Form 548 has. A street that itself contains a comma ("100 Main St, Suite 4")
+ * stays whole: the LAST parts are taken as city / state / ZIP.
+ */
+export function splitUsAddress(full: string): { street: string; city: string; state: string; zip: string } {
+  const parts = String(full || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 0) return { street: "", city: "", state: "", zip: "" };
+  const last = parts[parts.length - 1];
+  const stZip = last.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  if (stZip && parts.length >= 3) {
+    return { street: parts.slice(0, -2).join(", "), city: parts[parts.length - 2], state: stZip[1].toUpperCase(), zip: stZip[2] };
+  }
+  if (/^\d{5}(?:-\d{4})?$/.test(last) && parts.length >= 4 && /^[A-Za-z]{2}$/.test(parts[parts.length - 2])) {
+    return { street: parts.slice(0, -3).join(", "), city: parts[parts.length - 3], state: parts[parts.length - 2].toUpperCase(), zip: last };
+  }
+  return { street: parts[0], city: parts[1] || "", state: parts[2] || "", zip: parts[3] || "" };
+}
+
+/** How many lines of the form's "additional acts / specific additions" text a note needs; the forms have three single-line fields. */
+export function poaNotesLineCount(formType: "2848" | "8821" | "548", notes: string | undefined): number {
+  if (formType === "8821") return 0; // Form 8821 has no free-text acts line; notes are not printed on it.
+  return wrapAcrossLines(notes, formType === "2848" ? [24, 95, 95] : [82]).length;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -292,13 +324,10 @@ export async function generateFormMD548(data: PoaFilingData): Promise<Uint8Array
   // block) — split naively on the first comma, matching how a typical
   // "street, city, state zip" line reads; anything unparsed lands in the
   // street field so nothing is silently dropped.
-  const addrParts = (data.taxpayerAddress || "").split(",").map((s) => s.trim());
+  const addr = splitUsAddress(data.taxpayerAddress || "");
   fillCopy(doc, {
     street: "Text Field 7", city: "Text Field 9", state: "Text Field 10", zip: "Text Field 11",
-  }, {
-    street: addrParts[0] || data.taxpayerAddress || "",
-    city: addrParts[1] || "", state: addrParts[2] || "", zip: addrParts[3] || "",
-  });
+  }, { street: addr.street, city: addr.city, state: addr.state, zip: addr.zip });
 
   const [rep1, rep2] = data.representatives;
   if (rep1) {

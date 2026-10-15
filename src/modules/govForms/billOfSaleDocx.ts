@@ -13,7 +13,7 @@ import {
   AlignmentType, BorderStyle, Document, Footer, HeadingLevel, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell,
   TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
-import { classForCategory, entityKindFor, billOfSaleParties, tidyAddress, legalState, stateClause, stateCaption, describeSellers, describeBuyers, llcClosingSentence, joinNames, type BillOfSaleData, type EntityKind } from "./billOfSale";
+import { classForCategory, entityKindFor, billOfSaleParties, tidyAddress, legalState, stateCaption, describeSellers, describeBuyers, buildBillOfSaleBlocks, bosSubtitle, bosNotaryCertificate, bosWitnessLine, businessLabelFor, type BillOfSaleData, type EntityKind } from "./billOfSale";
 
 export type { EntityKind };
 
@@ -145,21 +145,16 @@ function buildFooter(businessName: string): Footer {
   });
 }
 
-/** One acknowledgment covering both signers — both parties appear before the same notary together, not two separate notarizations. */
-function notaryBlock(signerNames: string, state: string): Paragraph[] {
-  const signers = signerNames || "____________________";
+/** One acknowledgment covering all signers — they appear before the same notary together, not as separate notarizations. */
+function notaryBlock(data: BillOfSaleData, state: string): Paragraph[] {
   return [
-    new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: "Acknowledgment", bold: true, font: FONT, size: 21 })] }),
-    body(stateCaption(state)),
-    body("CITY/COUNTY OF ______________________, to wit:"),
-    body(
-      `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-      `of ${stateClause(state)}, personally appeared ${signers}, known to me (or satisfactorily proven) to be the ` +
-      `persons whose names are subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
-    ),
-    body("WITNESS my hand and Notarial Seal."),
+    new Paragraph({ keepNext: true, spacing: { before: 200, after: 80 }, children: [new TextRun({ text: "Acknowledgment (optional)", bold: true, font: FONT, size: 21 })] }),
+    body(stateCaption(state), { keepNext: true }),
+    body("CITY/COUNTY OF ______________________, to wit:", { keepNext: true }),
+    body(bosNotaryCertificate(data), { keepNext: true }),
+    body("WITNESS my hand and Notarial Seal.", { keepNext: true }),
     signatureLine(),
-    body("Notary Public"),
+    body("Notary Public", { keepNext: true }),
     labelLine("Printed Name", "____________________________"),
     labelLine("My Commission Expires", "___________________"),
   ];
@@ -169,23 +164,15 @@ export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buf
   const data: BillOfSaleData = { ...input, businessAddress: tidyAddress(input.businessAddress) };
   const kind = entityKindFor(data.entityType);
   const state = legalState(data.state);
-  const businessLabel = kind === "LLC"
-    ? `${data.businessName}, a ${state} limited liability company`
-    : kind === "Corp"
-    ? `${data.businessName}, a ${state} corporation`
-    : data.businessName;
+  const businessLabel = businessLabelFor(data, kind, state);
 
   const children: (Paragraph | Table)[] = [];
   const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
 
   children.push(new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 40, before: 60 }, children: [new TextRun({ text: "BILL OF SALE", bold: true, font: FONT, size: 32 })] }));
-  children.push(centered(kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)", { size: 19 }));
+  children.push(centered(bosSubtitle(kind), { size: 19 }));
 
-  children.push(
-    body(
-      `This Bill of Sale is made and entered into as of ${fmtDate(data.effectiveDate)}, by and between:`
-    )
-  );
+  children.push(body(`This Bill of Sale is made and entered into as of ${fmtDate(data.effectiveDate)}, by and between:`));
 
   const parties = billOfSaleParties(data);
   const sellerDesc = describeSellers(data, kind, businessLabel);
@@ -194,96 +181,16 @@ export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buf
   children.push(body(`${parties.sellers.length > 1 ? "SELLERS" : "SELLER"}: ${sellerDesc}; and`));
   children.push(body(`${parties.buyers.length > 1 ? "BUYERS" : "BUYER"}: ${buyerDesc}.`));
 
-  let n = 1;
-
-  children.push(heading(`${n++}. PARTIES AND BUSINESS`));
-  children.push(body(
-    `This Bill of Sale concerns the business known as ${data.businessName}` +
-    `${data.businessAddress ? `, operated at ${data.businessAddress}` : ""}${data.ein ? ` (EIN ${data.ein})` : ""} (the "Business").`
-  ));
-
-  if (kind === "LLC") {
-    children.push(heading(`${n++}. SALE OF MEMBERSHIP INTEREST`));
-    children.push(body(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
-      `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
-      `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
-      `Company, together with all of the assets of the Business described in Section 3 below (collectively, the "Assets"). ${llcClosingSentence(data)}`
-    ));
-  } else {
-    children.push(heading(`${n++}. SALE OF BUSINESS ASSETS`));
-    children.push(body(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
-      `Seller does hereby sell, transfer, convey, and deliver to Buyer all of Seller's right, title, and interest in and to ` +
-      `${businessLabel}, including the assets described in Section 3 below (collectively, the "Assets").`
-    ));
-  }
-
-  if (allocations.length > 0) {
-    children.push(heading(`${n++}. ASSETS INCLUDED — ALLOCATION OF PURCHASE PRICE`));
-    children.push(body(
-      "The Purchase Price is allocated among the assets of the Business as follows, for purposes of IRC Section 1060 " +
-      "and each party's Form 8594 (Asset Acquisition Statement):"
-    ));
-    children.push(allocationTable(allocations));
-    children.push(new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: " ", font: FONT, size: 20 })] }));
-  } else {
-    children.push(heading(`${n++}. ASSETS INCLUDED`));
-    children.push(body(
-      data.assetsIncluded?.trim() ||
-      "No specific assets were itemized for this transfer beyond the ownership interest described above; the parties should attach a schedule of included assets if one exists."
-    ));
-  }
-
-  children.push(heading(`${n++}. PURCHASE PRICE AND PAYMENT`));
-  children.push(body(
-    `The total purchase price for ${kind === "LLC" ? "the membership interest and the Assets" : "the Assets"} is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
-    `parties. Seller acknowledges receipt of the purchase price upon payment in full.`
-  ));
-
-  children.push(heading(`${n++}. LIABILITIES`));
-  children.push(body(
-    data.liabilitiesIncluded?.trim() ||
-    "Seller remains solely responsible for, and shall indemnify and hold Buyer harmless from, any debts, obligations, or liabilities of the Seller or of the Business arising prior to the effective date of this Bill of Sale, unless otherwise agreed in writing by the parties."
-  ));
-
-  children.push(heading(`${n++}. SELLER'S WARRANTIES`));
-  children.push(body(
-    `Seller warrants and represents that: (a) Seller is the lawful owner of the ownership interest and the Assets, and has ` +
-    `full right, power, and authority to sell and transfer the same; (b) the ownership interest and the Assets are free and ` +
-    `clear of all liens, security interests, encumbrances, and claims of any kind, except as disclosed to Buyer in writing; ` +
-    `and (c) Seller will warrant and defend title to the ownership interest and the Assets against the lawful claims and ` +
-    `demands of all persons.`
-  ));
-
-  children.push(heading(`${n++}. CONDITION OF ASSETS`));
-  children.push(body(
-    `Except for the warranty of title set forth above, the Assets are sold in their present condition, "AS IS, WHERE IS," ` +
-    `and Seller makes no other warranty, express or implied, including any warranty of merchantability or fitness for a ` +
-    `particular purpose.`
-  ));
-
-  if (data.additionalTerms?.trim()) {
-    children.push(heading(`${n++}. ADDITIONAL CLAUSE(S) / TERMS`));
-    for (const para of data.additionalTerms.trim().split(/\n+/)) {
-      children.push(body(para));
+  // The numbered sections come from the same builder the PDF uses, so the two outputs always say the same thing.
+  for (const block of buildBillOfSaleBlocks(data)) {
+    if (block.type === "heading") children.push(heading(block.text));
+    else if (block.type === "para") children.push(body(block.text, { bold: block.bold }));
+    else {
+      children.push(body(block.intro, { keepNext: true }));
+      children.push(allocationTable(allocations));
+      children.push(new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: " ", font: FONT, size: 20 })] }));
     }
   }
-
-  children.push(heading(`${n++}. FURTHER ASSURANCES`));
-  children.push(body(
-    "Each party agrees to execute and deliver any additional documents and to take any further actions reasonably " +
-    "necessary to carry out the intent of this Bill of Sale."
-  ));
-
-  children.push(heading(`${n++}. GOVERNING LAW`));
-  children.push(body(`This Bill of Sale shall be governed by and construed in accordance with the laws of ${stateClause(state)}.`));
-
-  children.push(heading(`${n++}. BINDING EFFECT`));
-  children.push(body(
-    "This Bill of Sale shall be binding upon and shall inure to the benefit of the parties and their respective heirs, " +
-    "successors, and assigns. Nothing in this document constitutes legal, tax, or accounting advice to either party."
-  ));
 
   children.push(body("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above.", { keepNext: true }));
 
@@ -291,20 +198,25 @@ export async function generateBillOfSaleDocx(input: BillOfSaleData): Promise<Buf
   parties.sellers.forEach((p, i) => {
     const label = parties.sellers.length > 1 ? `SELLER ${i + 1}` : "SELLER";
     children.push(signatureLine());
-    children.push(body(kind === "Corp" ? `${label}: ${data.businessName}` : `${label} — Signature`, { bold: true }));
+    children.push(body(kind === "Corp" ? `${label}: ${data.businessName}` : `${label} — Signature`, { bold: true, keepNext: true }));
     if (kind === "Corp") children.push(labelLine("By", `${p.name}, ${p.title || "Authorized Officer"}`));
     else children.push(labelLine("Printed Name", p.name));
     children.push(dateBlankLine());
   });
   parties.buyers.forEach((p, i) => {
     children.push(signatureLine());
-    children.push(body(`${parties.buyers.length > 1 ? `BUYER ${i + 1}` : "BUYER"} — Signature`, { bold: true }));
+    children.push(body(`${parties.buyers.length > 1 ? `BUYER ${i + 1}` : "BUYER"} — Signature`, { bold: true, keepNext: true }));
     children.push(labelLine("Printed Name", p.name));
     children.push(dateBlankLine());
   });
 
-  // One notary acknowledgment covering both signers together, not a separate notarization per party.
-  children.push(...notaryBlock(joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)), state));
+  // Optional witness, then the optional notary acknowledgment.
+  children.push(body(bosWitnessLine(), { keepNext: true }));
+  children.push(signatureLine());
+  children.push(body("Witness (optional) — Signature", { bold: true, keepNext: true }));
+  children.push(labelLine("Printed Name", "____________________________"));
+  children.push(dateBlankLine());
+  children.push(...notaryBlock(data, state));
 
   const doc = new Document({
     sections: [

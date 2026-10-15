@@ -100,6 +100,7 @@ publicNewsletterRouter.post("/subscribe", subscribeLimiter, asyncHandler(async (
         ${confirmUrl ? `<p><a href="${confirmUrl}">Confirm my subscription</a></p>` : "<p>Please visit our website to confirm your subscription.</p>"}
         <p style="color:#777;font-size:12px;margin-top:24px;">
           If you didn't request this, you can safely ignore this email — you won't be added to any list unless you click the link above.
+          <br>AL TAX SERVICE, 1714 Saint Paul St. STE 1A, Baltimore, MD 21202
         </p>
       `,
     });

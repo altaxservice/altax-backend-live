@@ -31,6 +31,8 @@ export function PublicContractPage() {
   const [busy, setBusy] = useState<"sign" | null>(null);
   const [signerName, setSignerName] = useState("");
   const [signerTitle, setSignerTitle] = useState("");
+  // Two separate confirmations: consent to electronic records/signatures (Maryland UETA, Commercial Law 21-104(b)(3), wants it conspicuous and separately consented to) and "I read it and agree". The server still gets one "agreed" flag.
+  const [consentE, setConsentE] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [signError, setSignError] = useState<string | null>(null);
   const [justSigned, setJustSigned] = useState(false);
@@ -49,7 +51,7 @@ export function PublicContractPage() {
     setSignError(null);
     setBusy("sign");
     try {
-      await api.post(`/public/contracts/${token}/sign`, { signerName, signerTitle, agreed });
+      await api.post(`/public/contracts/${token}/sign`, { signerName, signerTitle, agreed: consentE && agreed });
       setJustSigned(true);
       load();
     } catch (err) {
@@ -129,16 +131,26 @@ export function PublicContractPage() {
           <form onSubmit={handleSign} className="card">
             <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Sign this agreement</h2>
             <p className="muted" style={{ fontSize: 12.5, marginBottom: 14 }}>
-              Typing your name below and checking the box acts as your electronic signature and has the same legal effect as a handwritten signature.
+              Typing your name below and checking both boxes acts as your electronic signature and has the same legal effect as a handwritten signature.
             </p>
             {signError && <ErrorBanner error={signError} />}
             <div className="field"><label htmlFor="sign-name">Full Legal Name</label><input id="sign-name" required value={signerName} onChange={(e) => setSignerName(e.target.value)} /></div>
             <div className="field"><label htmlFor="sign-title">Title (optional)</label><input id="sign-title" value={signerTitle} onChange={(e) => setSignerTitle(e.target.value)} placeholder="e.g. Owner" /></div>
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, margin: "10px 0 14px" }}>
-              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
-              I have read this agreement in full and agree to its terms.
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, margin: "10px 0 8px" }}>
+              <input type="checkbox" checked={consentE} onChange={(e) => setConsentE(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>
+                <span style={{ display: "block" }}><b>Electronic signing.</b> I agree to use electronic records and signatures for this agreement. This is my choice: I can ask for a paper copy to sign by hand instead, and I can stop before signing by closing this page. Signing electronically has the same effect as signing on paper. To view and keep the agreement I need a phone or computer with an internet browser and a program that opens PDF files.</span>
+                <span dir="rtl" lang="ar" style={{ display: "block", marginTop: 6, textAlign: "right" }}><b>التوقيع الإلكتروني.</b> أوافق على استخدام السجلات والتوقيعات الإلكترونية لهذه الاتفاقية. وهذا خيار لي: يمكنني أن أطلب نسخة ورقية لأوقّعها بخط اليد بدلاً من ذلك، ويمكنني التوقف قبل التوقيع بإغلاق هذه الصفحة. التوقيع الإلكتروني له الأثر نفسه كالتوقيع على الورق. ولعرض الاتفاقية وحفظها أحتاج إلى هاتف أو حاسوب مزوّد بمتصفح إنترنت وبرنامج يفتح ملفات PDF.</span>
+              </span>
             </label>
-            <button type="submit" className="btn btn-primary" disabled={busy === "sign" || !signerName.trim() || !agreed}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, margin: "8px 0 14px" }}>
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>
+                <span style={{ display: "block" }}><b>My signature.</b> I have read this whole agreement and I agree to its terms. My typed name is my legal signature. The time, my device's network address (IP address) and my browser or device type are recorded with my signature.</span>
+                <span dir="rtl" lang="ar" style={{ display: "block", marginTop: 6, textAlign: "right" }}><b>توقيعي.</b> قرأت هذه الاتفاقية كاملة وأوافق على شروطها. اسمي المكتوب هو توقيعي القانوني. ويُسجَّل مع توقيعي الوقت وعنوان الشبكة (IP) لجهازي ونوع المتصفح أو الجهاز.</span>
+              </span>
+            </label>
+            <button type="submit" className="btn btn-primary" disabled={busy === "sign" || !signerName.trim() || !agreed || !consentE}>
               {busy === "sign" ? "Signing…" : "Sign Agreement"}
             </button>
           </form>

@@ -23,6 +23,14 @@ const TEAL = rgb(0.043, 0.42, 0.42);
 const TEAL_TINT = rgb(0.93, 0.97, 0.97);
 const ARABIC_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 
+const STATUTORY_12PT_RE = /I am not an attorney licensed to practice law in Maryland|I cannot accept a fee for referring a client/;
+/** A long line that is (almost) all capital letters — the contract's deliberately conspicuous sentences. */
+function isMostlyCaps(line: string): boolean {
+  const letters = line.replace(/[^A-Za-z]/g, "");
+  if (letters.length < 60) return false;
+  return letters.replace(/[^A-Z]/g, "").length / letters.length >= 0.9;
+}
+
 function fmtDate(v: unknown): string {
   if (!v) return "";
   const d = new Date(v as string);
@@ -178,7 +186,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
           y = 56;
           foot(c, pageNum);
         }
-        c.text(L, y, "[This agreement includes an Arabic-language translation — view it online or ask staff for a copy.]", { size: 8.5, color: MUTED });
+        c.text(L, y, "[The Arabic edition of this agreement (same terms) is not drawn on this PDF - use Print (English + Arabic) or ask staff for the full printout.]", { size: 8.5, color: MUTED });
         y += 18;
         arabicNoteShown = true;
       }
@@ -190,14 +198,18 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
       const needed = /_{6,}/.test(para) ? rawLines.reduce((n, l) => n + Math.max(1, wrapText(l, font, 11, maxWidth).length) * 14.5, 0) + 24 : /^\d+\.\s+[A-Z]/.test(para) ? 70 : 0;
       if (needed && y + needed > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, legal)); y = 64; foot(c, pageNum); }
     }
+    // Statements Maryland's immigration-consultant law requires "conspicuously ... in at least 12 point type" (Commercial Law §14-3304(a)(5)-(6)).
+    const statutory = !legal && STATUTORY_12PT_RE.test(para);
     for (const rawLine of rawLines) {
       // Legal layout: first line is the centered title; numbered clause headings ("1. PROMISE TO PAY") are bold.
       const isTitle = legal && !titleDone;
       const isHeading = legal && !isTitle && /^\d+\.\s+[A-Z][A-Z0-9 &,'\/()-]+$/.test(rawLine.trim());
-      const size = legal ? (isTitle ? 15 : 11) : 9.5;
-      const leading = legal ? (isTitle ? 22 : 14.5) : 13;
+      // Conspicuous ALL-CAPS sentences (liability limit, jury waiver) are drawn in bold.
+      const isCaps = !legal && !statutory && isMostlyCaps(rawLine);
+      const size = legal ? (isTitle ? 15 : 11) : statutory ? 12 : 9.5;
+      const leading = legal ? (isTitle ? 22 : 14.5) : statutory ? 16 : 13;
       if (isHeading) y += 6;
-      for (const wrapped of wrapText(rawLine, isTitle || isHeading ? bold : font, size, maxWidth)) {
+      for (const wrapped of wrapText(rawLine, isTitle || isHeading || statutory || isCaps ? bold : font, size, maxWidth)) {
         if (y > PAGE_H - 60) {
           pageNum += 1;
           ({ page, c } = newPage(doc, font, bold, legal));
@@ -205,7 +217,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
           foot(c, pageNum);
         }
         if (isTitle) c.text((L + R) / 2, y, wrapped, { size, bold: true, align: "center" });
-        else c.text(L, y, wrapped, { size, bold: isHeading });
+        else c.text(L, y, wrapped, { size, bold: isHeading || statutory || isCaps });
         y += leading;
       }
       if (isTitle) { titleDone = true; y += 6; }
@@ -272,7 +284,7 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
     y += 13;
     if (isInPerson) {
       // A wet-ink/paper signature witnessed in the office has no client IP/device
-      // trail, and Section 9's electronic-signature consent language doesn't apply
+      // trail, and the General Terms' electronic-signature consent (section 13) doesn't apply
       // to it — mislabeling this as "electronically signed" would misstate how the
       // agreement was actually executed.
       if (data.recordedBy) {
@@ -285,13 +297,15 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
         c.text(L, y, `IP Address on file: ${data.signerIp}`, { size: 8, color: MUTED });
         y += 13;
       }
-      c.text(L, y, "This document was signed electronically. Client consented to conduct this transaction electronically per Section 9 (General Terms).", { size: 7.5, color: MUTED });
+      c.text(L, y, "This document was signed electronically. Client consented to conduct this transaction electronically under the Electronic Signature and Delivery Consent in the General Terms.", { size: 7.5, color: MUTED });
     }
   } else {
     c.text(L, y, "Client Signature: __________________________________", { size: 10 });
     c.text(R, y, "Date: ______________", { size: 10, align: "right" });
     y += 24;
     c.text(L, y, "Print Name: _________________________________________", { size: 10 });
+    y += 24;
+    c.text(L, y, "Title (if signing for a business): _____________________________", { size: 10 });
   }
 
   return finish();

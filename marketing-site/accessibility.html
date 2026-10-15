@@ -11,6 +11,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -27,11 +29,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -56,30 +62,33 @@
 
 <section class="section section-cream">
   <div class="container legal-content reveal">
-    <p class="updated" data-i18n="legal.lastUpdated">Last updated: July 18, 2026</p>
+    <p class="updated" data-i18n="legal.lastUpdated">Last updated: October 15, 2026</p>
 
     <h2 data-i18n="accessibility.commitmentHeading">Our Commitment</h2>
     <p data-i18n="accessibility.commitmentBody">AL TAX SERVICE is committed to ensuring digital accessibility for people of all abilities. We are actively working to increase the accessibility and usability of this website and, in doing so, to adhere to relevant accessibility standards.</p>
 
     <h2 data-i18n="accessibility.standardHeading">Conformance Standard</h2>
-    <p data-i18n="accessibility.standardBody">We aim to conform to the Web Content Accessibility Guidelines (WCAG) 2.1, Level AA. These guidelines explain how to make web content more accessible for people with disabilities, and more user-friendly for everyone.</p>
+    <p data-i18n="accessibility.standardBody">We aim to conform to the Web Content Accessibility Guidelines (WCAG) 2.1, Level AA. We have run automated checks and manual keyboard, zoom and contrast checks on our pages, but we have not had an independent audit and we do not claim full conformance.</p>
 
     <h2 data-i18n="accessibility.measuresHeading">Measures We Take</h2>
     <ul>
-      <li data-i18n="accessibility.measure1">Semantic HTML structure and landmarks to support screen readers</li>
-      <li data-i18n="accessibility.measure2">Text alternatives for images and icons</li>
-      <li data-i18n="accessibility.measure3">Keyboard-navigable menus, forms, and interactive controls</li>
-      <li data-i18n="accessibility.measure4">Sufficient color contrast between text and background</li>
-      <li data-i18n="accessibility.measure5">A responsive layout that adapts to screen size and zoom level</li>
+      <li data-i18n="accessibility.measure1">Page landmarks (header, navigation, main content, footer), a &ldquo;Skip to main content&rdquo; link, and a main heading on each page</li>
+      <li data-i18n="accessibility.measure2">Text descriptions for informative images; decorative icons are hidden from screen readers</li>
+      <li data-i18n="accessibility.measure3">Menus, forms, buttons, and appointment time slots that can be used with a keyboard, with a visible focus outline</li>
+      <li data-i18n="accessibility.measure4">Text and controls checked against the WCAG AA color-contrast ratios</li>
+      <li data-i18n="accessibility.measure5">A responsive layout that adapts to screen size and zoom level, and animations that are turned off if your device asks for reduced motion</li>
+      <li data-i18n="accessibility.measure6">English and Arabic versions with the correct page language and right-to-left direction</li>
     </ul>
 
     <h2 data-i18n="accessibility.limitationsHeading">Known Limitations</h2>
-    <p data-i18n="accessibility.limitationsBody">Despite our best efforts, some parts of this website may not yet be fully accessible. We are aware of this and are working to address it. If you encounter a barrier, please let us know using the contact information below — we want to hear from you.</p>
+    <p data-i18n="accessibility.limitationsBody">Some parts of this website are not yet fully accessible. Known gaps: some pages have heading levels that skip a level (for example in cards and the footer); page titles and image descriptions stay in English when a page is shown in Arabic; and the client portal (the login area) is a separate application that this statement does not cover. Websites we link to, such as the IRS and the Comptroller of Maryland, are outside our control. If you meet a barrier, please tell us using the contact information below &mdash; we want to hear from you.</p>
 
     <h2 data-i18n="accessibility.feedbackHeading">Feedback</h2>
-    <p data-i18n="accessibility.feedbackBody">We welcome your feedback on the accessibility of this website. If you experience any difficulty accessing any part of this site, please contact us at <bdi dir="ltr">+1 (443) 835-4492</bdi> or visit us at <bdi dir="ltr">1714 Saint Paul St. STE 1A, Baltimore, MD 21202</bdi>. We try to respond to accessibility feedback within a reasonable timeframe.</p>
+    <p data-i18n="accessibility.feedbackBody">We welcome your feedback on the accessibility of this website. If you have difficulty using any part of it, or need information in another format, please contact us at <bdi dir="ltr">+1 (443) 835-4492</bdi> or <bdi dir="ltr">al@altaxgroup.com</bdi>, or visit us at <bdi dir="ltr">1714 Saint Paul St. STE 1A, Baltimore, MD 21202</bdi>. We try to respond to accessibility feedback within a reasonable timeframe.</p>
   </div>
 </section>
+
+</main>
 
 <footer class="site-footer">
   <div class="container">
@@ -87,14 +96,9 @@
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -110,7 +114,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -119,13 +123,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">

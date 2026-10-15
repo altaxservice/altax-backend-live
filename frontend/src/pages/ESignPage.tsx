@@ -49,7 +49,7 @@ export function ESignPage() {
 
       <div className="command-panel">
         <div className="command-panel-header"><div><h2 className="command-panel-title" style={{ display: "flex", gap: 8, alignItems: "center" }}><FileUp size={17} aria-hidden="true" /> Send a document for signature</h2>
-          <div className="command-panel-note">Upload a PDF, add the people who need to sign (you can add yourself and sign right away), and send each their own link.</div></div></div>
+          <div className="command-panel-note">Upload a PDF, add the people who need to sign (you can add yourself and sign right away), and send each their own link. A link is not an ID check: whoever opens it can sign as that person, so send it only to that person's own email address or phone, and never reuse one person's link for someone else.</div></div></div>
         <div style={{ padding: 16, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", alignItems: "start" }}>
           <div className="field" style={{ margin: 0 }}><label htmlFor="es-client">Client <span className="muted">(optional) — signers never need a portal account</span></label>
             <select id="es-client" value={clientId} onChange={(e) => setClientId(e.target.value)}><option value="">No client — outside parties</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>

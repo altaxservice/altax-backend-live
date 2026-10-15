@@ -11,6 +11,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -27,11 +29,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -56,33 +62,35 @@
 
 <section class="section section-cream">
   <div class="container legal-content reveal">
-    <p class="updated" data-i18n="legal.lastUpdated">Last updated: July 18, 2026</p>
+    <p class="updated" data-i18n="legal.lastUpdated">Last updated: October 15, 2026</p>
 
     <h2 data-i18n="sms.programHeading">Program Description</h2>
-    <p data-i18n="sms.programBody">The AL TAX SERVICE SMS &amp; WhatsApp Program sends text and WhatsApp messages related to your relationship with our firm, including appointment confirmations and reminders, tax deadline reminders, requests for documents needed to complete your filing, and general updates about services you've requested. We do not send unsolicited marketing text messages.</p>
+    <p data-i18n="sms.programBody">The AL TAX SERVICE text &amp; WhatsApp program sends messages that relate to your work with our firm: appointment confirmations, reminders and changes; tax and filing deadline reminders; requests for documents; invoice, receipt and e-signature links; and updates about services you have requested. We do not send promotional or marketing text messages unless you separately agree to that in writing. Sender: AL TAX SERVICE, <bdi dir="ltr">1714 Saint Paul St. STE 1A, Baltimore, MD 21202</bdi>.</p>
 
     <h2 data-i18n="sms.optinHeading">How to Opt In</h2>
-    <p data-i18n="sms.optinBody">You may opt in by checking the SMS/WhatsApp consent box on our <a href="/contact" data-i18n-inner="sms.contactPageLink">Contact page</a>, or by verbally providing your mobile number and consent to a member of our team during a consultation or onboarding.</p>
+    <p data-i18n="sms.optinBody">You can opt in by (a) checking the optional, unchecked SMS/WhatsApp box on our <a href="/contact" data-i18n-inner="sms.contactPageLink">Contact page</a>; (b) giving us your mobile number when you book an appointment or request a service, after being told on that page that we may text you about it; or (c) giving your number and consent to our team in person, by phone, or in your client paperwork. Agreeing to text messages is not required to buy any service or to become a client. You must be the user of the number you give us and be at least 18 years old.</p>
 
     <h2 data-i18n="sms.freqHeading">Message Frequency</h2>
-    <p data-i18n="sms.freqBody">Message frequency varies based on your engagement with our services. You can generally expect between 1 and 4 messages per month, with more frequent messages around tax filing deadlines.</p>
+    <p data-i18n="sms.freqBody">Message frequency varies. Depending on the services you use, you may receive several messages in a month, and more around appointments and tax filing deadlines.</p>
 
     <h2 data-i18n="sms.ratesHeading">Message &amp; Data Rates</h2>
     <p data-i18n="sms.ratesBody">Message and data rates may apply, depending on your mobile carrier and plan.</p>
 
     <h2 data-i18n="sms.optoutHeading">How to Opt Out</h2>
-    <p data-i18n="sms.optoutBody">You may opt out of SMS/WhatsApp messages at any time by replying <bdi dir="ltr"><strong>STOP</strong></bdi> to any message you receive from us, or by contacting us directly at <bdi dir="ltr">+1 (443) 835-4492</bdi>. After you opt out, we will send one final message confirming your removal from the program.</p>
+    <p data-i18n="sms.optoutBody">Reply <bdi dir="ltr"><strong>STOP</strong></bdi> to any text message to stop all text messages from us (QUIT, END, CANCEL, UNSUBSCRIBE and OPT OUT also work). You can also tell us in any reasonable way &mdash; by calling <bdi dir="ltr">+1 (443) 835-4492</bdi>, in person, or by email at <bdi dir="ltr">al@altaxgroup.com</bdi>. We will stop within a reasonable time, never more than ten business days, and usually right away. We may send one final message confirming that you have opted out. For WhatsApp, reply STOP or block our number in WhatsApp. Opting out of text messages does not affect email, phone calls, or portal notices about services you have asked for.</p>
 
     <h2 data-i18n="sms.helpHeading">Help</h2>
-    <p data-i18n="sms.helpBody">Reply <bdi dir="ltr"><strong>HELP</strong></bdi> to any message for assistance, or call our office directly at <bdi dir="ltr">+1 (443) 835-4492</bdi>.</p>
+    <p data-i18n="sms.helpBody">Reply <bdi dir="ltr"><strong>HELP</strong></bdi> to any text message for assistance, or call our office at <bdi dir="ltr">+1 (443) 835-4492</bdi> or email <bdi dir="ltr">al@altaxgroup.com</bdi>.</p>
 
     <h2 data-i18n="sms.carrierHeading">Carrier Liability</h2>
     <p data-i18n="sms.carrierBody">Carriers are not liable for delayed or undelivered messages.</p>
 
     <h2 data-i18n="sms.privacyHeading">Your Privacy</h2>
-    <p data-i18n="sms.privacyBody">Your mobile number and opt-in consent will never be sold, shared, or rented to third parties for marketing purposes. See our full <a href="/privacy" data-i18n-inner="sms.privacyPolicyLink">Privacy Policy</a> for details.</p>
+    <p data-i18n="sms.privacyBody">Your mobile number and opt-in consent will never be sold, shared, or rented to third parties or affiliates for marketing or promotional purposes. We share your number only with the messaging provider that delivers our messages for us (Twilio, and WhatsApp for WhatsApp messages). See our full <a href="/privacy" data-i18n-inner="sms.privacyPolicyLink">Privacy Policy</a> for details.</p>
   </div>
 </section>
+
+</main>
 
 <footer class="site-footer">
   <div class="container">
@@ -90,14 +98,9 @@
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -113,7 +116,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -122,13 +125,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">

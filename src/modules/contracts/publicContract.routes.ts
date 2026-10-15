@@ -49,7 +49,7 @@ publicContractRouter.post("/:token/sign", contractLimiter, asyncHandler(async (r
   const signerName = String(body.signerName || "").trim();
   const signerTitle = String(body.signerTitle || "").trim() || null;
   if (!signerName) return res.status(400).json({ error: "Please type your full legal name to sign." });
-  if (!body.agreed) return res.status(400).json({ error: "Please confirm you have read and agree to the terms." });
+  if (!body.agreed) return res.status(400).json({ error: "Please confirm that you have read this agreement and agree to its terms and to sign it electronically." });
 
   const signerIp = String(req.ip || req.socket.remoteAddress || "").slice(0, 64) || null;
   const signerUserAgent = String(req.headers["user-agent"] || "").slice(0, 500) || null;
@@ -80,7 +80,7 @@ publicContractRouter.post("/:token/sign", contractLimiter, asyncHandler(async (r
   }
 
   await logAudit("Contracts", "SIGN", contract.contract_id, "status", contract.status, "Signed",
-    `Signed electronically by "${signerName}" from IP ${signerIp || "unknown"}.`, signerName);
+    `Signed electronically by "${signerName}"; IP ${signerIp || "unknown"}; read-and-e-sign agreement confirmed.`, signerName);
 
   res.json({ ok: true });
 }));

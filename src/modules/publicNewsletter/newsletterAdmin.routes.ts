@@ -16,6 +16,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { logAudit } from "../../common/audit";
+import { getFirmProfile, addressLines } from "../../common/firmProfile";
 
 export const newsletterAdminRouter = Router();
 
@@ -110,13 +111,17 @@ newsletterAdminRouter.post("/send", requireAuth, requireRole("admin"), asyncHand
   const sendId = claim.sendId!;
 
   const base = publicBaseUrl();
+  // CAN-SPAM (15 U.S.C. 7704(a)(5)): every commercial email must carry a clear opt-out and the
+  // sender's valid physical postal address. The firm's address comes from Firm Settings.
+  const firm = await getFirmProfile();
+  const senderLine = [firm.firmName, ...addressLines(firm)].filter(Boolean).join(", ");
   const bodyHtml = bodyText.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
 
   let sent = 0;
   let failed = 0;
   for (const s of subscribers) {
     const unsubscribeUrl = base ? `${base}/public/newsletter/unsubscribe?token=${s.unsubscribe_token}` : null;
-    const html = `${bodyHtml}<p style="color:#777;font-size:12px;margin-top:24px;">${unsubscribeUrl ? `<a href="${unsubscribeUrl}">Unsubscribe</a> from these emails.` : "Reply to unsubscribe from these emails."}</p>`;
+    const html = `${bodyHtml}<p style="color:#777;font-size:12px;margin-top:24px;">You are receiving this because you subscribed to tax deadlines and small-business tips on our website. ${unsubscribeUrl ? `<a href="${unsubscribeUrl}">Unsubscribe</a> at any time.` : "Reply UNSUBSCRIBE to stop these emails."}<br>${senderLine}</p>`;
     try {
       await sendEmail({ to: s.email, subject, html });
       sent++;

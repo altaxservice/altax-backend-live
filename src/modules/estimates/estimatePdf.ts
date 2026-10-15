@@ -23,7 +23,7 @@ const PAGE_W = 612;
 const PAGE_H = 792;
 const L = 48, R = PAGE_W - 48;
 /** Nothing is drawn below this line — leaves room for the footer note on every page. */
-const BOTTOM = PAGE_H - 56;
+const BOTTOM = PAGE_H - 92;
 const TOP_MARGIN = 50;
 
 const INK = rgb(0.09, 0.09, 0.09);
@@ -48,6 +48,23 @@ function fitText(font: PDFFont, str: string, size: number, maxWidth: number): st
   let s = safe;
   while (s.length > 1 && font.widthOfTextAtSize(s.trimEnd() + "...", size) > maxWidth) s = s.slice(0, -1);
   return s.trimEnd() + "...";
+}
+
+/** Word-wrap into measured lines (no line limit) — a long Notes/terms entry must print in full across lines and pages, not be cut to one line with "...". Explicit newlines are kept. */
+function wrapAll(font: PDFFont, str: string, size: number, maxWidth: number): string[] {
+  const out: string[] = [];
+  for (const para of String(str).split(/\r?\n/)) {
+    const words = pdfSafeText(para).split(/\s+/).filter(Boolean);
+    if (!words.length) { out.push(""); continue; }
+    let cur = "";
+    for (const w of words) {
+      const cand = cur ? `${cur} ${w}` : w;
+      if (font.widthOfTextAtSize(cand, size) <= maxWidth || !cur) cur = cand;
+      else { out.push(cur); cur = w; }
+    }
+    if (cur) out.push(cur);
+  }
+  return out;
 }
 
 class Cursor {
@@ -267,15 +284,22 @@ export async function generateEstimatePdf(data: EstimatePdfData): Promise<Uint8A
     ensureRoom(13 + 16);
     ctx.c.text(L, ctx.y, "Notes", { size: 9, bold: true });
     ctx.y += 13;
-    ctx.c.text(L, ctx.y, fitText(font, data.terms, 9, R - L), { size: 9, color: MUTED });
-    ctx.y += 18;
+    for (const ln of wrapAll(font, data.terms, 9, R - L)) {
+      ensureRoom(12);
+      ctx.c.text(L, ctx.y, ln, { size: 9, color: MUTED });
+      ctx.y += 12;
+    }
+    ctx.y += 6;
   }
 
-  // Footer note on whichever page ends up last — Cursor.text is relative to
-  // that page's own top, so this always lands at the bottom of the page it's
-  // actually called on.
-  ctx.c.text(L, PAGE_H - 44, `Prepared by ${data.preparedBy || profile.firmName}. This is an estimate, not an invoice — actual agency fees may change before filing.`, { size: 8, color: MUTED });
-  ctx.c.text(L, PAGE_H - 30, "Thank you for considering AL Tax Service.", { size: 9, color: MUTED });
+  // Footer on whichever page ends up last — Cursor.text is relative to that page's own top. It says plainly what an estimate is and is not,
+  // so a quote is never mistaken for a contract or a promise of the final fee.
+  const footLines = wrapAll(font, [
+    `Prepared by ${data.preparedBy || profile.firmName}. This is an estimate, not an invoice and not a contract. The final fee is the amount in the signed agreement or invoice for the work actually done.`,
+    "The prices cover only the services listed. Anything else is quoted to you before it is done. Government and agency fees are set by the agencies and can change before filing. Work begins when you accept in writing and any deposit shown is received.",
+  ].join(" "), 7.5, R - L);
+  footLines.slice(0, 5).forEach((ln, i) => ctx.c.text(L, PAGE_H - 74 + i * 9.5, ln, { size: 7.5, color: MUTED }));
+  ctx.c.text(L, PAGE_H - 24, "Thank you for considering AL Tax Service.", { size: 9, color: MUTED });
 
   return doc.save();
 }

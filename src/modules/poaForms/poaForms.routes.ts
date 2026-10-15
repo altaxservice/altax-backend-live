@@ -6,7 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { decryptClientPii, encryptValue, decryptValue } from "../../common/encryption";
 import {
-  generatePoaForm, F2848_DESIGNATIONS, MD548_DESIGNATIONS,
+  generatePoaForm, F2848_DESIGNATIONS, MD548_DESIGNATIONS, poaNotesLineCount,
   type PoaFilingData, type PoaRepresentative, type PoaTaxMatter,
 } from "./poaForms.service";
 
@@ -17,12 +17,12 @@ import {
  *
  * Physical signature only, same reasoning as the general Authorization to
  * Act/Release of Information (v3_client_contracts, service_key='poa_release'):
- * an e-signature is only valid on 2848/8821 if the form is then submitted
- * through the IRS's own online portal, and Maryland has no e-file path for
- * Form 548 at all. There is deliberately no "send for electronic signature"
- * route here — only generate, preview/download, record a physical
- * signature, and record how the firm actually sent it (mail/fax/portal/
- * in-person), since this app cannot submit directly to either agency.
+ * the IRS instructions for Forms 2848 and 8821 allow an electronic signature
+ * only when the form is submitted to the IRS online, and this app cannot
+ * submit to the IRS or the Comptroller. There is deliberately no "send for
+ * electronic signature" route here — only generate, preview/download, record
+ * a physical signature, and record how the firm actually sent it
+ * (mail/fax/portal/in-person).
  */
 export const poaFormsRouter = Router();
 
@@ -76,11 +76,75 @@ const SUGGESTED_FORMS_FOR_SERVICE: Record<string, string[]> = {
   sales_tax: ["548"],
 };
 
+/** Designations whose holders have a bar, CPA, EA or other enrollment number that Part II / the Declaration asks for. */
+const NEEDS_LICENSE_NUMBER_2848 = new Set(["Attorney", "Certified Public Accountant", "Enrolled Agent", "Enrolled Actuary", "Enrolled Retirement Plan Agent"]);
+const NEEDS_ID_NUMBER_548 = new Set(["Attorney", "Certified Public Accountant", "Enrolled Agent", "Maryland Registered Individual Tax Preparer"]);
+
+/**
+ * Things that would make the IRS or the Comptroller return the form, found before a PDF is made.
+ * Sources: Instructions for Form 2848 (Rev. 09-2021) and Instructions for Form 8821 (Rev. 09-2021), Line 3
+ * ("Do not use a general reference such as 'All years,' 'All periods,' or 'All taxes.' The IRS will return any
+ * power of attorney with a general reference"); Form 2848 Part II; the printed text of Maryland Form 548 (COM/RAD-548 08/24).
+ */
+function validateFiling(formType: string, reps: PoaRepresentative[], matters: PoaTaxMatter[], notes: string | null): string | null {
+  const label = FORM_LABELS[formType];
+  if (matters.length > 3) return `${label} has room for 3 tax matters. Make a second form for the others instead of dropping them.`;
+  for (const m of matters) {
+    const text = `${m.description} ${m.years || ""} ${m.taxForm || ""}`;
+    if (formType !== "548" && /\ball\b/i.test(text)) {
+      return `"${m.description}": the IRS returns a form that says "All years", "All periods" or "All taxes". List the actual years or periods (for example "2024 thru 2026" or "1st 2025 thru 4th 2025"), one tax type per line.`;
+    }
+    if (!String(m.years || "").trim()) return `"${m.description}": enter the year(s) or period(s), or "Not Applicable" if none apply. A blank column makes the form invalid.`;
+  }
+  for (const r of reps) {
+    if (!String(r.name || "").trim() || !String(r.address || "").trim()) return "Every representative needs a full name and an address.";
+    if (formType === "2848" && r.designation && NEEDS_LICENSE_NUMBER_2848.has(r.designation) && !String(r.licenseNumber || "").trim()) {
+      return `${r.name}: enter the bar, CPA, enrollment or registration number that goes with "${r.designation}" in Part II.`;
+    }
+    if (formType === "2848" && r.designation === "Unenrolled Return Preparer" && !String(r.ptin || "").trim()) {
+      return `${r.name}: an unenrolled return preparer must have a valid PTIN to represent a taxpayer (Form 2848 instructions). Enter it, or choose a different representative.`;
+    }
+    if (formType === "548" && r.designation && NEEDS_ID_NUMBER_548.has(r.designation) && !String(r.licenseNumber || "").trim()) {
+      return `${r.name}: Form 548 asks for the identification number (bar, CPA, EA or certification number) next to the designation. Enter it.`;
+    }
+  }
+  if (formType !== "8821" && poaNotesLineCount(formType as "2848" | "548", notes || undefined) > 3) {
+    return "The additional-acts / specific-additions text is too long for the three lines on the form. Shorten it, or attach a separate signed statement and leave the extra text off.";
+  }
+  return null;
+}
+
+/** Plain-language steps for staff, per form — shown to staff, never printed on the government form. */
+function guidanceFor(formType: string, reps: PoaRepresentative[]): string[] {
+  const out: string[] = [];
+  if (formType === "2848") {
+    out.push("Form 2848 lets the named individuals represent the taxpayer before the IRS. A firm cannot be named; each representative is an individual who signs Part II.");
+    out.push("The taxpayer signs and dates line 7 by hand. A typed, scanned or other electronic signature is valid only if the form is submitted online at IRS.gov/Submit2848; by mail or fax it must be signed by hand. If a spouse is also a taxpayer on a joint return, that spouse needs a separate Form 2848.");
+    out.push("Each representative signs and dates Part II (in the order listed on line 2). If the taxpayer is a business, the person signing must be an officer or other person with legal authority and must write his or her title.");
+    out.push("Filing this form revokes earlier powers of attorney for the same matters and periods unless line 6 is checked and the earlier form is attached.");
+    out.push("The IRS does not record on the CAF future periods more than 3 years past December 31 of the year it receives the form.");
+    if (reps.some((r) => r.designation === "Unenrolled Return Preparer")) {
+      out.push("An unenrolled return preparer has LIMITED authority: only before revenue agents and customer service staff in an examination of a return that the preparer prepared and signed, with a valid PTIN and the required Annual Filing Season Program record. Not before Appeals or revenue officers, and the preparer cannot sign closing agreements, waivers or refund claims. For anything else, use Form 8821 (information only) or a representative who is an attorney, CPA or enrolled agent.");
+    }
+  } else if (formType === "8821") {
+    out.push("Form 8821 only lets the designee see and receive the taxpayer's IRS information. It does NOT authorize anyone to represent the taxpayer or to speak or sign for the taxpayer. Use Form 2848 for that.");
+    out.push("Do not have the taxpayer sign until every line is complete. List actual years or periods, not \"all years\". A typed or electronic signature is valid only if the form is submitted online at IRS.gov/Submit8821.");
+  } else if (formType === "548") {
+    out.push("Maryland Form 548 is for the Comptroller of Maryland (sales and use tax, withholding, income tax and other Comptroller accounts). A federal Form 2848 or 8821 is for the IRS only; do not assume the Comptroller will take either.");
+    out.push("The taxpayer signs and dates by hand. Each representative completes the Declaration of Representative on page 2 and signs.");
+    out.push("If a representative's designation is item 4 through 10 (for example a Maryland Registered Individual Tax Preparer), attach a copy of the taxpayer's government-issued photo identification (the form says: \"Attach government-issued photo identification ... if representative designation is item 4-10\"). An incomplete Form 548 is not processed.");
+    out.push("Filing this form revokes earlier powers of attorney on file with the Comptroller for the same matters and periods unless the retention box is checked and the earlier form is attached. This form does not let a representative receive or cash refund checks unless that is written in the acts-authorized lines.");
+    out.push("Signing a Maryland return as a reporting agent may need the Comptroller's separate reporting-agent authorization (Form 548P, which this app does not generate). Check with the Comptroller before relying on this form for that.");
+  }
+  return out;
+}
+
 poaFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   res.json({
     formTypes: FORM_TYPES.map((t) => ({ value: t, label: FORM_LABELS[t] })),
     designations: { "2848": F2848_DESIGNATIONS, "548": MD548_DESIGNATIONS, "8821": [] },
     suggestedFormsForService: SUGGESTED_FORMS_FOR_SERVICE,
+    guidance: { "2848": guidanceFor("2848", []), "8821": guidanceFor("8821", []), "548": guidanceFor("548", []) },
   });
 }));
 
@@ -188,6 +252,8 @@ poaFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staf
 
   const taxMatters: PoaTaxMatter[] = (Array.isArray(body.taxMatters) ? body.taxMatters : []).filter((m: any) => m?.description);
   if (!taxMatters.length) return res.status(400).json({ error: "Add at least one tax matter (type of tax)." });
+  const problem = validateFiling(formType, representatives, taxMatters, String(body.notes || "").trim() || null);
+  if (problem) return res.status(400).json({ error: problem });
 
   const client = await loadClientTaxpayerData(clientId);
   if (!client) return res.status(404).json({ error: "Client not found." });
@@ -209,7 +275,7 @@ poaFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staf
   await logAudit("Tools", "CREATE_POA_FILING", filingId, "form_type", "", formType,
     `${FORM_LABELS[formType]} drafted for ${client.client_name} by ${req.user!.email}.`, req.user!.email);
 
-  res.status(201).json({ ok: true, filingId });
+  res.status(201).json({ ok: true, filingId, guidance: guidanceFor(formType, representatives) });
 }));
 
 async function loadFiling(req: AuthedRequest, filingId: string) {
@@ -228,7 +294,7 @@ poaFormsRouter.get("/:filingId", requireAuth, requireRole("admin", "staff"), asy
   // than send either the ciphertext envelope or plaintext PII over the wire
   // for no reason.
   const { taxpayer_snapshot, ...filingWithoutSnapshot } = filing;
-  res.json({ filing: filingWithoutSnapshot });
+  res.json({ filing: filingWithoutSnapshot, guidance: guidanceFor(filing.form_type, filing.representatives || []) });
 }));
 
 poaFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -267,6 +333,8 @@ poaFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), a
 
   const taxMatters: PoaTaxMatter[] = (Array.isArray(body.taxMatters) ? body.taxMatters : []).filter((m: any) => m?.description);
   if (!taxMatters.length) return res.status(400).json({ error: "Add at least one tax matter (type of tax)." });
+  const problem = validateFiling(filing.form_type, representatives, taxMatters, String(body.notes || "").trim() || null);
+  if (problem) return res.status(400).json({ error: problem });
 
   await query(
     `UPDATE altax.v3_poa_filings SET representatives=$2, tax_matters=$3, retain_prior=$4, notes=$5, updated_at=now() WHERE filing_id=$1`,

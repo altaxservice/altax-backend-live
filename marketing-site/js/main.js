@@ -1,14 +1,15 @@
-// 2026-2027 tax deadline dataset — nominal IRS/standard dates.
-// If a date falls on a weekend or federal holiday, the actual deadline shifts
-// to the next business day; see the disclaimer on the Resources page.
+// 2026-2027 tax deadline dataset — standard IRS dates, already moved to the next
+// business day where the usual date falls on a weekend (checked 2026-10-15:
+// Jan 31 2026, Mar 15 2026, Oct 31 2026 and Jan 31 2027 are weekend days).
+// Federal holidays are not modelled; see the disclaimer on the Resources page.
 const TAX_DEADLINES = [
   { date: '2026-01-15', category: 'estimated',
     en: { title: 'Q4 2025 Estimated Tax Payment Due', desc: 'Final estimated payment for the 2025 tax year.' },
     ar: { title: 'الدفعة الضريبية المقدرة للربع الرابع 2025', desc: 'الدفعة الأخيرة المقدرة لعام 2025 الضريبي.' } },
-  { date: '2026-01-31', category: 'payroll',
+  { date: '2026-02-02', category: 'payroll',
     en: { title: 'W-2 & 1099-NEC Deadline', desc: 'Due to employees, contractors, and the IRS/SSA.' },
     ar: { title: 'موعد نماذج W-2 و1099-NEC', desc: 'مستحقة للموظفين والمقاولين ومصلحة الضرائب/الضمان الاجتماعي.' } },
-  { date: '2026-03-15', category: 'business',
+  { date: '2026-03-16', category: 'business',
     en: { title: 'S-Corp & Partnership Returns Due', desc: 'Forms 1120-S and 1065, or file for a 6-month extension.' },
     ar: { title: 'إقرارات S-Corp والشراكات مستحقة', desc: 'النماذج 1120-S و1065، أو التقديم لتمديد لمدة 6 أشهر.' } },
   { date: '2026-04-15', category: 'individual',
@@ -29,15 +30,15 @@ const TAX_DEADLINES = [
   { date: '2026-10-15', category: 'individual',
     en: { title: 'Extended Individual & C-Corp Returns Due', desc: 'Final deadline if you filed a 6-month extension.' },
     ar: { title: 'إقرارات الأفراد وC-Corp الممددة مستحقة', desc: 'الموعد النهائي إذا قدمت طلب تمديد لمدة 6 أشهر.' } },
-  { date: '2026-10-31', category: 'payroll',
+  { date: '2026-11-02', category: 'payroll',
     en: { title: 'Q3 Payroll Tax Return (Form 941)', desc: 'Quarterly federal payroll tax filing.' },
     ar: { title: 'إقرار ضريبة الرواتب للربع الثالث (النموذج 941)', desc: 'تقديم إقرار ضريبة الرواتب الفيدرالية الفصلي.' } },
   { date: '2027-01-15', category: 'estimated',
     en: { title: 'Q4 2026 Estimated Tax Payment Due', desc: 'Final estimated payment for the 2026 tax year.' },
     ar: { title: 'الدفعة الضريبية المقدرة للربع الرابع 2026', desc: 'الدفعة الأخيرة المقدرة لعام 2026 الضريبي.' } },
-  { date: '2027-01-31', category: 'payroll',
-    en: { title: 'Q4 Payroll Tax Return (Form 941)', desc: 'Quarterly federal payroll tax filing.' },
-    ar: { title: 'إقرار ضريبة الرواتب للربع الرابع (النموذج 941)', desc: 'تقديم إقرار ضريبة الرواتب الفيدرالية الفصلي.' } },
+  { date: '2027-02-01', category: 'payroll',
+    en: { title: 'Q4 Payroll Tax Return (Form 941)', desc: 'Quarterly federal payroll tax filing. W-2 and 1099-NEC forms are due the same day.' },
+    ar: { title: 'إقرار ضريبة الرواتب للربع الرابع (النموذج 941)', desc: 'تقديم إقرار ضريبة الرواتب الفيدرالية الفصلي. وتُستحق نماذج W-2 و1099-NEC في اليوم نفسه.' } },
 ];
 
 // ---------------- i18n ----------------
@@ -68,8 +69,14 @@ function applyLanguage(lang) {
     const val = t(key);
     if (val) el.setAttribute('placeholder', val);
   });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+    const val = t(el.getAttribute('data-i18n-aria-label'));
+    if (val) el.setAttribute('aria-label', val);
+  });
   document.querySelectorAll('.lang-toggle button').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+    const on = btn.getAttribute('data-lang') === lang;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
 
   renderUtilityBar();
@@ -182,8 +189,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggle = document.querySelector('.nav-toggle');
   const links = document.querySelector('.nav-links');
   if (toggle && links) {
-    toggle.addEventListener('click', () => links.classList.toggle('open'));
-    links.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => links.classList.remove('open')));
+    toggle.addEventListener('click', () => {
+      const open = links.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    links.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => {
+      links.classList.remove('open');
+      toggle.setAttribute('aria-expanded', 'false');
+    }));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && links.classList.contains('open')) {
+        links.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+      }
+    });
   }
 
   const header = document.querySelector('.site-header');
@@ -428,12 +448,12 @@ document.addEventListener('DOMContentLoaded', () => {
       slots.forEach((iso) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'book-slot';
+        btn.className = 'book-slot'; btn.setAttribute('aria-pressed', 'false');
         btn.textContent = new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
         btn.addEventListener('click', () => {
           selectedSlot = iso;
-          slotsEl.querySelectorAll('.book-slot').forEach((b) => b.classList.remove('selected'));
-          btn.classList.add('selected');
+          slotsEl.querySelectorAll('.book-slot').forEach((b) => { b.classList.remove('selected'); b.setAttribute('aria-pressed', 'false'); });
+          btn.classList.add('selected'); btn.setAttribute('aria-pressed', 'true');
           bookForm.style.display = 'block';
         });
         slotsEl.appendChild(btn);
@@ -678,12 +698,12 @@ document.addEventListener('DOMContentLoaded', () => {
       slots.forEach((iso) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'book-slot';
+        btn.className = 'book-slot'; btn.setAttribute('aria-pressed', 'false');
         btn.textContent = new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
         btn.addEventListener('click', () => {
           selectedSlot = iso;
-          slotsEl.querySelectorAll('.book-slot').forEach((b) => b.classList.remove('selected'));
-          btn.classList.add('selected');
+          slotsEl.querySelectorAll('.book-slot').forEach((b) => { b.classList.remove('selected'); b.setAttribute('aria-pressed', 'false'); });
+          btn.classList.add('selected'); btn.setAttribute('aria-pressed', 'true');
           confirmRescheduleBtn.disabled = false;
         });
         slotsEl.appendChild(btn);

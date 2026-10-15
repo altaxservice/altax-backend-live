@@ -48,6 +48,9 @@ export function PublicSignPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
+  // Two separate confirmations: consent to use electronic records and signatures (Maryland UETA, Commercial Law 21-104(b)(3), wants this separately
+  // consented to, not buried in the agreement), and the signer's own "I read it and agree to sign". The server still receives one "agreed" flag.
+  const [consentE, setConsentE] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,7 +64,7 @@ export function PublicSignPage() {
 
   async function sign() {
     setBusy(true); setSignError(null);
-    try { await api.post(`/public/signatures/${token}/sign`, { signerName: name, agreed, signatureImage: image || undefined }); load(); }
+    try { await api.post(`/public/signatures/${token}/sign`, { signerName: name, agreed: consentE && agreed, signatureImage: image || undefined }); load(); }
     catch (e) { setSignError(e instanceof ApiError ? e.message : "Could not record your signature."); } finally { setBusy(false); }
   }
   async function decline() {
@@ -82,7 +85,8 @@ export function PublicSignPage() {
         <div>
           <div className="muted" style={{ fontSize: 12.5 }}>{doc.firmName}{doc.clientName ? ` · for ${doc.clientName}` : ""}</div>
           <h1 style={{ margin: "4px 0 0", fontSize: 22 }}>{doc.title}</h1>
-          <p className="muted" style={{ margin: "4px 0 0" }}>Hello {signer.name} — you are signing as <b>{signer.role}</b>.</p>
+          <p className="muted" style={{ margin: "4px 0 0" }}>Hello {signer.name} — you are signing as <b>{signer.role}</b>. If you are not {signer.name}, or you were not expecting this, please do not sign — contact the person who sent it.</p>
+          <p className="muted" dir="rtl" lang="ar" style={{ margin: "4px 0 0", textAlign: "right" }}>مرحباً <bdi>{signer.name}</bdi> — أنتم توقّعون بصفة <bdi>{signer.role}</bdi>. وإذا لم تكونوا <bdi>{signer.name}</bdi>، أو لم تكونوا تتوقعون هذا المستند، فيرجى عدم التوقيع والتواصل مع من أرسله لكم.</p>
         </div>
 
         {doc.completed && <div className="tender-warn" style={{ background: "var(--green-soft, #e8f6ee)" }}>✓ Everyone has signed this document. You can view, print or save the signed copy below.</div>}
@@ -115,12 +119,26 @@ export function PublicSignPage() {
               <div className="field"><label htmlFor="sg-name">Type your full legal name<span style={{ color: "var(--red)" }}> *</span></label><input id="sg-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
               <div className="field"><label>Draw your signature <span className="muted">(optional)</span></label><SignaturePad onChange={setImage} /></div>
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13.5 }}>
-                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
-                <span>I have read this document and I agree to sign it electronically. I understand my typed name{image ? " and drawn signature" : ""} will be my legal signature, and that the time and my device's network address are recorded. I can ask for a paper copy to sign by hand instead.</span>
+                <input type="checkbox" checked={consentE} onChange={(e) => setConsentE(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>
+                  <span style={{ display: "block" }}><b>Electronic signing.</b> I agree to use electronic records and signatures for this document. This is my choice: I can ask the sender for a paper copy to sign by hand instead, and I can stop before signing by closing this page or choosing "I don't want to sign". Signing electronically has the same effect as signing on paper. To view and keep the document I need a phone or computer with an internet browser and a program that opens PDF files.</span>
+                  <span dir="rtl" lang="ar" style={{ display: "block", marginTop: 6, textAlign: "right" }}><b>التوقيع الإلكتروني.</b> أوافق على استخدام السجلات والتوقيعات الإلكترونية لهذا المستند. وهذا خيار لي: يمكنني أن أطلب من المرسل نسخة ورقية لأوقّعها بخط اليد بدلاً من ذلك، ويمكنني التوقف قبل التوقيع بإغلاق هذه الصفحة أو باختيار «لا أريد التوقيع». التوقيع الإلكتروني له الأثر نفسه كالتوقيع على الورق. ولعرض المستند وحفظه أحتاج إلى هاتف أو حاسوب مزوّد بمتصفح إنترنت وبرنامج يفتح ملفات PDF.</span>
+                </span>
               </label>
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13.5 }}>
+                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>
+                  <span style={{ display: "block" }}><b>My signature.</b> I am {signer.name} (or I am authorized to sign for them as {signer.role}). I have read this whole document and I agree to sign it. My typed name{image ? " and drawn signature" : ""} will be my legal signature. The time, my device's network address (IP address) and my browser or device type are recorded with my signature.</span>
+                  <span dir="rtl" lang="ar" style={{ display: "block", marginTop: 6, textAlign: "right" }}><b>توقيعي.</b> أنا <bdi>{signer.name}</bdi> (أو أنا مفوَّض بالتوقيع عنه بصفتي <bdi>{signer.role}</bdi>). قرأت هذا المستند كاملاً وأوافق على توقيعه. سيكون اسمي المكتوب{image ? " وتوقيعي المرسوم" : ""} توقيعي القانوني. ويُسجَّل مع توقيعي الوقت وعنوان الشبكة (IP) لجهازي ونوع المتصفح أو الجهاز.</span>
+                </span>
+              </label>
+              <div className="muted" style={{ fontSize: 12.5 }}>
+                After you sign, you can open, print or save the signed document from this page at any time{doc.firmName ? ` — ${doc.firmName} keeps a copy too` : ""}.
+                <span dir="rtl" lang="ar" style={{ display: "block", textAlign: "right", marginTop: 2 }}>بعد التوقيع يمكنكم فتح المستند الموقّع أو طباعته أو حفظه من هذه الصفحة في أي وقت.</span>
+              </div>
               {signError && <div className="tender-warn" style={{ color: "var(--red)" }}>{signError}</div>}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button type="button" className="btn btn-primary" disabled={busy || !name.trim() || !agreed} onClick={sign}>{busy ? "Signing…" : "Sign document"}</button>
+                <button type="button" className="btn btn-primary" disabled={busy || !name.trim() || !agreed || !consentE} onClick={sign}>{busy ? "Signing…" : "Sign document"}</button>
                 <button type="button" className="btn" onClick={() => setDeclining((v) => !v)}>I don't want to sign</button>
               </div>
               {declining && (

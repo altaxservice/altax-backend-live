@@ -67,4 +67,6 @@ test("real documents: the checks that matter fire on bad input and stay quiet on
   assert.equal(problemsFor("general_poa", { powerType: "general", sReal: false, manageProperty: "" }).length, 1);
   assert.deepEqual(problemsFor("general_poa", { powerType: "general", manageProperty: "12 Main St" }), []);
   assert.deepEqual(problemsFor("general_poa", { powerType: "limited" }), []);
+  assert.equal(problemsFor("client_privacy_notice", { noAffiliates: false }).length, 1);
+  assert.deepEqual(problemsFor("client_privacy_notice", { noAffiliates: true }), []);
 });

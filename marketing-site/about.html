@@ -11,6 +11,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -27,11 +29,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" aria-current="page" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -68,6 +74,8 @@
       <h2 data-i18n="about.heading">Empowering Maryland's small businesses since 2020</h2>
       <p data-i18n="about.p1">Established in 2020, AL TAX SERVICE is a full-service Tax, Accounting, and Corporate Services firm dedicated to empowering individuals, entrepreneurs, and small business owners throughout the Maryland region. We specialize in providing reliable, personalized financial and business solutions that help our clients navigate the complexities of the U.S. tax system and maintain compliance with ever-changing federal, state, and local regulations.</p>
       <p data-i18n="about.p2">Our mission is to simplify tax and financial management, allowing small-business owners to focus on what they do best — growing their businesses. From tax preparation and strategic tax planning to bookkeeping, payroll, business formation, and corporate compliance, we offer comprehensive services tailored to meet the unique needs of each client.</p>
+      <h3 data-i18n="about.disclosureHeading" style="margin-top:1.6rem;">Who prepares your return</h3>
+      <p data-i18n="about.disclosureBody">AL TAX SERVICE, <bdi dir="ltr">1714 Saint Paul St. STE 1A, Baltimore, MD 21202</bdi>, <bdi dir="ltr">+1 (443) 835-4492</bdi>. We do not hold ourselves out as a CPA firm or a law firm, and we do not give legal advice. Under Maryland law (Business Occupations and Professions Article, section 21-403), an individual tax preparer who is registered with the State Board of Individual Tax Preparers and is not a certified public accountant, enrolled agent, or tax attorney must disclose to the customer in writing: their name, address, and telephone number; that they are not a CPA, enrolled agent, or tax attorney; the services they are qualified to provide; and their education and training, including examinations taken and passed. We give each client that written disclosure for the person preparing their return, and you may ask for it at any time. Only a person identified to you as a CPA, enrolled agent, or attorney holds that credential.</p>
       <a href="/contact" class="btn btn-dark"><span data-i18n="about.getInTouch">Get in Touch</span> <span class="arrow">&rarr;</span></a>
     </div>
   </div>
@@ -81,22 +89,22 @@
     </div>
     <div class="feature-grid">
       <div class="feature-card reveal">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l2.4 6.9L21 9l-5.5 4.3L17.5 21 12 17l-5.5 4 2-7.7L3 9l6.6-.1z"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l2.4 6.9L21 9l-5.5 4.3L17.5 21 12 17l-5.5 4 2-7.7L3 9l6.6-.1z"/></svg></div>
         <h3 data-i18n="value.trustTitle">Trust</h3>
         <p data-i18n="value.trustDesc">We believe every business deserves a trusted financial partner, not just a preparer.</p>
       </div>
       <div class="feature-card reveal reveal-delay-1">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg></div>
         <h3 data-i18n="value.expertiseTitle">Expertise</h3>
-        <p data-i18n="value.expertiseDesc">Technical knowledge combined with real-world experience across Maryland tax law.</p>
+        <p data-i18n="value.expertiseDesc">Technical knowledge combined with hands-on experience with Maryland and federal tax rules.</p>
       </div>
       <div class="feature-card reveal reveal-delay-2">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div>
         <h3 data-i18n="value.growthTitle">Growth</h3>
-        <p data-i18n="value.growthDesc">We help clients minimize liabilities and maximize opportunities for long-term success.</p>
+        <p data-i18n="value.growthDesc">We help clients understand their tax obligations and plan for long-term success.</p>
       </div>
       <div class="feature-card reveal reveal-delay-3">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
         <h3 data-i18n="value.serviceTitle">Service</h3>
         <p data-i18n="value.serviceDesc">Exceptional client service is at the center of every engagement, every year.</p>
       </div>
@@ -113,20 +121,17 @@
   </div>
 </section>
 
+</main>
+
 <footer class="site-footer">
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -142,7 +147,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -151,13 +156,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">

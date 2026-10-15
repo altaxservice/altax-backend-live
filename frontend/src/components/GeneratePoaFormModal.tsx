@@ -12,6 +12,7 @@ interface Meta {
   formTypes: { value: string; label: string }[];
   designations: Record<string, string[]>;
   suggestedFormsForService: Record<string, string[]>;
+  guidance?: Record<string, string[]>;
 }
 
 const EMPTY_MATTER: PoaTaxMatter = { description: "", taxForm: "", years: "" };
@@ -272,9 +273,14 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
             </label>
 
             <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
-              This form must be signed by hand — {formType === "548" ? "Maryland has no online submission" : "an electronic signature is only valid if submitted through the IRS's own online portal"}.
+              This form should be signed by hand — {formType === "548" ? "ask the Comptroller before sending a Maryland form with an electronic signature" : "an electronic signature is only valid if submitted through the IRS's own online portal"}.
               Preview, print, and get a wet signature; the app tracks when it's signed and how it was actually sent.
             </p>
+            {meta?.guidance?.[formType]?.length ? (
+              <ul className="muted" style={{ fontSize: 12, margin: "0 0 12px", paddingLeft: 18 }}>
+                {meta.guidance[formType].map((g, i) => <li key={i} style={{ marginBottom: 3 }}>{g}</li>)}
+              </ul>
+            ) : null}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button type="button" className="btn" onClick={handleClose}>Cancel</button>

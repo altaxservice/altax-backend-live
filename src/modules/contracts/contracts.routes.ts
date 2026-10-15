@@ -45,6 +45,12 @@ function money(v: unknown, description?: string | null): string {
   const amount = `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return description ? `${amount} (${description})` : amount;
 }
+/** Same as money(), but the "not priced yet" fallback reads in Arabic for the Arabic edition of a contract ({{feeAmountAr}}). */
+function moneyAr(v: unknown, description?: string | null): string {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return "يُتفق عليه بشكل منفصل";
+  return money(v, description);
+}
 function fmtDate(v: unknown): string {
   const d = v ? new Date(v as string) : new Date();
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { timeZone: "UTC" });
@@ -127,6 +133,25 @@ contractsRouter.get("/client/:clientId", requireAuth, asyncHandler(async (req: A
   res.json({ contracts });
 }));
 
+/** The divider line every bilingual template in contractContent.ts puts between its English text and its Arabic edition. */
+const ARABIC_EDITION_DIVIDER = "النسخة العربية — Arabic Translation";
+
+/**
+ * Joins the service scope and the General Terms so a reader meets ONE English document followed by ONE Arabic edition
+ * (scope EN + terms EN, divider, scope AR + terms AR) instead of English, Arabic, English, Arabic. A template with no
+ * Arabic edition (a custom override, say) just stays as it was.
+ */
+export function assembleBilingualBody(scopeText: string, generalText: string): string {
+  const split = (t: string) => {
+    const i = t.indexOf(ARABIC_EDITION_DIVIDER);
+    return i < 0 ? { en: t.trim(), ar: "" } : { en: t.slice(0, i).trim(), ar: t.slice(i + ARABIC_EDITION_DIVIDER.length).trim() };
+  };
+  const scope = split(scopeText), general = split(generalText);
+  const english = [scope.en, general.en].filter(Boolean).join("\n\n\n");
+  const arabic = [scope.ar, general.ar].filter(Boolean).join("\n\n\n");
+  return arabic ? `${english}\n\n\n${ARABIC_EDITION_DIVIDER}\n\n${arabic}` : english;
+}
+
 export interface GenerateContractParams {
   clientId: string; serviceKey: string; createdBy: string;
   feeAmount?: number | null; feeDescription?: string | null; effectiveDate?: Date;
@@ -182,6 +207,7 @@ export async function generateContractForService(params: GenerateContractParams)
     firmName: profile.firmName,
     effectiveDate: fmtDate(effectiveDate),
     feeAmount: money(feeAmount, feeDescription),
+    feeAmountAr: moneyAr(feeAmount, feeDescription),
     ...(authorizedFilings ? { authorizedFilings } : {}),
   };
   const scopeText = substitutePlaceholders(scope.body, client, extra);
@@ -194,7 +220,7 @@ export async function generateContractForService(params: GenerateContractParams)
   // requirement), so it skips the shared block entirely rather than getting
   // a self-contradicting document.
   const generalText = general && serviceKey !== POA_RELEASE_SERVICE_KEY ? substitutePlaceholders(general.body, client, extra) : "";
-  const renderedBody = [scopeText, generalText].filter(Boolean).join("\n\n\n");
+  const renderedBody = assembleBilingualBody(scopeText, generalText);
 
   // template_id isn't stored: built-in templates have no DB row, and rendered_body
   // above is the immutable, fully-merged legal text this contract will always show —
@@ -291,7 +317,16 @@ contractsRouter.get("/:contractId/html", requireAuth, asyncHandler(async (req: A
   if (contract === null) return res.status(404).json({ error: "Contract not found." });
   if (contract === "forbidden") return res.status(403).json({ error: "You do not have access to this contract." });
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(renderDocumentHtml({ title: contract.title, body: contract.rendered_body, autoPrint: String(req.query.print || "") === "1" }));
+  // The PDF of a service agreement cannot draw Arabic, so this browser-printed page is the complete English + Arabic paper
+  // copy (the immigration law requires the contract in each language the firm serves in, and the client's copy on signing).
+  // It therefore needs its own signing lines for the case where it is signed by hand; a Document Builder document already carries its own.
+  let body: string = contract.rendered_body;
+  if (!String(contract.service_key || "").startsWith("doc_") && contract.status !== "Signed") {
+    const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
+    const name = client?.client_name || "";
+    body += `\n\n\nClient: ${name}\nPrinted name and title (if signing for a business): ______________________________\nSignature: ______________________________   Date: ______________\n\nالعميل: ${name}\nالاسم والصفة (عند التوقيع عن نشاط تجاري): ______________________________\nالتوقيع: ______________________________   التاريخ: ______________`;
+  }
+  res.send(renderDocumentHtml({ title: contract.title, body, autoPrint: String(req.query.print || "") === "1" }));
 }));
 
 contractsRouter.get("/:contractId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {

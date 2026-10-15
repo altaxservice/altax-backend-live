@@ -58,10 +58,10 @@ function emailBody(signerName: string, title: string, requestedBy: string, link:
   const button = `<p style="text-align:center; margin:24px 0;"><a href="${link}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700; font-size:15px; padding:12px 28px; border-radius:8px;">Review &amp; Sign &nbsp;·&nbsp; <bdi dir="rtl">مراجعة وتوقيع</bdi></a></p>
     <p style="font-size:12px; color:#6b7280;">Or copy this link into your browser: <bdi dir="ltr"><a href="${link}">${link}</a></bdi></p>`;
   return `<div dir="ltr" style="text-align:left;"><p>Hello ${escapeHtml(signerName)},</p>
-    <p>${reminder ? "This is a reminder: " : ""}${escapeHtml(requestedBy)} has asked you to review and sign <strong>${escapeHtml(title)}</strong>. Use the button below — you can read the whole document first, and sign from your phone or computer.</p></div>
+    <p>${reminder ? "This is a reminder: " : ""}${escapeHtml(requestedBy)} has asked you to review and sign <strong>${escapeHtml(title)}</strong>. Use the button below — you can read the whole document first, and sign from your phone or computer. Signing electronically is your choice: if you would rather sign on paper, tell the sender. If you were not expecting this, or you are not the person named, please do not sign — call our office instead.</p></div>
     <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
     <div dir="rtl" style="text-align:right;"><p>مرحباً ${escapeHtml(signerName)}،</p>
-    <p>${reminder ? "تذكير: " : ""}يرجى مراجعة وتوقيع المستند: <strong>${escapeHtml(title)}</strong>. استخدموا الزر أدناه لقراءته كاملاً ثم التوقيع من هاتفكم أو حاسوبكم.</p></div>${button}`;
+    <p>${reminder ? "تذكير: " : ""}يرجى مراجعة وتوقيع المستند: <strong>${escapeHtml(title)}</strong>. استخدموا الزر أدناه لقراءته كاملاً ثم التوقيع من هاتفكم أو حاسوبكم. التوقيع إلكترونياً خيار لكم: وإذا فضّلتم التوقيع على الورق فأخبروا المرسل. وإذا لم تكونوا تتوقعون هذا المستند، أو لم تكونوا الشخص المذكور فيه، فيرجى عدم التوقيع والاتصال بمكتبنا.</p></div>${button}`;
 }
 
 async function deliver(req: AuthedRequest | null, s: any, token: string, doc: any, base: string, requestedBy: string, reminder: boolean) {
@@ -330,7 +330,7 @@ publicSignRouter.post("/:token/sign", signLimiter, asyncHandler(async (req: Requ
   if (completed) {
     await query(`UPDATE altax.v3_client_contracts SET status = 'Signed', signed_at = now(), signer_name = $2, agreed = true, updated_at = now() WHERE contract_id = $1 AND status <> 'Void'`, [s.contract_id, all.map((x) => x.signer_name).join(", ").slice(0, 250)]);
   }
-  await logAudit("Contracts", completed ? "DOC_SIGN_COMPLETE" : "DOC_SIGN", s.contract_id, "signer", "", s.role_label, `"${c.title}" signed electronically by "${typed}" (${s.role_label}) from IP ${ip || "unknown"}.${completed ? " All parties have now signed." : ""}`, typed);
+  await logAudit("Contracts", completed ? "DOC_SIGN_COMPLETE" : "DOC_SIGN", s.contract_id, "signer", "", s.role_label, `"${c.title}" signed electronically by "${typed}" (${s.role_label}); IP ${ip || "unknown"}; read-and-e-sign agreement confirmed.${completed ? " All parties have now signed." : ""}`, typed);
 
   // Tell the person who prepared it; when everyone has signed, send each signer their copy link. Failures here never undo the signature.
   try {

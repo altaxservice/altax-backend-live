@@ -2376,6 +2376,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "view", c.title)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "download", c.title)}>Download</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "print", c.title)}>Print</button>
+                      <button type="button" className="btn btn-sm" title="The PDF cannot draw Arabic. This opens the full English + Arabic agreement as a page you print from the browser, with signing lines in both languages." onClick={() => viewFile(`/contracts/${c.contract_id}/html?print=1`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not open this contract."))}>Print English + Arabic</button>
                       {/* poa_release must be signed by hand (several of the agencies it covers
                           don't accept an e-signed version — see contractContent.ts) — no
                           electronic send/link option is offered for it, only Preview/PDF/

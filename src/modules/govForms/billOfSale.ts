@@ -243,6 +243,273 @@ export function llcClosingSentence(data: BillOfSaleData): string {
     : "Buyer shall be the sole member of the Company"}, and ${sellers.length > 1 ? "each person named as Seller withdraws as a member" : "Seller withdraws as a member"}.`;
 }
 
+// ---------------------------------------------------------------------------
+// The wording of the Bill of Sale — built ONCE here and rendered by both the PDF
+// (below) and the Word file (billOfSaleDocx.ts), so the two can never drift apart.
+// ---------------------------------------------------------------------------
+export type BosBlock =
+  | { type: "heading"; text: string }
+  | { type: "para"; text: string; bold?: boolean }
+  /** The itemized Form 8594 schedule: the renderer draws `intro` and then its own table. */
+  | { type: "allocation"; intro: string };
+
+export function bosSubtitle(kind: EntityKind): string {
+  return kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)";
+}
+
+/** "Liabilities: None" is a common entry; it must not become the whole section. */
+function isNoneAnswer(v: string | null | undefined): boolean {
+  return /^(none|no|nil|n\/?a|nothing|0)\.?$/i.test(String(v || "").trim());
+}
+
+export function businessLabelFor(data: BillOfSaleData, kind: EntityKind, state: string): string {
+  return kind === "LLC"
+    ? `${data.businessName}, a ${state} limited liability company`
+    : kind === "Corp"
+    ? `${data.businessName}, a ${state} corporation`
+    : data.businessName;
+}
+
+/** Every numbered section of the Bill of Sale, in order, after the "by and between" lines. */
+export function buildBillOfSaleBlocks(input: BillOfSaleData): BosBlock[] {
+  const data: BillOfSaleData = { ...input, businessAddress: tidyAddress(input.businessAddress) };
+  const kind = entityKindFor(data.entityType);
+  const state = legalState(data.state);
+  const businessLabel = businessLabelFor(data, kind, state);
+  const parties = billOfSaleParties(data);
+  const isLlc = kind === "LLC";
+  const price = fmtMoney(data.salePrice);
+  const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
+  const hasExtra = !!data.additionalTerms?.trim();
+  const noLiabilityText = isNoneAnswer(data.liabilitiesIncluded) || !data.liabilitiesIncluded?.trim();
+
+  // Section order; each key gets its number so the cross-references below are always right.
+  const keys: string[] = [
+    "business", "sale", "assets", "excluded", "price", ...(isLlc ? [] : ["tax"]), "licenses", "bulk",
+    "liabilities", ...(hasExtra ? ["extra"] : []), "warranties", "asis", "general",
+  ];
+  const no = (k: string) => keys.indexOf(k) + 1;
+  const sec = (k: string, title: string): BosBlock => ({ type: "heading", text: `${no(k)}. ${title}` });
+  const P = (text: string, bold = false): BosBlock => ({ type: "para", text, bold });
+  const out: BosBlock[] = [];
+
+  // 1
+  out.push(sec("business", "PARTIES AND BUSINESS"));
+  out.push(P(
+    `This Bill of Sale concerns the business known as ${data.businessName}` +
+    `${data.businessAddress ? `, operated at ${data.businessAddress}` : ""}${data.ein ? ` (EIN ${data.ein})` : ""} (the "Business"). ` +
+    `The date written at the top of this Bill of Sale is the "Effective Date", except as Section ${no("bulk")} moves it.`
+  ));
+
+  // 2
+  if (isLlc) {
+    out.push(sec("sale", "SALE OF MEMBERSHIP INTEREST"));
+    out.push(P(
+      `For and in consideration of the Purchase Price in Section ${no("price")}, the sufficiency of which is hereby acknowledged, ` +
+      `Seller sells, assigns, transfers and conveys to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
+      `title and interest in and to ${businessLabel} (the "Company"), including one hundred percent (100%) of the membership interest in the ` +
+      `Company (the "Interest"). Seller also sells to Buyer any asset used in the Business that Seller owns personally. The assets that the Company owns ` +
+      `and uses in the Business, together with any asset Seller owns personally, are described in Section ${no("assets")} (the "Assets"). ` +
+      `The Company's own assets stay the Company's property; Buyer acquires them by acquiring the Interest. ${llcClosingSentence(data)}`
+    ));
+    out.push(P(
+      `${parties.sellers.length > 1 ? "The Sellers state that together they are all of the members of the Company and, with" : "Seller states that Seller is the only member of the Company and, with"} this signature, ` +
+      `${parties.sellers.length > 1 ? "consent" : "consents"} to ${parties.buyers.length > 1 ? "each Buyer" : "Buyer"} being admitted as a member of the Company on the Effective Date. ` +
+      `The parties state that this sale and admission are permitted by the Company's operating agreement or approved by all of its members ` +
+      `(Corporations and Associations Article, Section 4A-604). They will sign any consent or amendment to the operating agreement that the Company needs to show the new ownership.`
+    ));
+  } else if (kind === "Corp") {
+    out.push(sec("sale", "SALE OF BUSINESS ASSETS"));
+    out.push(P(
+      `For and in consideration of the Purchase Price in Section ${no("price")}, the sufficiency of which is hereby acknowledged, ` +
+      `Seller (${businessLabel}) sells, transfers, conveys and delivers to Buyer all of Seller's right, title and interest in and to the ` +
+      `assets of the Business described in Section ${no("assets")} (collectively, the "Assets"). Seller states that the sale has been approved as ` +
+      `its charter, its bylaws and Maryland law require (for a sale of all or substantially all of its assets that usually means its board of directors and its stockholders).`
+    ));
+  } else {
+    out.push(sec("sale", "SALE OF OWNERSHIP INTEREST"));
+    out.push(P(
+      `For and in consideration of the Purchase Price in Section ${no("price")}, and other good and valuable consideration, the receipt and ` +
+      `sufficiency of which is hereby acknowledged, Seller sells, transfers, assigns and conveys to Buyer all of ` +
+      `Seller's right, title and interest in and to the Business, including the assets described in Section ${no("assets")} (collectively, the "Assets"). ` +
+      `If Seller is a partnership, Seller states that all of the partners have approved this sale.`
+    ));
+  }
+
+  // 3
+  out.push(sec("assets", "ASSETS INCLUDED" + (allocations.length > 0 ? " — ALLOCATION OF PURCHASE PRICE" : "")));
+  if (allocations.length > 0) {
+    out.push({
+      type: "allocation",
+      intro: "The Purchase Price is allocated among the assets of the Business as follows, for purposes of IRC Section 1060 and each party's Form 8594 (Asset Acquisition Statement). " +
+        "Each party will report the sale consistently with this allocation unless the law requires otherwise:",
+    });
+  } else {
+    out.push(P(data.assetsIncluded?.trim() || "No specific assets were itemized for this transfer beyond the ownership interest described above; the parties should attach a schedule of included assets if one exists."));
+  }
+  out.push(P(
+    "If the Purchase Price depends on an inventory count, the parties will count the inventory together on or just before the Effective Date, both will sign the count, and the signed count is part of this Bill of Sale."
+  ));
+
+  // 4
+  out.push(sec("excluded", isLlc ? "WHAT STAYS WITH THE COMPANY; REAL ESTATE AND VEHICLES" : "ITEMS NOT INCLUDED; REAL ESTATE AND VEHICLES"));
+  if (isLlc) {
+    out.push(P(
+      "The Company keeps its cash, bank accounts, accounts receivable, tax refunds, licenses, permits, tax registrations, lease and contracts, unless the parties agree in writing to take any of them out of the Company before the Effective Date. " +
+      "This Bill of Sale does not transfer any land or building out of the Company. A motor vehicle titled in the Company's name stays titled in the Company's name."
+    ));
+  } else {
+    out.push(P(
+      "Unless listed in Section " + no("assets") + ", the Assets do not include cash, bank accounts, accounts receivable, tax refunds, lottery tickets or lottery sales money, or Seller's personal items. " +
+      "This Bill of Sale does not transfer any land, building or lease: a deed or a lease assignment (signed by the right parties, and with the landlord's consent if the lease requires it) is a separate paper."
+    ));
+  }
+  out.push(P(
+    "This Bill of Sale does not by itself transfer a motor vehicle. A vehicle needs its own signed title assignment and odometer statement filed with the Maryland Motor Vehicle Administration, and the parties will complete them at the same time."
+  ));
+
+  // 5
+  out.push(sec("price", "PURCHASE PRICE AND PAYMENT"));
+  out.push(P(
+    `The total purchase price for ${isLlc ? "the Interest and the Assets" : "the Assets"} is ${price} (the "Purchase Price"). Buyer pays it to Seller on the Effective Date in cash, by cashier's check or by bank transfer, ` +
+    `unless the parties have signed a different written payment schedule. Seller acknowledges receipt of the part of the Purchase Price paid on or before the Effective Date. ` +
+    `Any unpaid balance is owed under that written schedule; this Bill of Sale does not by itself give Seller a security interest in the Assets, and it does not give Buyer more time to pay than the schedule allows.`
+  ));
+
+  // 6 (asset sales only)
+  if (!isLlc) {
+    out.push(sec("tax", "SALES AND USE TAX"));
+    out.push(P(
+      "Maryland sales and use tax may be due on the part of the Purchase Price that is for tangible personal property such as equipment, furniture, fixtures and display cases (Tax-General Article, Title 11). " +
+      "Unless the parties agree otherwise in writing, Buyer is responsible for the tax on its purchase and pays it either to Seller (who pays it over) or directly to the Comptroller of Maryland, in the way the Comptroller requires. " +
+      "Tax is not due on goodwill and other intangible assets, and inventory that Buyer will resell in the form it receives is not taxed when Buyer gives Seller a signed resale certificate. " +
+      "The parties use the allocation in Section " + no("assets") + " (or, if there is none, a schedule they both sign) for this purpose."
+    ));
+  }
+
+  // licenses
+  out.push(sec("licenses", "LICENSES, PERMITS AND RESTRICTED PRODUCTS"));
+  if (isLlc) {
+    out.push(P(
+      "The Company keeps its own licenses, permits and tax registrations, and this Bill of Sale does not assign any of them. A change of owners, members or responsible party must be reported to each issuing agency as that agency requires, and some changes need a new application or approval " +
+      "(for example, a Maryland Lottery license ends on a change of ownership and an alcoholic beverage license needs the licensing board's approval). " +
+      "Seller will not hand over cigarettes, tobacco products, vapor products, alcoholic beverages or lottery tickets to a person who does not hold the license needed for them."
+    ));
+  } else {
+    out.push(P(
+      "This is a sale of assets only. No license, permit or tax registration of Seller is transferred, including tobacco, alcohol, lottery, SNAP/EBT, health and sales-tax registrations; Buyer applies for its own in Buyer's own name. " +
+      "A tobacco or vapor retail license cannot be assigned, a change of ownership ends a Maryland Lottery license, an alcoholic beverage license moves only with the licensing board's approval and a bulk transfer permit, " +
+      "and a SNAP authorization, a health permit and a sales-tax license do not transfer. A trader's license can move with the stock-in-trade and the place of business. " +
+      "Seller will not hand over cigarettes, tobacco products, vapor products, alcoholic beverages or lottery tickets before Buyer holds the license needed for them, and Seller stays responsible for lottery tickets, equipment and sales money until the Lottery approves a new license."
+    ));
+  }
+
+  // bulk transfer
+  out.push(sec("bulk", isLlc ? "BULK-TRANSFER LAW" : "BULK-TRANSFER NOTICE, TAX HOLDBACK AND CLOSING DATE"));
+  if (isLlc) {
+    out.push(P(
+      "The Company keeps its own inventory and assets, so this sale of the Interest does not itself transfer the Company's inventory. " +
+      "If a major part of the Company's inventory, or an asset or inventory that Seller owns personally, is moved to Buyer or to another person, Maryland's bulk-transfer law (Commercial Law Article, Title 6, and Tax-General Article, Sections 11-505 and 13-802) applies and the parties will follow it."
+    ));
+  } else {
+    out.push(P(
+      "If this sale transfers a major part of the inventory of a business whose principal business is selling goods from stock (a store, deli, restaurant or seller of alcoholic beverages), it is a bulk transfer under Maryland law " +
+      "(Commercial Law Article, Section 6-102). If the law is not followed, the transfer is ineffective against Seller's creditors, and Buyer can be personally liable to the State for Seller's unpaid sales and use tax (Tax-General Article, Section 13-802). " +
+      "The parties will follow it whether or not they are sure it applies:"
+    ));
+    out.push(P(
+      "(a) Seller gives Buyer a list of all of its creditors, signed and sworn to or affirmed, with their names, business addresses and the amounts owed when known, and the names of everyone Seller knows asserts a claim against it, even if disputed. Seller is responsible for the list being complete and accurate. " +
+      "(b) The list of Assets in this Bill of Sale (or a schedule the parties attach) is the schedule of the property. Buyer keeps the list and the schedule for six months after the transfer and lets any creditor inspect and copy them, or files them with the clerk of the circuit court. " +
+      "(c) At least 10 days before Buyer takes possession or pays, whichever is first, Buyer delivers in person or sends by registered or certified mail a notice of the transfer to the Comptroller of Maryland (whether or not Seller lists the Comptroller as a creditor), to the creditors on Seller's list, and to everyone else Buyer knows holds or asserts a claim against Seller " +
+      "(Commercial Law Article, Sections 6-105 and 6-107; Tax-General Article, Section 11-505). " +
+      "(d) Buyer applies the Purchase Price, as far as needed, to the debts on the list or filed in writing at the address in the notice within 30 days after it was mailed, holds back a disputed amount until the dispute is settled, and pays creditors in proportion if the price is not enough (Section 6-106). " +
+      "If the Comptroller files a claim for Seller's unpaid sales and use tax, Buyer withholds the amount of the claim from what it pays Seller and pays it to the Comptroller (Section 11-505(c)). " +
+      "(e) Seller will ask the Comptroller for a written statement of the status of its sales and use tax account and give Buyer a copy."
+    ));
+    out.push(P(
+      "If the notice in paragraph (c) has not been delivered or mailed at least 10 days before the Effective Date written at the top of this Bill of Sale, the Effective Date moves to the 10th day after the notice is delivered or mailed. " +
+      "Until then Buyer does not take possession of the Assets or pay for them, ownership does not pass, and Seller keeps the Assets and runs the Business at its own risk."
+    ));
+    out.push(P(
+      "Employees and unemployment insurance: a person who acquires a business or a substantial part of its assets gives the Maryland Department of Labor written notice by certified mail, return receipt requested, at least 10 days before the acquisition. " +
+      "If Buyer does not, and Seller owes unpaid unemployment insurance contributions, the acquisition is void as to the Secretary of Labor (Labor and Employment Article, Section 8-633). Buyer will give the notice."
+    ));
+  }
+
+  // liabilities
+  out.push(sec("liabilities", "LIABILITIES"));
+  const payClause = `Each party will pay what it is responsible for, and will reimburse the other for losses caused by not paying it, after written notice from the other and a reasonable chance to pay or contest the claim.`;
+  if (isLlc) {
+    out.push(P(noLiabilityText
+      ? `The Company remains responsible to its creditors for its own debts. As between the parties, Seller is responsible for the debts, taxes and obligations of the Company that arose before the Effective Date and that Seller did not disclose to Buyer in writing ` +
+        `(including sales and use tax, withholding tax and tobacco or alcohol tax for periods before the Effective Date); Buyer is responsible for the debts the Company incurs after the Effective Date and for those Seller disclosed in writing. ${payClause}`
+      : `The Company remains responsible to its creditors for its own debts. These debts, leases and obligations were disclosed to Buyer and stay with the Company, and Buyer is responsible for them as the Company's owner: ${data.liabilitiesIncluded!.trim()} ` +
+        `As between the parties, Seller is responsible for the debts, taxes and obligations of the Company that arose before the Effective Date and that Seller did not disclose to Buyer in writing. ${payClause}`
+    ));
+  } else {
+    out.push(P(noLiabilityText
+      ? `Buyer takes on none of Seller's debts. Seller remains responsible for the debts, taxes and obligations of Seller or the Business that arose before the Effective Date ` +
+        `(including sales and use tax, withholding tax and tobacco or alcohol tax for periods before the Effective Date), except any that the parties list in writing as taken on by Buyer. ${payClause}`
+      : `Buyer takes on the following debts, leases and obligations of the Business, and no others: ${data.liabilitiesIncluded!.trim()} ` +
+        `Seller remains responsible for all other debts, taxes and obligations of Seller or the Business that arose before the Effective Date. ${payClause}`
+    ));
+  }
+
+  if (hasExtra) {
+    out.push(sec("extra", "ADDITIONAL CLAUSE(S) / TERMS"));
+    for (const para of data.additionalTerms!.trim().split(/\n+/)) out.push(P(para));
+    out.push(P("If a term above conflicts with a printed term of this Bill of Sale, the term above controls."));
+  }
+
+  // warranties
+  out.push(sec("warranties", "WARRANTIES"));
+  out.push(P(
+    `Seller states and warrants that: (a) Seller is the lawful owner of ${isLlc ? "the Interest and the Assets it sells" : "the Assets it sells"}, and has full right, power and authority to sell and transfer them (and, if Seller is a company, ` +
+    `all approvals its governing documents and the law require for this sale have been obtained); (b) they are free and clear of all liens, security interests, encumbrances and claims of any kind, except as disclosed to Buyer in writing; ` +
+    `(c) Seller will warrant and defend title to them against the lawful claims and demands of all persons; and (d) to Seller's knowledge, the written information Seller gave Buyer about the Business, its inventory and its debts is true and not misleading.`
+  ));
+  out.push(P(
+    "Buyer states that Buyer has looked at the Assets and the Business records as fully as it wished, has the money to pay the Purchase Price, and, if Buyer is a company, is authorized to sign and carry out this Bill of Sale."
+  ));
+
+  // as-is, conspicuous
+  out.push(sec("asis", "CONDITION OF ASSETS — AS IS"));
+  out.push(P(
+    `EXCEPT FOR THE WARRANTIES IN SECTION ${no("warranties")}, THE ${isLlc ? "INTEREST AND THE ASSETS ARE" : "ASSETS ARE"} SOLD "AS IS, WHERE IS." SELLER MAKES NO OTHER WARRANTY, EXPRESS OR IMPLIED, ` +
+    `INCLUDING ANY WARRANTY OF MERCHANTABILITY OR OF FITNESS FOR A PARTICULAR PURPOSE.`,
+    true
+  ));
+
+  // general
+  out.push(sec("general", "GENERAL PROVISIONS"));
+  out.push(P(
+    "Each party agrees to sign any additional documents and to take any further actions reasonably necessary to carry out this Bill of Sale. " +
+    `This Bill of Sale is governed by the laws of ${stateClause(state)}. It may be signed in counterparts, and each is an original. If any term cannot be enforced, the rest stays in force. ` +
+    "It binds and benefits the parties and their respective heirs, successors and assigns."
+  ));
+  out.push(P(
+    "This is a standard form completed from information the parties supplied. No one who helped prepare it is acting as an attorney for either party or gives legal, tax or accounting advice to either party about it, " +
+    "and each party is free to have a lawyer review it before signing."
+  ));
+  return out;
+}
+
+/** The notary's "I HEREBY CERTIFY" paragraph — shared by the PDF and Word versions. */
+export function bosNotaryCertificate(data: BillOfSaleData): string {
+  const kind = entityKindFor(data.entityType);
+  const state = legalState(data.state);
+  const parties = billOfSaleParties(data);
+  const names = joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)) || "____________________";
+  return `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
+    `of ${stateClause(state)}, personally appeared ${names}, known to me (or satisfactorily proven) to be the persons whose names are ` +
+    `subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained` +
+    `${kind === "Corp" ? `; and, as to ${data.businessName}, acknowledged that as its officer, being authorized to do so, he or she executed it on behalf of the corporation` : ""}.`;
+}
+
+export function bosWitnessLine(): string {
+  return "A witness and a notary are optional. Use the lines below if a lender, the Motor Vehicle Administration or a licensing office asks for them.";
+}
+
 export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint8Array> {
   const data: BillOfSaleData = { ...input, businessAddress: tidyAddress(input.businessAddress) };
   const doc = await PDFDocument.create();
@@ -281,12 +548,8 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
   y += 15;
   const kind = entityKindFor(data.entityType);
   const state = legalState(data.state);
-  const businessLabel = kind === "LLC"
-    ? `${data.businessName}, a ${state} limited liability company`
-    : kind === "Corp"
-    ? `${data.businessName}, a ${state} corporation`
-    : data.businessName;
-  c.text(L, y, kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)", { size: 8.5, color: MUTED });
+  const businessLabel = businessLabelFor(data, kind, state);
+  c.text(L, y, bosSubtitle(kind), { size: 8.5, color: MUTED });
   y += 11;
   c.line(L, y, R, y, INK, 1.25);
   y += 20;
@@ -300,20 +563,21 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
 
   // A heading is drawn together with the first paragraph under it, so it can never end a page on its own.
   let pendingHeading: string | null = null;
-  const paragraph = (text: string, size = 9.5) => {
+  const paragraph = (text: string, size = 9.5, isBold = false) => {
+    const f = isBold ? bold : font;
     const rawLines = text.split("\n");
     if (pendingHeading !== null) {
-      const first = wrapText(rawLines[0], font, size, maxWidth);
+      const first = wrapText(rawLines[0], f, size, maxWidth);
       ensureSpace(16 + first.length * 13 + 8);
       c.text(L, y, pendingHeading, { size: 10.5, bold: true, color: TEAL });
       y += 16;
       pendingHeading = null;
     }
     for (const rawLine of rawLines) {
-      const wrapped = wrapText(rawLine, font, size, maxWidth);
+      const wrapped = wrapText(rawLine, f, size, maxWidth);
       ensureSpace(wrapped.length * 13 + 8);
       for (const w of wrapped) {
-        c.text(L, y, w, { size });
+        c.text(L, y, w, { size, bold: isBold });
         y += 13;
       }
     }
@@ -330,46 +594,12 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
   paragraph(`${parties.sellers.length > 1 ? "SELLERS" : "SELLER"}: ${sellerDesc}; and`);
   paragraph(`${parties.buyers.length > 1 ? "BUYERS" : "BUYER"}: ${buyerDesc}.`);
 
-  let n = 1;
-  heading(`${n++}. PARTIES AND BUSINESS`);
-  paragraph(
-    `This Bill of Sale concerns the business known as ${data.businessName}` +
-    `${data.businessAddress ? `, operated at ${data.businessAddress}` : ""}${data.ein ? ` (EIN ${data.ein})` : ""} (the "Business").`
-  );
-
-  if (kind === "LLC") {
-    heading(`${n++}. SALE OF MEMBERSHIP INTEREST`);
-    paragraph(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
-      `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
-      `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
-      `Company, together with all of the assets of the Business described in Section 3 below (collectively, the "Assets"). ${llcClosingSentence(data)}`
-    );
-  } else if (kind === "Corp") {
-    heading(`${n++}. SALE OF BUSINESS ASSETS`);
-    paragraph(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, the sufficiency of which is hereby acknowledged and which is payable as provided in the "Purchase Price and Payment" section below, ` +
-      `Seller does hereby sell, transfer, convey, and deliver to Buyer all of Seller's right, title, and interest in and to ` +
-      `${businessLabel}, including the assets described in Section 3 below (collectively, the "Assets").`
-    );
-  } else {
-    heading(`${n++}. SALE OF OWNERSHIP INTEREST`);
-    paragraph(
-      `For and in consideration of ${fmtMoney(data.salePrice)}, and other good and valuable consideration, the receipt and ` +
-      `sufficiency of which is hereby acknowledged, Seller does hereby sell, transfer, assign, and convey to Buyer all of ` +
-      `Seller's right, title, and interest in and to the Business, including the assets described in Section 3 below (collectively, the "Assets"), effective as of the date above.`
-    );
-  }
-
   const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
-
-  heading(`${n++}. ASSETS INCLUDED` + (allocations.length > 0 ? " — ALLOCATION OF PURCHASE PRICE" : ""));
-  if (allocations.length > 0) {
-    paragraph(
-      "The Purchase Price is allocated among the assets of the Business as follows, for purposes of IRC Section 1060 " +
-      "and each party's Form 8594 (Asset Acquisition Statement):",
-      9
-    );
+  for (const block of buildBillOfSaleBlocks(data)) {
+    if (block.type === "heading") { heading(block.text); continue; }
+    if (block.type === "para") { paragraph(block.text, 9.5, !!block.bold); continue; }
+    // Itemized Form 8594 allocation schedule
+    paragraph(block.intro, 9);
     const colCat = L, colDesc = L + 150, colClass = R - 100, colAmt = R;
     ensureSpace(22);
     c.text(colCat, y, "Category", { size: 8, bold: true, color: MUTED });
@@ -402,54 +632,7 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
     c.text(colCat, y, "Total Allocated Purchase Price", { size: 9.5, bold: true });
     c.text(colAmt, y, fmtMoney(total), { size: 9.5, bold: true, color: TEAL, align: "right" });
     y += 22;
-  } else {
-    paragraph(data.assetsIncluded?.trim() || "No specific assets were itemized for this transfer beyond the ownership interest described above; the parties should attach a schedule of included assets if one exists.");
   }
-
-  heading(`${n++}. PURCHASE PRICE AND PAYMENT`);
-  paragraph(
-    `The total purchase price for ${kind === "LLC" ? "the membership interest and the Assets" : "the Assets"} is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
-    `parties. Seller acknowledges receipt of the purchase price upon payment in full.`
-  );
-
-  heading(`${n++}. LIABILITIES`);
-  paragraph(data.liabilitiesIncluded?.trim() || "Seller remains solely responsible for, and shall indemnify and hold Buyer harmless from, any debts, obligations, or liabilities of the Seller or of the Business arising prior to the effective date of this Bill of Sale, unless otherwise agreed in writing by the parties.");
-
-  if (data.additionalTerms?.trim()) {
-    heading(`${n++}. ADDITIONAL CLAUSE(S) / TERMS`);
-    paragraph(data.additionalTerms.trim());
-  }
-
-  heading(`${n++}. SELLER'S WARRANTIES`);
-  paragraph(
-    `Seller warrants and represents that: (a) Seller is the lawful owner of the ownership interest and the Assets, and has ` +
-    `full right, power, and authority to sell and transfer the same; (b) the ownership interest and the Assets are free and ` +
-    `clear of all liens, security interests, encumbrances, and claims of any kind, except as disclosed to Buyer in writing; ` +
-    `and (c) Seller will warrant and defend title to the ownership interest and the Assets against the lawful claims and ` +
-    `demands of all persons.`
-  );
-
-  heading(`${n++}. CONDITION OF ASSETS`);
-  paragraph(
-    `Except for the warranty of title set forth above, the Assets are sold in their present condition, "AS IS, WHERE IS," ` +
-    `and Seller makes no other warranty, express or implied, including any warranty of merchantability or fitness for a ` +
-    `particular purpose.`
-  );
-
-  heading(`${n++}. FURTHER ASSURANCES`);
-  paragraph(
-    "Each party agrees to execute and deliver any additional documents and to take any further actions reasonably " +
-    "necessary to carry out the intent of this Bill of Sale."
-  );
-
-  heading(`${n++}. GOVERNING LAW`);
-  paragraph(`This Bill of Sale shall be governed by and construed in accordance with the laws of ${stateClause(state)}.`);
-
-  heading(`${n++}. BINDING EFFECT`);
-  paragraph(
-    "This Bill of Sale shall be binding upon and shall inure to the benefit of the parties and their respective heirs, " +
-    "successors, and assigns. Nothing in this document constitutes legal, tax, or accounting advice to either party."
-  );
 
   // The closing sentence travels with the first signature block instead of ending a page on its own.
   ensureSpace(240);
@@ -475,18 +658,24 @@ export async function generateBillOfSalePdf(input: BillOfSaleData): Promise<Uint
     c.text(L, y, corpSeller ? `By: ${sg.party.name}, ${sg.party.title || "Authorized Officer"}` : `Print Name: ${sg.party.name}`, { size: 10 });
   });
 
-  // One notary acknowledgment covering both signers together, not a separate
+  // Optional witness line.
+  ensureSpace(110);
+  y += 30;
+  paragraph(bosWitnessLine(), 8.5);
+  c.text(L, y, "Witness (optional): ______________________________", { size: 10 });
+  c.text(R, y, "Date: ______________", { size: 10, align: "right" });
+  y += 20;
+  c.text(L, y, "Print Name: ______________________________", { size: 10 });
+  y += 8;
+
+  // One notary acknowledgment covering all signers together, not a separate
   // notarization per party — same convention as billOfSaleDocx.ts's notaryBlock.
   ensureSpace(290); // the whole acknowledgment, notary lines included, stays on one page
   y += 30;
-  heading("Acknowledgment");
+  heading("Acknowledgment (optional)");
   paragraph(stateCaption(state));
   paragraph("CITY/COUNTY OF ______________________, to wit:");
-  paragraph(
-    `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-    `of ${stateClause(state)}, personally appeared ${joinNames([...parties.sellers, ...parties.buyers].map((p) => p.name)) || "____________________"}, known to me (or satisfactorily proven) to be the persons whose names are ` +
-    `subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
-  );
+  paragraph(bosNotaryCertificate(data));
   paragraph("WITNESS my hand and Notarial Seal.");
   ensureSpace(60);
   y += 10;

@@ -11,6 +11,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -27,11 +29,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -60,24 +66,24 @@
     <div class="section-heading left reveal" style="margin-bottom:2.5rem;">
       <span class="eyebrow" data-i18n="resources.calendarEyebrow">2026 Tax Calendar</span>
       <h2 data-i18n="resources.calendarHeading">Key filing &amp; payment deadlines</h2>
-      <p data-i18n="resources.calendarLead">Individual, business, payroll, and estimated tax deadlines for the 2026 tax year — the highlighted date is your next one up.</p>
+      <p data-i18n="resources.calendarLead">Individual, business, payroll, and estimated tax deadlines for 2026 and early 2027 &mdash; the highlighted date is your next one up.</p>
       <p style="margin-top:1rem;"><a href="/tax-calendar.ics" class="btn btn-outline-dark btn-sm" data-i18n="resources.subscribeCalendar">Add to Your Calendar (.ics)</a></p>
     </div>
 
     <div id="tax-calendar-list" class="calendar-list reveal"></div>
 
     <div class="sales-tax-note reveal">
-      <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v4l-2 12H6L4 8z"/><path d="M9 10l2 2 4-4"/></svg></div>
+      <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v4l-2 12H6L4 8z"/><path d="M9 10l2 2 4-4"/></svg></div>
       <div>
         <span class="tag tag-sales" style="margin-bottom:0.6em;" data-i18n="resources.salesTaxTag">Sales &amp; Use Tax</span>
         <h4 data-i18n="resources.salesTaxHeading">Maryland sales tax deadlines vary by business</h4>
-        <p data-i18n="resources.salesTaxDesc">Maryland sales &amp; use tax returns are typically due by the 20th of the month following your assigned filing period (monthly, quarterly, or annually), based on your sales volume. We'll confirm your exact schedule and file on your behalf — <a href="/contact">get in touch</a> to get set up.</p>
+        <p data-i18n="resources.salesTaxDesc">Maryland sales &amp; use tax returns are typically due by the 20th of the month following your assigned filing period (monthly, quarterly, or annually), based on your sales volume. Where you've authorized us, we'll confirm your exact schedule and file on your behalf &mdash; <a href="/contact" data-i18n-inner="resources.getInTouchLink">get in touch</a> to get set up.</p>
       </div>
     </div>
 
     <div class="calendar-disclaimer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>
-      <p data-i18n="resources.disclaimer">Dates above reflect standard IRS filing deadlines for the 2026 tax year. If a date falls on a weekend or federal holiday, the deadline shifts to the next business day. Always confirm exact dates for your situation at <a href="https://www.irs.gov" target="_blank" rel="noopener">IRS.gov</a> or with our team.</p>
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>
+      <p data-i18n="resources.disclaimer">Dates above are the standard IRS due dates, already moved to the next business day where the usual date falls on a weekend. If a federal holiday applies, the deadline also shifts to the next business day. Always confirm exact dates for your situation at <a href="https://www.irs.gov" target="_blank" rel="noopener">IRS.gov</a> or with our team.</p>
     </div>
   </div>
 </section>
@@ -85,7 +91,7 @@
 <section class="section section-cream">
   <div class="container">
     <div class="section-heading reveal">
-      <span class="eyebrow" data-i18n="resources.tipsEyebrow">Updated Weekly</span>
+      <span class="eyebrow" data-i18n="resources.tipsEyebrow">Plain-English Guidance</span>
       <h2 data-i18n="resources.tipsHeading">Tax Tips &amp; Insights</h2>
       <p data-i18n="resources.tipsLead">Plain-English guidance on the topics that matter most to Maryland individuals and small business owners.</p>
     </div>
@@ -151,37 +157,37 @@
     </div>
     <div class="resource-grid">
       <a class="resource-card reveal" href="https://www.irs.gov" target="_blank" rel="noopener">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg></div>
         <h4 data-i18n="res.irsTitle">IRS.gov</h4>
         <p data-i18n="res.irsDesc">Federal tax forms, refund status, payment plans, and official guidance.</p>
         <span class="visit" data-i18n="res.irsVisit">Visit IRS.gov &rarr;</span>
       </a>
       <a class="resource-card reveal reveal-delay-1" href="https://www.marylandtaxes.gov" target="_blank" rel="noopener">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg></div>
         <h4 data-i18n="res.mdTitle">Comptroller of Maryland</h4>
         <p data-i18n="res.mdDesc">Maryland state income tax, sales &amp; use tax registration, and business tax filing.</p>
         <span class="visit" data-i18n="res.mdVisit">Visit marylandtaxes.gov &rarr;</span>
       </a>
       <a class="resource-card reveal reveal-delay-2" href="https://dat.maryland.gov" target="_blank" rel="noopener">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="12"/><rect x="14" y="4" width="7" height="17"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="12"/><rect x="14" y="4" width="7" height="17"/></svg></div>
         <h4 data-i18n="res.sdatTitle">Maryland SDAT</h4>
         <p data-i18n="res.sdatDesc">Business entity formation, annual reports, and personal property tax filings.</p>
         <span class="visit" data-i18n="res.sdatVisit">Visit dat.maryland.gov &rarr;</span>
       </a>
       <a class="resource-card reveal reveal-delay-3" href="https://www.sba.gov" target="_blank" rel="noopener">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
         <h4 data-i18n="res.sbaTitle">U.S. Small Business Administration</h4>
         <p data-i18n="res.sbaDesc">Funding, guidance, and resources for starting and growing a small business.</p>
         <span class="visit" data-i18n="res.sbaVisit">Visit sba.gov &rarr;</span>
       </a>
       <a class="resource-card reveal" href="https://www.irs.gov/refunds" target="_blank" rel="noopener">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg></div>
         <h4 data-i18n="res.refundTitle">"Where's My Refund?"</h4>
         <p data-i18n="res.refundDesc">Check your federal refund status directly with the IRS.</p>
         <span class="visit" data-i18n="res.refundVisit">Check your refund &rarr;</span>
       </a>
       <a class="resource-card reveal reveal-delay-1" href="https://www.irs.gov/individuals/tax-withholding-estimator" target="_blank" rel="noopener">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
         <h4 data-i18n="res.withholdingTitle">IRS Withholding Estimator</h4>
         <p data-i18n="res.withholdingDesc">Check whether your paycheck withholding is on track before you file.</p>
         <span class="visit" data-i18n="res.withholdingVisit">Open the estimator &rarr;</span>
@@ -199,19 +205,19 @@
     </div>
     <div class="resource-grid">
       <a class="resource-card reveal" href="/tax-glossary">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
         <h4 data-i18n="res.glossaryTitle">Tax Glossary</h4>
         <p data-i18n="res.glossaryDesc">Plain-English definitions for the terms that show up on your return and in our conversations.</p>
         <span class="visit" data-i18n="res.glossaryVisit">Browse the glossary &rarr;</span>
       </a>
       <a class="resource-card reveal reveal-delay-1" href="/record-retention-guide">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg></div>
         <h4 data-i18n="res.retentionTitle">Record Retention Guide</h4>
         <p data-i18n="res.retentionDesc">How long to actually keep tax returns, receipts, and business records.</p>
         <span class="visit" data-i18n="res.retentionVisit">See the guide &rarr;</span>
       </a>
       <a class="resource-card reveal reveal-delay-2" href="/taxpayer-rights">
-        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="icon-badge"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h4 data-i18n="res.rightsTitle">Taxpayer Bill of Rights</h4>
         <p data-i18n="res.rightsDesc">The 10 fundamental rights every taxpayer has when dealing with the IRS.</p>
         <span class="visit" data-i18n="res.rightsVisit">Know your rights &rarr;</span>
@@ -229,20 +235,17 @@
   </div>
 </section>
 
+</main>
+
 <footer class="site-footer">
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -258,7 +261,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -267,13 +270,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">

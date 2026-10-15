@@ -12,6 +12,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content" data-i18n="a11y.skip">Skip to main content</a>
+
 <div class="utility-bar">
   <div class="container">
     <span class="deadline" data-next-deadline></span>
@@ -28,11 +30,12 @@
     <a href="/" class="logo">
       <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
-    <ul class="nav-links">
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" data-i18n-aria-label="a11y.toggleNav" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+    <nav class="nav-wrap" aria-label="Main navigation" data-i18n-aria-label="a11y.mainNav">
+    <ul class="nav-links" id="primary-nav">
       <li class="lang-toggle">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="ar">عربي</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" lang="ar" aria-label="العربية" aria-pressed="false">عربي</button>
       </li>
       <li><a href="/" data-i18n="nav.home">Home</a></li>
       <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -43,8 +46,11 @@
       <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
       <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
     </ul>
+    </nav>
   </div>
 </header>
+
+<main id="main-content" tabindex="-1">
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
@@ -56,7 +62,7 @@
 
 <section class="section section-cream">
   <div class="container legal-content reveal">
-    <p class="updated" data-i18n="news.publishedNote">Published August 2026 &middot; General information, not personalized tax advice — see note below.</p>
+    <p class="updated" data-i18n="ref.publishedNote">Reviewed October 2026 &middot; General information, not personalized tax advice &mdash; see note below.</p>
 
     <h2 data-i18n="glossary.t1Term">Adjusted Gross Income (AGI)</h2>
     <p data-i18n="glossary.t1Def">Your total income for the year minus specific adjustments (like retirement contributions or student loan interest). AGI is the starting point for figuring out what deductions and credits you qualify for.</p>
@@ -80,7 +86,7 @@
     <p data-i18n="glossary.t7Def">The year-end form an employer issues to each employee, reporting wages paid and taxes withheld.</p>
 
     <h2 data-i18n="glossary.t8Term">Form 1099-NEC</h2>
-    <p data-i18n="glossary.t8Def">The year-end form a business issues to an independent contractor it paid $600 or more during the year — no taxes are withheld on this income.</p>
+    <p data-i18n="glossary.t8Def">The year-end form a business issues to an independent contractor it paid $2,000 or more during the year (for payments made in 2026 and later; the threshold was $600 for earlier years) &mdash; no taxes are withheld on this income.</p>
 
     <h2 data-i18n="glossary.t9Term">Filing Status</h2>
     <p data-i18n="glossary.t9Def">One of five IRS categories (Single, Married Filing Jointly, Married Filing Separately, Head of Household, Qualifying Surviving Spouse) that determines your standard deduction and tax brackets.</p>
@@ -107,7 +113,7 @@
     <p data-i18n="glossary.t16Def">Tax collected on the sale of taxable goods or services (sales tax) or owed when a taxable purchase is made without sales tax being collected (use tax) — rates and rules are set at the state level.</p>
 
     <h2 data-i18n="glossary.t17Term">Extension</h2>
-    <p data-i18n="glossary.t17Def">Additional time (typically 6 months) to file your return — it extends the filing deadline, not the deadline to pay any tax owed.</p>
+    <p data-i18n="glossary.t17Def">Additional time (usually up to 6 months for income tax returns) to file your return &mdash; it extends the filing deadline, not the deadline to pay any tax owed.</p>
 
     <p style="margin-top:2rem; padding-top:1.5rem; border-top:1px solid var(--color-border);" data-i18n="glossary.disclaimer"><strong>A note on this page:</strong> these are general, simplified definitions, not tax or legal advice for your specific situation. Terms and rules are set by the IRS and by state law and can change — always confirm current definitions at <a href="https://www.irs.gov" target="_blank" rel="noopener">IRS.gov</a>, or <a href="/contact">talk with our team</a> about how a term applies to you.</p>
   </div>
@@ -122,20 +128,17 @@
   </div>
 </section>
 
+</main>
+
 <footer class="site-footer">
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
         <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
         <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
-        <div class="footer-social">
-          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
-          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
-          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
-        </div>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <h2 data-i18n="footer.quickLinks">Quick Links</h2>
         <ul>
           <li><a href="/" data-i18n="nav.home">Home</a></li>
           <li><a href="/about" data-i18n="nav.about">About Us</a></li>
@@ -150,7 +153,7 @@
         </ul>
       </div>
       <div class="footer-col">
-        <h4 data-i18n="footer.services">Services</h4>
+        <h2 data-i18n="footer.services">Services</h2>
         <ul>
           <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
           <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
@@ -159,13 +162,14 @@
         </ul>
       </div>
       <div class="footer-col footer-newsletter">
-        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <h2 data-i18n="footer.stayConnected">Stay Connected</h2>
         <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
         <form class="newsletter-form">
           <label for="newsletter-email" class="visually-hidden">Email address</label>
           <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
           <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
         </form>
+        <p class="newsletter-note" data-i18n="footer.newsletterNote">We'll email a confirmation link first. Unsubscribe any time. <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
     <div class="footer-bottom">
