@@ -158,16 +158,18 @@ ${SIG}`,
 
   employment_verification_letter: {
     title: "خطاب إثبات عمل",
-    options: { authorized: { yes: "نعم — لديّ طلبه الكتابي", no: "لا" }, status: { fulltime: "دوام كامل", parttime: "دوام جزئي", seasonal: "موسمي" }, payPer: { hour: "ساعة", week: "أسبوع", month: "شهر", year: "سنة" } },
+    options: { authorized: { yes: "نعم — لديّ طلبه الكتابي", no: "لا" }, status: { fulltime: "دوام كامل", parttime: "دوام جزئي", seasonal: "موسمي" }, payPer: { hour: "ساعة", week: "أسبوع", month: "شهر", year: "سنة" }, payBasis: { gross: "قبل الضرائب (إجمالي)", net: "بعد الضرائب (صافٍ)" } },
     body: `{{effectiveDate}}
 
-إلى من يهمه الأمر،
+الموضوع: إثبات عمل{{#if purpose}} لغرض {{purpose}}{{/if}}
 
-يؤكد هذا الخطاب أن {{employee}} {{#if current}}يعمل{{else}}كان يعمل{{/if}} لدى {{employer}} بوظيفة {{position}} ({{status}})، {{#if current}}منذ {{startDate}}{{else}}في الفترة من {{startDate}} إلى {{endDate}}{{/if}}.
+{{#if addressee}}إلى {{addressee}}،{{else}}إلى من يهمه الأمر،{{/if}}
 
-{{#if includePay}}{{#if current}}ويبلغ{{else}}وكان{{/if}} أجر {{employee}} {{pay}} لكل {{payPer}}.
+يؤكد هذا الخطاب أن {{employee}} {{#if current}}يعمل{{else}}كان يعمل{{/if}} لدى {{employer}} بوظيفة {{position}} ({{status}})، {{#if current}}منذ {{startDate}}{{else}}في الفترة من {{startDate}} إلى {{endDate}}{{/if}}.{{#if hours}} ويعمل {{employee}} {{hours}} من الساعات أسبوعيًا.{{/if}}
 
-{{/if}}{{#if authorized=yes}}يستند هذا الخطاب إلى سجلات {{employer}} حتى التاريخ أعلاه، وقد صدر بناءً على طلب الموظف الكتابي، ولا يتضمن سوى الوقائع المذكورة أعلاه.{{else}}[لا يُرسَل — لا يوجد طلب أو إذن كتابي من الموظف.]{{/if}} وللتحقق يُرجى الاتصال على {{phone}}.
+{{#if includePay}}{{#if current}}ويبلغ{{else}}وكان{{/if}} أجر {{employee}} {{pay}} لكل {{payPer}}، {{#if payBasis=net}}بعد الضرائب{{else}}قبل الضرائب{{/if}}.
+
+{{/if}}{{#if authorized=yes}}يستند هذا الخطاب إلى سجلات {{employer}} حتى التاريخ أعلاه، وقد صدر بناءً على طلب الموظف الكتابي، ولا يتضمن سوى الوقائع المذكورة أعلاه.{{else}}[لا يُرسَل — لا يوجد طلب أو إذن كتابي من الموظف.]{{/if}} وللتحقق يُرجى الاتصال على {{phone}}{{#if email}} أو المراسلة على {{email}}{{/if}}.
 
 وتفضلوا بقبول فائق الاحترام،
 

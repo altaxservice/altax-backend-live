@@ -751,24 +751,27 @@ Signature: ______________________________   Date: ______________`,
     description: "Confirms that a person works (or worked) for the business — for a landlord, lender or agency.",
     reviewNote: "Release employment or pay information only with the employee's written request or permission. State facts only — never the reason for leaving, discipline, medical or immigration information.",
     steps: [
-      { title: "Details", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employerAddress", "Employer address", { prefill: "clientAddress" }), text("employee", "Employee name", { required: true }), effective(),
+      { title: "Details", questions: [text("employer", "Employer", { prefill: "clientName", required: true }), text("employerAddress", "Employer address", { prefill: "clientAddress" }), text("employee", "Employee name", { required: true }), text("addressee", "Addressed to (lender, landlord or agency — optional)"), text("purpose", "What the letter is for (optional)", { placeholder: "e.g. a loan application, an apartment application" }), effective(),
         pick("authorized", "The employee asked for or allowed this letter in writing", [["yes", "Yes — I have their written request"], ["no", "No"]], { required: true }),
         text("position", "Job title", { required: true }), date("startDate", "Employed since", { required: true }),
         yesno("current", "Still employed", { default: true }), date("endDate", "Employment ended", { showIf: { id: "current", equals: false }, required: true }),
-        pick("status", "Status", [["fulltime", "Full-time"], ["parttime", "Part-time"], ["seasonal", "Seasonal"]], { default: "fulltime", required: true }),
+        pick("status", "Status", [["fulltime", "Full-time"], ["parttime", "Part-time"], ["seasonal", "Seasonal"]], { default: "fulltime", required: true }), num("hours", "Hours worked per week (optional)"),
         yesno("includePay", "Include pay information", { default: false }), money("pay", "Pay amount", { showIf: { id: "includePay", equals: true }, required: true }),
         pick("payPer", "Per", [["hour", "Hour"], ["week", "Week"], ["month", "Month"], ["year", "Year"]], { showIf: { id: "includePay", equals: true }, default: "year" }),
-        text("signerName", "Signed by (name)", { required: true, prefill: "ownerName" }), text("signerTitle", "Their title", { required: true, prefill: "ownerTitle" }), text("phone", "Phone for verification", { prefill: "clientPhone", required: true })] },
+        pick("payBasis", "The pay amount is", [["gross", "Before taxes (gross)"], ["net", "After taxes (net)"]], { showIf: { id: "includePay", equals: true }, default: "gross" }),
+        text("signerName", "Signed by (name)", { required: true, prefill: "ownerName" }), text("signerTitle", "Their title", { required: true, prefill: "ownerTitle" }), text("phone", "Phone for verification", { prefill: "clientPhone", required: true }), text("email", "Email for verification (optional)")] },
     ],
     body: `{{effectiveDate}}
 
-To whom it may concern:
+Re: Verification of Employment{{#if purpose}} for {{purpose}}{{/if}}
 
-This letter confirms that {{employee}} {{#if current}}is employed{{else}}was employed{{/if}} by {{employer}} as a {{#if status=fulltime}}full-time{{/if}}{{#if status=parttime}}part-time{{/if}}{{#if status=seasonal}}seasonal{{/if}} {{position}}, {{#if current}}since {{startDate}}{{else}}from {{startDate}} to {{endDate}}{{/if}}.
+{{#if addressee}}To {{addressee}}:{{else}}To whom it may concern:{{/if}}
 
-{{#if includePay}}{{employee}}'s pay {{#if current}}is{{else}}was{{/if}} {{pay}} per {{#if payPer=hour}}hour{{/if}}{{#if payPer=week}}week{{/if}}{{#if payPer=month}}month{{/if}}{{#if payPer=year}}year{{/if}}.
+This letter confirms that {{employee}} {{#if current}}is employed{{else}}was employed{{/if}} by {{employer}} as a {{#if status=fulltime}}full-time{{/if}}{{#if status=parttime}}part-time{{/if}}{{#if status=seasonal}}seasonal{{/if}} {{position}}, {{#if current}}since {{startDate}}{{else}}from {{startDate}} to {{endDate}}{{/if}}.{{#if hours}} {{employee}} works {{hours|hour}} per week.{{/if}}
 
-{{/if}}{{#if authorized=yes}}This letter is based on {{employer}}'s records as of the date above and is provided at the employee's written request. It states only the facts listed above.{{else}}[DO NOT SEND — there is no written request or permission from the employee.]{{/if}} To verify, please call {{phone}}.
+{{#if includePay}}{{employee}}'s pay {{#if current}}is{{else}}was{{/if}} {{pay}} per {{#if payPer=hour}}hour{{/if}}{{#if payPer=week}}week{{/if}}{{#if payPer=month}}month{{/if}}{{#if payPer=year}}year{{/if}}, {{#if payBasis=net}}after taxes{{else}}before taxes{{/if}}.
+
+{{/if}}{{#if authorized=yes}}This letter is based on {{employer}}'s records as of the date above and is provided at the employee's written request. It states only the facts listed above.{{else}}[DO NOT SEND — there is no written request or permission from the employee.]{{/if}} To verify, please call {{phone}}{{#if email}} or write to {{email}}{{/if}}.
 
 Sincerely,
 
@@ -2850,10 +2853,12 @@ Signature: ______________________________   Date: ______________`,
     description: "Extends a lease, changes the rent, or changes other terms, while everything else stays as in the original lease.",
     reviewNote: "Use this only if at least one change below is filled in; an amendment with no change is meaningless (the app does not check this yet). If the lease has a guarantor, the guarantor should sign too. If there are several tenants, add each one below. For a home built before 1978, re-deliver the lead-paint materials Maryland requires, and keep the security deposit within the legal limit if the rent goes up (Real Property Article 8-203; MDE rules) — confirm with an attorney. A landlord's rent-increase notice rules are separate from this agreement.",
     steps: [
-      { title: "The lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), list("otherTenants", "Other tenants who also sign (if any)", [text("name", "Full name", { required: true })], { addLabel: "Add a tenant" }), text("guarantor", "Guarantor of the lease (if any)"), text("premises", "Premises address", { required: true }), date("leaseDate", "Date of the original lease", { required: true }), effective(), state()] },
+      { title: "The lease", questions: [text("landlord", "Landlord", { required: true }), text("tenant", "Tenant", { prefill: "clientName", required: true }), list("otherTenants", "Other tenants who also sign (if any)", [text("name", "Full name", { required: true })], { addLabel: "Add a tenant" }), text("guarantor", "Guarantor of the lease (if any)"), text("premises", "Premises address", { required: true }), date("leaseDate", "Date of the original lease", { required: true }), num("amendmentNo", "This is amendment number", { default: "1", required: true, help: "Use 1 for the first change to the lease, 2 for the second, and so on." }), effective(), date("effectiveOn", "The changes take effect on (leave empty if the date of this document)"), state()] },
       { title: "What changes", questions: [
         yesno("extend", "Extend the lease term", { default: true }), date("newEnd", "New ending date", { showIf: { id: "extend", equals: true }, required: true }),
         yesno("rentChange", "Change the rent", { default: false }), money("newRent", "New monthly rent", { showIf: { id: "rentChange", equals: true }, required: true }), date("rentFrom", "New rent starts on", { showIf: { id: "rentChange", equals: true }, required: true }),
+        yesno("depositChange", "Change the security deposit", { default: false }), money("newDeposit", "New security deposit", { showIf: { id: "depositChange", equals: true }, required: true }),
+        text("useChange", "Change the permitted use to (optional)", { placeholder: "e.g. Retail convenience store and deli" }),
         area("other", "Any other change", { placeholder: "e.g. Tenant may add a sign at the front of the building" }),
       ] },
     ],
@@ -2861,7 +2866,7 @@ Signature: ______________________________   Date: ______________`,
 
 Date: {{effectiveDate}}
 
-This amendment is between {{landlord}} ("Landlord") and {{tenant}}{{#list otherTenants}}, {{name}}{{/list}} ("Tenant") and changes the lease dated {{leaseDate}} for the premises at {{premises}}, as that lease may already have been amended ("the Lease").
+This amendment is between {{landlord}} ("Landlord") and {{tenant}}{{#list otherTenants}}, {{name}}{{/list}} ("Tenant") and changes the lease dated {{leaseDate}} for the premises at {{premises}}, as that lease may already have been amended ("the Lease"). This is amendment number {{amendmentNo}} to the Lease. The changes below take effect on {{#if effectiveOn}}{{effectiveOn}}{{else}}the date of this amendment{{/if}}.
 
 {{#if extend}}1. TERM
 The Lease term is extended and now ends on {{newEnd}}, unless ended earlier under the Lease.
@@ -2869,11 +2874,17 @@ The Lease term is extended and now ends on {{newEnd}}, unless ended earlier unde
 {{/if}}{{#if rentChange}}2. RENT
 Beginning {{rentFrom}}, the monthly rent is {{newRent}}, payable on the same dates and in the same way as before.
 
+{{/if}}{{#if depositChange}}2. SECURITY DEPOSIT
+The security deposit is changed to {{newDeposit}}; any difference is paid to Landlord, or refunded to Tenant, within 30 days after this amendment takes effect.
+
+{{/if}}{{#if useChange}}2. PERMITTED USE
+The permitted use of the premises is changed to: {{useChange}}.
+
 {{/if}}{{#if other}}3. OTHER CHANGES
 {{other}}
 
 {{/if}}4. NOTHING ELSE CHANGES
-All other terms of the Lease stay in full force. If this amendment and the Lease disagree, this amendment controls. Each party confirms that the Lease is in effect and that, to its knowledge, the other party is not in default. The security deposit now held stays with the Lease.{{#if guarantor}} {{guarantor}} consents to this amendment and confirms that the guarantee of the Lease continues for the Lease as amended.{{/if}} This amendment is governed by the laws of the State of {{state}} and may be signed in copies, including electronically. Each person who signs for a company states that he or she is authorized to do so.
+All other terms of the Lease stay in full force. This amendment is part of the Lease and is subject to it; words with capital letters that are not defined here have the meaning they have in the Lease. If this amendment and the Lease disagree, this amendment controls. Each party confirms that the Lease is in effect and that, to its knowledge, the other party is not in default. The security deposit now held stays with the Lease.{{#if guarantor}} {{guarantor}} consents to this amendment and confirms that the guarantee of the Lease continues for the Lease as amended.{{/if}} This amendment is governed by the laws of the State of {{state}} and may be signed in copies, including electronically. Each person who signs for a company states that he or she is authorized to do so.
 
 LANDLORD: {{landlord}}
 Signature: ______________________________   Date: ______________
