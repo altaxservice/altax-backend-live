@@ -2056,3 +2056,20 @@ html:not([data-skin="classic"]) .portal-banner .eyebrow, html:not([data-skin="cl
 .pnote-actions { display: flex; gap: 8px; margin-top: 10px; }
 html:not([data-skin="classic"]) .pnote { border-radius: 4px; }
 @media print { .pnote, .pnote-empty { display: none; } }
+
+/* ---- Related companies (components/RelatedCompanies.tsx, pages/OwnerGroupsPage.tsx) ---- */
+.related-co .rc-group { padding: 8px 10px; margin-bottom: 8px; background: var(--teal-soft); border-radius: 8px; }
+.rc-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; }
+.rc-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.rc-name { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; font-weight: 700; color: var(--ink); text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rc-status { font-size: 11px; }
+.rc-x { background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.rc-note { font-size: 12px; margin: 4px 0; }
+.rc-sug { padding: 8px 0; border-top: 1px solid var(--line); }
+.rc-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.rc-chip { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: rgba(0,0,0,.07); color: var(--ink); }
+.rc-chip.w3 { background: var(--amber-soft); color: var(--amber); }
+.rc-actions { display: flex; gap: 6px; }
+.og-card { margin-bottom: 14px; padding: 14px 16px; }
+.og-list { display: grid; gap: 4px; margin: 8px 0; }
+.og-list label { display: flex; align-items: center; gap: 8px; font-size: 14px; }

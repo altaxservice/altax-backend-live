@@ -4,13 +4,14 @@ import { api, ApiError } from "../api/client";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 
-interface ClientHit { client_id: string; client_name: string; email: string | null; phone: string | null; status: string | null }
+interface ClientHit { client_id: string; client_name: string; email: string | null; phone: string | null; status: string | null; owner?: string | null; matchedVia?: string[] }
+interface ConnectedHit { clientId: string; clientName: string; status: string | null; via: string; groupName: string | null }
 interface TaskHit { task_id: string; task_name: string; client_id: string; client_name: string; status: string; agency_due_date: string | null }
 interface InvoiceHit { invoice_id: string; client_id: string; description: string | null; total_amount: number; status: string }
 interface DocumentHit { request_id: string; client_id: string; client_name: string; requested_item: string; status: string; kind: "request" | "upload" }
 interface EmployeeHit { employee_id: string; employee_name: string; client_id: string; client_name: string; status: string | null }
 
-interface SearchResults { clients: ClientHit[]; tasks: TaskHit[]; invoices: InvoiceHit[]; documents: DocumentHit[]; employees: EmployeeHit[] }
+interface SearchResults { clients: ClientHit[]; connected?: ConnectedHit[]; tasks: TaskHit[]; invoices: InvoiceHit[]; documents: DocumentHit[]; employees: EmployeeHit[] }
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -27,7 +28,7 @@ export function SearchResultsPage() {
 
   useEffect(() => {
     if (q.trim().length < 2) {
-      setResults({ clients: [], tasks: [], invoices: [], documents: [], employees: [] });
+      setResults({ clients: [], connected: [], tasks: [], invoices: [], documents: [], employees: [] });
       return;
     }
     setResults(null);
@@ -36,7 +37,7 @@ export function SearchResultsPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Search failed."));
   }, [q]);
 
-  const totalHits = results ? results.clients.length + results.tasks.length + results.invoices.length + results.documents.length + results.employees.length : 0;
+  const totalHits = results ? results.clients.length + (results.connected?.length || 0) + results.tasks.length + results.invoices.length + results.documents.length + results.employees.length : 0;
 
   return (
     <div>
@@ -55,9 +56,29 @@ export function SearchResultsPage() {
             <tbody>
               {results.clients.map((c) => (
                 <tr key={c.client_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
-                  <td>{c.client_name}</td>
+                  <td>{c.client_name}{c.matchedVia && c.matchedVia.length > 0 && <span className="rc-chip w3" style={{ marginLeft: 8 }}>matched by {c.matchedVia.join(", ")}{c.owner ? `: ${c.owner}` : ""}</span>}</td>
                   <td className="muted" data-label="Email">{c.email || "—"}</td>
                   <td className="muted" data-label="Phone">{c.phone || "—"}</td>
+                  <td className="muted" data-label="Status">{c.status || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      )}
+
+      {results && results.connected && results.connected.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Connected companies <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>— same owner as the results above</span></div>
+          <div className="table-scroll card-table">
+          <table>
+            <thead><tr><th scope="col">Name</th><th scope="col">Why connected</th><th scope="col">Status</th></tr></thead>
+            <tbody>
+              {results.connected.map((c) => (
+                <tr key={c.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); } }}>
+                  <td>{c.clientName}{c.groupName && <span className="rc-chip" style={{ marginLeft: 8 }}>{c.groupName}</span>}</td>
+                  <td className="muted" data-label="Why connected">{c.via}</td>
                   <td className="muted" data-label="Status">{c.status || "—"}</td>
                 </tr>
               ))}

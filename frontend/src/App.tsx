@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { OwnerGroupsPage } from "./pages/OwnerGroupsPage";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
@@ -141,6 +142,7 @@ function App() {
                 <Route path="/kiosk-settings" element={<KioskSettingsPage />} />
                 <Route path="/list-settings" element={<ListSettingsPage />} />
                 <Route path="/document-checklists" element={<DocumentChecklistsPage />} />
+                <Route path="/owner-groups" element={<OwnerGroupsPage />} />
               </Route>
               {/* Staff also get in here now (hard audit 2026-08-13, TAX-001) — the
                   compliance-config checks (Service Type vs. actual obligations, etc.)

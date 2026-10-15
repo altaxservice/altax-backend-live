@@ -68,6 +68,7 @@ function showsClientPanel(pathname: string): boolean {
 export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string; icon: ComponentType<LucideProps>; keywords?: string[] }[] = [
   { to: "/dashboard", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard, keywords: ["home", "dashboard", "overview"] },
   { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users, keywords: ["customers", "accounts", "businesses"] },
+  { to: "/owner-groups", label: "Owner Groups", roles: ["admin"], group: "Clients", icon: Users, keywords: ["same owner", "related companies", "multiple companies", "linked businesses", "owner"] },
   { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks, keywords: ["to-do", "todo", "deadlines", "work items"] },
   { to: "/notes", label: "Notes", roles: ["admin", "staff"], group: "Work", icon: StickyNote, keywords: ["memo", "sticky note"] },
   { to: "/daily-log", label: "Daily Log", roles: ["admin", "staff"], group: "Work", icon: NotebookPen, keywords: ["journal", "activity log"] },
@@ -148,6 +149,7 @@ const TITLES: Record<string, string> = {
   "/rules": "Task Rules",
   "/haccp": "Health Permits",
   "/accounting": "Accounting",
+  "/owner-groups": "Owner Groups",
   "/payroll-agent": "Payroll Agent",
   "/reports": "Reports",
   "/communications": "Communications",

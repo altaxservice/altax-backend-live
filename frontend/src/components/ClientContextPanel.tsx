@@ -1,4 +1,5 @@
 import { DateInput } from "./DateInput";
+import { RelatedCompanies } from "./RelatedCompanies";
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -652,6 +653,8 @@ export function ClientContextPanel() {
             <ClientRow label="Email" value={client.email} href={client.email ? `mailto:${client.email}` : undefined} />
             <ClientRow label="Phone" value={client.phone} href={client.phone ? `tel:${String(client.phone).replace(/[^\d+]/g, "")}` : undefined} />
           </div>
+
+          {(user?.role === "admin" || user?.role === "staff") && client.client_id && <RelatedCompanies clientId={client.client_id} />}
 
           <div className="client-panel-section">
             <div className="small-label">Compliance</div>
