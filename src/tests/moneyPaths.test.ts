@@ -36,6 +36,7 @@ function api(path: string, init?: RequestInit): Promise<Response> {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      "x-suppress-notifications": "1", // tests must never email or text anyone
       ...(init?.headers || {}),
     },
   });

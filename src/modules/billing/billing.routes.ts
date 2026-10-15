@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import crypto from "crypto";
-import { query, queryOne, withTransaction, type DbClient } from "../../config/db";
+import { query, queryOne, withTransaction, isProdRuntime, type DbClient } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
@@ -637,6 +637,9 @@ export async function sendPaymentReceiptEmail(opts: {
   amount: number; method: string; balanceDue: number; req?: AuthedRequest;
 }): Promise<void> {
   if (!opts.clientId) return;
+  // The automated tests record real payments against a disposable invoice and send this header so no email or text goes out. Honored only on
+  // a local/dev server — in production the header is ignored, so a real receipt can never be suppressed this way.
+  if (!isProdRuntime && String(opts.req?.headers?.["x-suppress-notifications"] || "") === "1") return;
   const clientForReceipt = await queryOne<any>(`SELECT email, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [opts.clientId]);
   if (!clientForReceipt) return;
   const subject = `Payment received — Invoice ${opts.invoiceId}`;

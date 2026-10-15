@@ -25,7 +25,7 @@ const testJeIds: string[] = [];
 function api(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${API}${path}`, {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "x-suppress-notifications": "1", ...(init?.headers || {}) },
   });
 }
 
