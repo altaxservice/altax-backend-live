@@ -277,7 +277,7 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
   const [clientId, setClientId] = useState("");
   const [answers, setAnswers] = useState<Answers>({});
   const [step, setStep] = useState(0);
-  const [preview, setPreview] = useState<{ body: string; missing: string[] }>({ body: "", missing: [] });
+  const [preview, setPreview] = useState<{ body: string; missing: string[]; problems?: string[] }>({ body: "", missing: [], problems: [] });
   const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
   useEffect(() => { api.get<{ attachments: AttachmentInfo[] }>("/doc-builder/attachments").then((r) => setAttachments(r.attachments)).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false);
@@ -373,7 +373,7 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
     if (!tpl) return;
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
-      api.post<{ body: string; missing: string[] }>("/doc-builder/preview", { templateKey: tpl.key, answers, lang }).then(setPreview).catch(() => {});
+      api.post<{ body: string; missing: string[]; problems?: string[] }>("/doc-builder/preview", { templateKey: tpl.key, answers, lang }).then(setPreview).catch(() => {});
     }, 350);
     return () => window.clearTimeout(timer.current);
   }, [tpl, answers, lang]);
@@ -476,13 +476,14 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
                 {attachments.filter((a) => a.templates.includes(tpl.key)).map((a) => a.uploaded && !a.expired
                   ? <div key={a.key} className="muted" style={{ fontSize: 12.5 }}><Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: "var(--green)" }} /> The {a.title} ({a.editionLabel || a.fileName}, {a.pages} pages) is added to the end of the PDF automatically. The Word file and the browser print page do not include it — attach it by hand there.</div>
                   : <div key={a.key} className="tender-warn"><b>{a.uploaded ? `The ${a.title} on file is out of date.` : `The ${a.title} is not on file.`}</b> It must be attached to every residential lease in Maryland, and this PDF will go out {a.uploaded ? "with the old edition" : "without it"}. Go back to the Document Builder home page → Standard attachments to {a.uploaded ? "replace it with the newest edition" : "upload it"}.</div>)}
+                {(preview.problems || []).length > 0 && <div className="tender-warn"><b>Please fix before saving:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{(preview.problems || []).slice(0, 6).map((m) => <li key={m}>{m}</li>)}</ul></div>}
                 {preview.missing.length > 0 ? (
                   <div className="tender-warn"><b>Still to fill in:</b><ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{preview.missing.slice(0, 8).map((m) => <li key={m}>{m}</li>)}</ul></div>
                 ) : <p style={{ margin: 0 }}><Check size={14} aria-hidden="true" style={{ verticalAlign: "-2px", color: "var(--green)" }} /> Everything is filled in. Read the document on the right, then create it.</p>}
                 {!clientId && <div className="muted" style={{ fontSize: 12.5 }}>No client chosen — this document will be saved without a client (you and admins will find it under E-Sign and Recently built).</div>}
                 {err && <div className="tender-warn" style={{ color: "var(--red)" }}>{err}</div>}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button type="button" className="btn btn-primary" disabled={busy || preview.missing.length > 0} onClick={create}><FilePlus2 size={14} aria-hidden="true" /> {busy ? "Saving…" : "Create & save to client"}</button>
+                  <button type="button" className="btn btn-primary" disabled={busy || preview.missing.length > 0 || (preview.problems || []).length > 0} onClick={create}><FilePlus2 size={14} aria-hidden="true" /> {busy ? "Saving…" : "Create & save to client"}</button>
                   {lang === "en" ? (
                     <>
                       <button type="button" className="btn" onClick={() => draftPdf(false)}>View PDF</button>

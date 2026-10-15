@@ -53,7 +53,7 @@ for (const t of DOC_TEMPLATES as any[]) {
     for (const v of enVars) if (!arVars.has(v)) add(key, "MED", `variable {{${v}}} used in English but not in Arabic`);
     for (const v of arVars) if (!enVars.has(v)) add(key, "MED", `variable {{${v}}} used in Arabic but not in English`);
   }
-  for (const q of qs) { if (!enVars.has(q.id) && !arVars.has(q.id)) add(key, q.required ? "HIGH" : "MED", `question "${q.label}" (${q.id}) is never used in the document text`); }
+  for (const q of qs) { if (q.id !== "notaryAck" && q.id !== "notaryCounty" && !enVars.has(q.id) && !arVars.has(q.id)) add(key, q.required ? "HIGH" : "MED", `question "${q.label}" (${q.id}) is never used in the document text`); }
   // select options: every option should have an Arabic label, and equality tests should use real option values
   for (const q of qs.filter((x) => x.type === "select")) {
     if (t.bodyAr) for (const o of (q.options || []) as any[]) if (!o.labelAr) add(key, "LOW", `select ${q.id}: option "${o.value}" has no Arabic label`);

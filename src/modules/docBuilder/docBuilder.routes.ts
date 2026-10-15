@@ -13,6 +13,7 @@ import { renderDocumentHtml } from "./htmlDoc";
 import { DOC_TEMPLATES, getDocTemplate } from "./templates";
 import "./templatesAr";
 import { canAccessDoc } from "./access";
+import { problemsFor } from "./checks";
 import { appendStandardAttachments, attachmentStatuses, inspectPdf, specFor } from "./standardAttachments";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { registerSigningRoutes } from "./esign";
@@ -119,7 +120,7 @@ function prep(req: AuthedRequest, res: Response): { t: DocTemplate; answers: Ans
 
 docBuilderRouter.post("/preview", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const p = prep(req, res); if (!p) return;
-  res.json({ body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), missing: missingAnswers(p.t, p.answers) });
+  res.json({ body: renderDocument(p.t, p.answers, p.lang, { placeholders: true }), missing: missingAnswers(p.t, p.answers), problems: problemsFor(p.t.key, p.answers) });
 }));
 
 /** Official PDFs kept once and appended to the PDF of certain documents (e.g. the Maryland Tenants' Bill of Rights on a lease). Anyone on staff can see them; only an admin replaces one. */
@@ -196,6 +197,8 @@ docBuilderRouter.post("/create", asyncHandler(async (req: AuthedRequest, res: Re
   if (!external && !client) return;
   const missing = missingAnswers(p.t, p.answers);
   if (missing.length) return res.status(400).json({ error: `Please fill in: ${missing.slice(0, 6).join("; ")}${missing.length > 6 ? "…" : ""}`, missing });
+  const problems = problemsFor(p.t.key, p.answers);
+  if (problems.length) return res.status(400).json({ error: `Please fix: ${problems.slice(0, 4).join(" ")}`, problems });
   const body = renderDocument(p.t, p.answers, p.lang);
   const effective = /^\d{4}-\d{2}-\d{2}$/.test(String(p.answers.effectiveDate || "")) ? String(p.answers.effectiveDate) : null;
   const title = String(req.body?.title || "").trim().slice(0, 200) || docTitle(p.t, p.lang);

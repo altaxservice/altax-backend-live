@@ -5,6 +5,7 @@
  *   {{#list id}}…{{/list}}         repeat for each row of a "list" question; inside, {{n}} is the row number and {{field}} a row field
  * Everything here is pure (no database), so the live preview and the saved document are always rendered by the same code.
  */
+import { suggestSigners } from "./signerSpec";
 export type QType = "text" | "textarea" | "date" | "money" | "number" | "select" | "yesno" | "list";
 export type PrefillKey = "clientName" | "clientAddress" | "clientEmail" | "clientPhone" | "firmName" | "firmAddress" | "today"
   | "ownerName" | "ownerTitle" | "ownerNameTitle" | "ownerEmail" | "ownerPhone" | "entityType" | "entityDesc" | "stateName" | "einLast4" | "formationDate" | "dbaName";
@@ -140,13 +141,38 @@ export function allQuestions(t: DocTemplate): Question[] { return t.steps.flatMa
 const HEADING_EN = /^\d+\.\s+[A-Z][A-Z0-9 &,'\/()-]+$/;
 const HEADING_AR = /^\d+\.\s+[؀-ۿ][؀-ۿ0-9 ،'\/()-]+$/;
 
+/** One notary acknowledgment per signer (from the same list the signing screen suggests), each starting on its own page after the first. */
+function notaryPages(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders: boolean): string {
+  const county = String(answers.notaryCounty || "").trim();
+  const state = String(answers.state || "").trim() || (lang === "ar" ? "ماريلاند" : "Maryland");
+  const people = suggestSigners(t.key, answers).map((p) => p.name).filter((n, i, a) => n && a.indexOf(n) === i);
+  const names = people.length ? people : [lang === "ar" ? "______________________________" : "______________________________"];
+  const title = lang === "ar" ? (t.titleAr || t.title) : t.title;
+  const blocks = names.map((name) => lang === "ar"
+    ? `إقرار أمام كاتب العدل${people.length ? ` — ${name}` : ""}
+ولاية ${state}، مقاطعة ${county || "______________"}
+في ______________، وأمامي أنا كاتب العدل الموقّع أدناه، مثل شخصيًا ${name}، المعروف لدي أو الذي ثبتت هويته بما يقنع، وأقرّ بأنه وقّع الوثيقة المعنونة «${title}» طواعيةً للأغراض المذكورة فيها.
+توقيع كاتب العدل وختمه: ______________________________
+الاسم: ______________________________
+تنتهي مدة ترخيصي كاتبًا للعدل في: ______________`
+    : `ACKNOWLEDGMENT BEFORE A NOTARY${people.length ? ` — ${name}` : ""}
+State of ${state}, County of ${county || "______________"}
+On ______________, before me, the undersigned notary public, personally appeared ${name}, known to me or satisfactorily proven to be the person who signed the document titled "${title}", and acknowledged that they signed it voluntarily for the purposes stated in it.
+Notary public signature and seal: ______________________________
+Printed name: ______________________________
+My commission expires: ______________`);
+  void placeholders;
+  return `[page break]\n${lang === "ar" ? "إقرار أمام كاتب العدل" : "NOTARY ACKNOWLEDGMENT"}\n\n${blocks.join("\n\n")}`;
+}
+
 function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
   const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang, placeholders });
   // Section headings ("1. PROMISE TO PAY") are renumbered in order, so a section that is switched off never leaves a gap.
   const heading = lang === "ar" ? HEADING_AR : HEADING_EN;
   let sec = 0;
-  return text.split("\n").map((l) => l.replace(/[ \t]+$/g, "")).map((l) => (heading.test(l) ? l.replace(/^\d+/, String(++sec)) : l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const out = text.split("\n").map((l) => l.replace(/[ \t]+$/g, "")).map((l) => (heading.test(l) ? l.replace(/^\d+/, String(++sec)) : l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return answers.notaryAck === true ? `${out}\n\n${notaryPages(t, answers, lang, placeholders)}` : out;
 }
 
 /** Renders the document with the answers: English, Arabic, or both (English first, then its Arabic edition). */
