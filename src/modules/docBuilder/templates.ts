@@ -79,7 +79,10 @@ This section is separate from the rest of this agreement and is optional. The Cl
 
 Client initials: ______________
 
-{{/if}}{{#if additionalTerms}}7. ADDITIONAL TERMS
+{{/if}}7. FORMS AND DOCUMENTS WE PREPARE
+If the Firm prepares a contract, agreement or similar document for the Client, the Firm uses a standard form and the Client chooses its terms. The Firm is not a law firm and does not give legal advice about those documents or what they mean for the Client. The Client may have its own attorney review any document before signing it, and the Firm recommends this for large or complicated matters such as real estate, loans or the sale of a business. The Firm does not prepare documents that transfer real estate or that are filed in a court case.
+
+{{#if additionalTerms}}7. ADDITIONAL TERMS
 {{additionalTerms}}
 
 {{/if}}8. GENERAL AND GOVERNING LAW
@@ -131,6 +134,9 @@ You agree to give us complete, accurate and timely information and records, to r
 
 WHAT WE CANNOT PROMISE
 We cannot guarantee any refund or result, and we do not give legal advice. We cannot endorse a federal refund check issued to you, and we will not direct or accept your federal refund into an account we own or control; a direct deposit goes only to a bank account in your own name, and its details cannot be changed after the IRS accepts the return. We follow the same practice for state refunds. Representation before the IRS or the Comptroller of Maryland is not included unless we agree in writing and you sign the official form (IRS Form 2848 / Maryland Form 548).
+
+FORMS AND DOCUMENTS WE PREPARE
+If we prepare a contract, agreement or similar document for you, we use a standard form and you choose its terms. {{firmName}} is not a law firm and does not give legal advice about those documents or what they mean for you. You may have your own attorney review any document before you sign it, and we recommend that you do for large or complicated matters such as real estate, loans or the sale of a business. We do not prepare documents that transfer real estate or that are filed in a court case.
 
 CONFIDENTIALITY, RECORDS AND DELIVERY
 We keep your information confidential and release it only with your written consent or as the law requires. Federal rules (26 CFR §301.7216-2) let us, without a separate consent, share tax return information with other U.S. tax return preparers and with software, e-file and processing providers that only help prepare, process or file your return, use it for related state returns, and use it to process your payment; for anything else, including sending it outside the United States or to another preparer for advice on your tax position, we will ask for your separate written consent (IRC §7216). Please keep your original source documents. We keep our file for the period the law and our records policy require and may then securely destroy it. {{#if eDelivery}}Unless you initial the separate section on electronic delivery and signatures below, we will deliver documents and messages on paper.{{else}}We will deliver documents and messages on paper.{{/if}}
@@ -4012,6 +4018,7 @@ for (const t of DOC_TEMPLATES) {
     yesno("notaryAck", "Add a notary acknowledgment page for the people who sign", { default: false, help: "A notary must watch each person sign, so sign on paper in front of the notary — not electronically from a distance." }),
     text("notaryCounty", "County where it will be notarized (optional)", { showIf: { id: "notaryAck", equals: true }, placeholder: "e.g. Baltimore County" }),
   );
+  if (INSTRUMENT_KEYS.has(t.key)) qs.push(yesno("clientAck", "Add a client acknowledgment page for the firm's file — the client signs that they chose the terms and the firm gave no legal advice", { default: true, help: "Recommended when the document is for one of our clients. It is a separate last page: detach it before the document goes to the other party." }));
   if (INSTRUMENT_KEYS.has(t.key)) qs.push(yesno("preparedNotice", "Print a closing line: prepared from a standard form, the firm is not a law firm, not legal advice", { default: true, help: "Recommended. Maryland reserves legal advice to lawyers, so the document says plainly what the firm is and is not doing." }));
   if (qs.length) t.steps.push({ title: INSTRUMENT_KEYS.has(t.key) ? "Notary and notice (optional)" : "Notary (optional)", description: "Some banks, agencies and courts want a signature notarized — add an acknowledgment page and the notary completes it when the signers sign in front of them.", questions: qs });
 }

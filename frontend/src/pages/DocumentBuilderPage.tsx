@@ -390,7 +390,7 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
     if (!tpl) return;
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
-      api.post<{ body: string; missing: string[]; problems?: string[] }>("/doc-builder/preview", { templateKey: tpl.key, answers, lang }).then(setPreview).catch(() => {});
+      api.post<{ body: string; missing: string[]; problems?: string[] }>("/doc-builder/preview", { templateKey: tpl.key, answers, lang, clientId }).then(setPreview).catch(() => {});
     }, 350);
     return () => window.clearTimeout(timer.current);
   }, [tpl, answers, lang]);

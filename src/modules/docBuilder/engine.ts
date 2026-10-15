@@ -165,6 +165,14 @@ function preparedNotice(firm: string, lang: "en" | "ar"): string {
     : `Prepared by ${firm} from a standard form. ${firm} is not a law firm and this document is not legal advice. Each party should have its own attorney review it before signing if the matter is large or uncertain.`;
 }
 
+/** A one-page acknowledgment signed by the firm's own client, for the firm's file: the client chose the terms, the firm gave a standard form and no legal advice. */
+function clientAcknowledgment(t: DocTemplate, firm: string, client: string, lang: "en" | "ar"): string {
+  const title = lang === "ar" ? (t.titleAr || t.title) : t.title;
+  return lang === "ar"
+    ? `[page break]\nإقرار العميل — لملف ${firm}\n\nأنا ${client}، اخترتُ بنفسي شروط الوثيقة المعنونة «${title}». وقد زوّدتني ${firm} بنموذج قياسي ولم تقدّم لي مشورة قانونية، و${firm} ليست مكتب محاماة. وأفهم أن لي أن أعرض هذه الوثيقة على محاميّ الخاص قبل توقيعها، وأنني مسؤول عن الخيارات الواردة فيها.\n\nيُفصل هذا الإقرار قبل إرسال الوثيقة إلى أي طرف آخر.\n\nالعميل: ${client}\nالتوقيع: ______________________________   التاريخ: ______________`
+    : `[page break]\nCLIENT ACKNOWLEDGMENT — FOR ${firm.toUpperCase()}'S FILE\n\nI, ${client}, chose the terms of the document titled "${title}" myself. ${firm} gave me a standard form and did not give me legal advice, and ${firm} is not a law firm. I understand that I may have my own attorney review this document before I sign it, and that I am responsible for the choices in it.\n\nDetach this page before the document is sent to anyone else.\n\nClient: ${client}\nSignature: ______________________________   Date: ______________`;
+}
+
 /** One notary acknowledgment per signer (from the same list the signing screen suggests), each starting on its own page after the first. */
 function notaryPages(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders: boolean): string {
   const county = String(answers.notaryCounty || "").trim();
@@ -189,7 +197,7 @@ My commission expires: ______________`);
   return `[page break]\n${lang === "ar" ? "إقرار أمام كاتب العدل" : "NOTARY ACKNOWLEDGMENT"}\n\n${blocks.join("\n\n")}`;
 }
 
-function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false, firmName = ""): string {
+function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false, firmName = "", clientName = ""): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
   const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang, placeholders });
   // Section headings ("1. PROMISE TO PAY") are renumbered in order, so a section that is switched off never leaves a gap.
@@ -197,15 +205,16 @@ function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placehol
   let sec = 0;
   const out = text.split("\n").map((l) => l.replace(/[ \t]+$/g, "")).map((l) => (heading.test(l) ? l.replace(/^\d+/, String(++sec)) : l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   const withNotary = answers.notaryAck === true ? `${out}\n\n${notaryPages(t, answers, lang, placeholders)}` : out;
-  return firmName && INSTRUMENT_KEYS.has(t.key) && answers.preparedNotice !== false ? `${withNotary}\n\n${preparedNotice(firmName, lang)}` : withNotary;
+  const withNotice = firmName && INSTRUMENT_KEYS.has(t.key) && answers.preparedNotice !== false ? `${withNotary}\n\n${preparedNotice(firmName, lang)}` : withNotary;
+  return firmName && clientName && INSTRUMENT_KEYS.has(t.key) && answers.clientAck !== false ? `${withNotice}\n\n${clientAcknowledgment(t, firmName, clientName, lang)}` : withNotice;
 }
 
 /** Renders the document with the answers: English, Arabic, or both (English first, then its Arabic edition). */
-export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang = "en", opts: { placeholders?: boolean; firmName?: string } = {}): string {
-  const ph = Boolean(opts.placeholders); const fn = String(opts.firmName || "").trim();
-  if (lang === "ar" && hasArabic(t)) return renderOne(t, answers, "ar", ph, fn);
-  if (lang === "both" && hasArabic(t)) return `${renderOne(t, answers, "en", ph, fn)}\n\n\n${renderOne(t, answers, "ar", ph, fn)}`;
-  return renderOne(t, answers, "en", ph, fn);
+export function renderDocument(t: DocTemplate, answers: Answers, lang: DocLang = "en", opts: { placeholders?: boolean; firmName?: string; clientName?: string } = {}): string {
+  const ph = Boolean(opts.placeholders); const fn = String(opts.firmName || "").trim(); const cn = String(opts.clientName || "").trim();
+  if (lang === "ar" && hasArabic(t)) return renderOne(t, answers, "ar", ph, fn, cn);
+  if (lang === "both" && hasArabic(t)) return `${renderOne(t, answers, "en", ph, fn, cn)}\n\n\n${renderOne(t, answers, "ar", ph, fn, cn)}`;
+  return renderOne(t, answers, "en", ph, fn, cn);
 }
 
 export function docTitle(t: DocTemplate, lang: DocLang): string {
