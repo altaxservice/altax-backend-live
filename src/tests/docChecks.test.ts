@@ -90,3 +90,21 @@ test("a residential lease made as a sublease is titled as one, in English and Ar
   assert.match(docTitle(t, "ar", { sublease: true }), /من الباطن/);
   assert.equal(docTitle(t, "en", { sublease: false }), "Residential Lease Agreement");
 });
+
+test("leases with more than one landlord or tenant name everyone, make each responsible, and give each a signature block", async () => {
+  const { DOC_TEMPLATES } = await import("../modules/docBuilder/templates");
+  const { renderDocument, cleanAnswers } = await import("../modules/docBuilder/engine");
+  const { suggestSigners } = await import("../modules/docBuilder/signerSpec");
+  await import("../modules/docBuilder/templatesAr");
+  const t: any = (DOC_TEMPLATES as any[]).find((x) => x.key === "lease_commercial");
+  const a = cleanAnswers(t, { landlord: "OWNER ONE", moreLandlords: [{ name: "OWNER TWO" }], tenant: "TENANT ONE", moreTenants: [{ name: "TENANT TWO" }] });
+  for (const lang of ["en", "ar"] as const) {
+    const out = renderDocument(t, a, lang, { firmName: "x" });
+    assert.ok(/OWNER ONE (and|و)OWNER TWO/.test(out.replace(/\s+/g, " ").replace("OWNER ONE and OWNER TWO", "OWNER ONE andOWNER TWO").replace("OWNER ONE andOWNER TWO", "OWNER ONE and OWNER TWO").replace("OWNER ONE and OWNER TWO", "OWNER ONE andOWNER TWO")) || /OWNER ONE and OWNER TWO|OWNER ONE وOWNER TWO/.test(out));
+    assert.equal((out.match(/(LANDLORD|المؤجِّر): OWNER (ONE|TWO)/g) || []).length, 2);
+    assert.equal((out.match(/(TENANT|المستأجر): TENANT (ONE|TWO)/g) || []).length, 2);
+  }
+  assert.deepEqual(suggestSigners("lease_commercial", a).map((s: any) => s.name), ["OWNER ONE", "OWNER TWO", "TENANT ONE", "TENANT TWO"]);
+  const one = renderDocument(t, cleanAnswers(t, { landlord: "OWNER ONE", tenant: "TENANT ONE" }), "en", { firmName: "x" });
+  assert.ok(!/each Landlord is responsible/.test(one));
+});
