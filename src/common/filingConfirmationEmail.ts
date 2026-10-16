@@ -221,10 +221,12 @@ function filingConfirmationBody(input: FilingConfirmationInput): string {
     ${bilingualParagraph(
       paidByNow ? "This filing is paid in full."
         : input.paidDate ? `Payment is scheduled for ${fmtDate(input.paidDate)}.`
-        : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email.",
+        : input.amount > 0 ? `Payment of ${money2(input.amount)} is due on ${fmtDate(input.paymentDueDate)}. If it has already been taken care of, you can ignore this note. If you have any questions, just reply to this email.`
+        : "No payment is due for this filing. If you have any questions, just reply to this email.",
       paidByNow ? "تم دفع هذا الإقرار بالكامل."
         : input.paidDate ? `الدفع مجدول بتاريخ ${fmtDate(input.paidDate)}.`
-        : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديكم أي أسئلة، فقط قوموا بالرد على هذا البريد الإلكتروني.",
+        : input.amount > 0 ? `الدفعة البالغة ${money2(input.amount)} مستحقة بتاريخ ${fmtDate(input.paymentDueDate)}. وإذا كان قد تم تسديدها بالفعل فيمكنكم تجاهل هذه الرسالة. وإذا كانت لديكم أي أسئلة، فقط قوموا بالرد على هذا البريد الإلكتروني.`
+        : "لا توجد دفعة مستحقة لهذا الإقرار. إذا كانت لديكم أي أسئلة، فقط قوموا بالرد على هذا البريد الإلكتروني.",
       { color: "#6b7280", marginBottom: 0 }
     )}`;
 }
@@ -265,7 +267,7 @@ export interface PaymentDueReminderInput {
 function paymentDueReminderBody(input: PaymentDueReminderInput): string {
   return `
     ${bilingualParagraph(
-      `Reminder — your payment for <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is coming up.`,
+      `Reminder — the payment for <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is due soon.`,
       `تذكير — موعد دفعة <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} يقترب.`
     )}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
@@ -305,7 +307,7 @@ export async function sendPaymentDueReminder(input: PaymentDueReminderInput): Pr
   const { sent: smsSent } = await (async () => {
     if (!input.client.smsAllowed || !input.client.phone) return { sent: false };
     const period = input.periodLabel ? ` (${input.periodLabel})` : "";
-    const body = `AL TAX SERVICE: Reminder — your payment for ${input.filingType}${period} of ${money2(input.amount)} is due ${fmtDate(input.paymentDueDate)}.`;
+    const body = `AL TAX SERVICE: Reminder — the payment for ${input.filingType}${period} of ${money2(input.amount)} is due ${fmtDate(input.paymentDueDate)}.`;
     try {
       await sendSms({ to: input.client.phone, body });
       await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, `Reminder: Payment Due Soon — ${input.filingType}`, body, input.client.phone, "Sent", "SMS");
@@ -538,6 +540,6 @@ export async function previewPaymentDueReminder(input: PaymentDueReminderInput):
   return {
     subject: `Reminder: Payment Due Soon — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`,
     html: await wrapEmailHtml(paymentDueReminderBody(input), input.req),
-    sms: `AL TAX SERVICE: Reminder — your payment for ${input.filingType}${period} of ${money2(input.amount)} is due ${fmtDate(input.paymentDueDate)}.`,
+    sms: `AL TAX SERVICE: Reminder — the payment for ${input.filingType}${period} of ${money2(input.amount)} is due ${fmtDate(input.paymentDueDate)}.`,
   };
 }
