@@ -1,3 +1,4 @@
+import { FilingTrackerStrip } from "../components/FilingTrackerStrip";
 import { PickUpWhereYouLeftOff } from "../components/WorkTrail";
 import { FirmPulse } from "../components/FirmPulse";
 import { PortfolioPanel } from "../components/PortfolioPanel";
@@ -1155,6 +1156,8 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
       <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); }} />
 
+      <FilingTrackerStrip />
+
       {user?.role === "admin" && <FirmPulse />}
 
       <div className="cc-layout">
@@ -1440,6 +1443,8 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       </div>
 
       <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); }} />
+
+      <FilingTrackerStrip />
 
       <div className="cc-layout">
         <div>

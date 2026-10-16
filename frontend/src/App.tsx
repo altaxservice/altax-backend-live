@@ -21,6 +21,7 @@ import { TasksListPage } from "./pages/TasksListPage";
 import { NotesPage } from "./pages/NotesPage";
 import { DailyLogPage } from "./pages/DailyLogPage";
 import { DocumentBuilderPage } from "./pages/DocumentBuilderPage";
+import { FilingTrackerPage } from "./pages/FilingTrackerPage";
 import { ESignPage } from "./pages/ESignPage";
 import { PublicSignPage } from "./pages/PublicSignPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
@@ -179,6 +180,7 @@ function App() {
                 <Route path="/time-tracking" element={<TimeTrackingPage />} />
                 <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
                 <Route path="/accounting" element={<AccountingPage />} />
+                <Route path="/filing-tracker" element={<FilingTrackerPage />} />
                 <Route path="/payroll-agent" element={<PayrollAgentPage />} />
                 <Route path="/employees/:employeeId" element={<EmployeeDetailPage />} />
                 <Route path="/rules" element={<RulesPage />} />

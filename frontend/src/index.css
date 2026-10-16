@@ -491,6 +491,7 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 .status-blue { background: var(--blue-soft); color: var(--blue); }
 .status-teal { background: var(--teal-soft); color: var(--teal); }
 .status-gray { background: #eef2f7; color: #475467; }
+.status-purple { background: var(--purple-soft); color: var(--purple); }
 
 /* Lets an editable status <select> carry the same color as the read-only
    .status-pill, instead of every row's status column looking like a plain
@@ -2073,3 +2074,11 @@ html:not([data-skin="classic"]) .pnote { border-radius: 4px; }
 .og-card { margin-bottom: 14px; padding: 14px 16px; }
 .og-list { display: grid; gap: 4px; margin: 8px 0; }
 .og-list label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+
+/* Filing Tracker: a matrix on desktop, one card per client on a phone */
+.tracker-cards { display: none; }
+.tracker-card { padding: 12px 16px; border-top: 1px solid var(--line); }
+@media (max-width: 820px) {
+  .tracker-cards { display: block; }
+  .tracker-table-wrap { display: none; }
+}

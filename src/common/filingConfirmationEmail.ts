@@ -130,6 +130,13 @@ async function logFilingCommunication(
   );
 }
 
+/** The one-line SMS text for a filing confirmation — shared by the sender and the sample previews so they cannot drift apart. */
+function filingSmsText(opts: { filingType: string; periodLabel: string | null; amountLabel: string; amount: number; acknowledgeUrl?: string }): string {
+  const period = opts.periodLabel ? ` for ${opts.periodLabel}` : "";
+  const link = isPubliclyReachable(opts.acknowledgeUrl) ? ` View: ${opts.acknowledgeUrl}` : "";
+  return `AL TAX SERVICE: Filed your ${opts.filingType}${period}. ${opts.amountLabel}: ${money2(opts.amount)}.${link}`;
+}
+
 /**
  * SMS companion to the email confirmation — same "we filed this" fact and
  * amount, condensed to one line, since SMS can't carry the full breakdown
@@ -142,9 +149,7 @@ async function sendFilingSms(opts: {
   filingType: string; periodLabel: string | null; amountLabel: string; amount: number; acknowledgeUrl?: string;
 }): Promise<{ sent: boolean }> {
   if (!opts.client.smsAllowed || !opts.client.phone) return { sent: false };
-  const period = opts.periodLabel ? ` for ${opts.periodLabel}` : "";
-  const link = isPubliclyReachable(opts.acknowledgeUrl) ? ` View: ${opts.acknowledgeUrl}` : "";
-  const body = `AL TAX SERVICE: Filed your ${opts.filingType}${period}. ${opts.amountLabel}: ${money2(opts.amount)}.${link}`;
+  const body = filingSmsText(opts);
   try {
     await sendSms({ to: opts.client.phone, body });
     await logFilingCommunication(opts.sourceSystem, opts.sourceRecordId, opts.client, `Filing Confirmation — ${opts.filingType}`, body, opts.client.phone, "Sent", "SMS");
@@ -503,4 +508,36 @@ export async function sendNoticeReceivedEmail(input: NoticeReceivedInput): Promi
     }
   })();
   return { sent: emailSent || smsSent };
+}
+
+
+/**
+ * What a client would receive, built exactly as the real senders build it but never sent or logged — backs the "Message samples" page of the
+ * Filing Tracker. The same body functions the senders use produce the HTML; the SMS text comes from the same helper.
+ */
+export interface MessagePreview { subject: string; html: string; sms: string }
+
+export async function previewFilingConfirmation(input: FilingConfirmationInput): Promise<MessagePreview> {
+  return {
+    subject: `Filing Confirmation — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`,
+    html: await wrapEmailHtml(filingConfirmationBody(input), input.req),
+    sms: filingSmsText({ filingType: input.filingType, periodLabel: input.periodLabel, amountLabel: input.amountLabel ?? "Amount", amount: input.amount, acknowledgeUrl: input.acknowledgeUrl }),
+  };
+}
+
+export async function previewEftpsDepositReport(input: EftpsDepositReportInput): Promise<MessagePreview> {
+  return {
+    subject: `Federal Tax Deposit Report — ${input.periodLabel}`,
+    html: await wrapEmailHtml(eftpsDepositReportBody(input), input.req),
+    sms: filingSmsText({ filingType: "Federal Tax Deposit (EFTPS)", periodLabel: input.periodLabel, amountLabel: "Total Deposit", amount: input.totalAmount, acknowledgeUrl: input.acknowledgeUrl }),
+  };
+}
+
+export async function previewPaymentDueReminder(input: PaymentDueReminderInput): Promise<MessagePreview> {
+  const period = input.periodLabel ? ` (${input.periodLabel})` : "";
+  return {
+    subject: `Reminder: Payment Due Soon — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`,
+    html: await wrapEmailHtml(paymentDueReminderBody(input), input.req),
+    sms: `AL TAX SERVICE: Reminder — your payment for ${input.filingType}${period} of ${money2(input.amount)} is due ${fmtDate(input.paymentDueDate)}.`,
+  };
 }
