@@ -16,6 +16,8 @@ interface Question {
   id: string; label: string; type: "text" | "textarea" | "date" | "money" | "number" | "select" | "yesno" | "list";
   required?: boolean; help?: string; placeholder?: string; options?: Option[]; showIf?: { id: string; equals?: string | boolean; notEmpty?: boolean };
   fields?: Question[]; addLabel?: string; minItems?: number;
+  /** Filled in from other answers as you type (an end date from a start date plus a length); you can still overwrite it. */
+  calc?: { kind: "endDate"; start: string; years: string; months: string };
 }
 interface Step { title: string; description?: string; questions: Question[] }
 interface Readiness { level: "READY" | "CARE" | "LAWYER"; why: string; triggers: string[]; checklist: string[] }
@@ -28,6 +30,17 @@ interface HistoryDoc { docId: string; templateKey: string; title: string; contra
 interface DraftRow { draftId: string; templateKey: string; title: string; clientId: string | null; clientName: string | null; lang: string; step: number; stepCount: number; stepTitle: string; createdBy: string; updatedAt: string }
 type Answers = Record<string, any>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Last day of a term: start + years + months − 1 day, keeping the day of the month (same rule as the server's leaseMath.ts). */
+function termEndIso(start: unknown, years: unknown, months: unknown): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(start ?? ""));
+  const y = Number(years || 0), mo = Number(months || 0);
+  if (!m || !Number.isFinite(y) || !Number.isFinite(mo) || (y <= 0 && mo <= 0) || y < 0 || mo < 0 || y > 100) return null;
+  const total = Number(m[1]) * 12 + (Number(m[2]) - 1) + Math.floor(y) * 12 + Math.floor(mo);
+  const yy = Math.floor(total / 12), mm = total % 12;
+  const day = Math.min(Number(m[3]), new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate());
+  const end = new Date(Date.UTC(yy, mm, day) - 86_400_000);
+  return end.toISOString().slice(0, 10);
+}
 function ago(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (mins < 1) return "just now";
@@ -397,7 +410,18 @@ function Wizard({ templateKey, fromDocId, resumeDraftId, onExit }: { templateKey
 
   const steps = useMemo(() => (tpl ? [{ title: "Client", questions: [] as Question[] }, ...tpl.stepList, { title: "Review", questions: [] as Question[] }] : []), [tpl]);
   const last = steps.length - 1;
-  const set = (id: string, v: any) => { touch(); setAnswers((a) => ({ ...a, [id]: v })); };
+  const set = (id: string, v: any) => {
+    touch();
+    setAnswers((a) => {
+      const next: Answers = { ...a, [id]: v };
+      // Smart entries: when the start date or the lease length changes, the end date fills itself in (you can still type over it afterwards).
+      for (const st of tpl?.stepList || []) for (const q of st.questions) {
+        const c = q.calc;
+        if (c && (id === c.start || id === c.years || id === c.months)) { const e = termEndIso(next[c.start], next[c.years], next[c.months]); if (e) next[q.id] = e; }
+      }
+      return next;
+    });
+  };
   const go = (n: number) => { touch(); setStep(n); };
   const body = { templateKey, clientId, answers, lang };
 

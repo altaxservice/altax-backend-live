@@ -101,6 +101,24 @@ function blockChildren(blocks: Block[]): (Paragraph | Table)[] {
       case "subheading": out.push(para(b.text, { bold: true, size: 22, rtl: b.rtl, before: 240, after: 100, keepNext: true })); break;
       case "bullet": out.push(para(`•\t${b.text}`, { rtl: b.rtl, align: AlignmentType.JUSTIFIED, indent: { left: 540, hanging: 300 }, after: 80 })); break;
       case "para": out.push(para(b.text, { rtl: b.rtl, align: AlignmentType.JUSTIFIED })); break;
+      case "table": {
+        const ncol = Math.max(...b.rows.map((r) => r.length));
+        const numeric = (c: number) => b.rows.slice(1).every((r) => /^[\s$\d,.%()\-–—]*$/.test(r[c] || ""));
+        const lens = Array.from({ length: ncol }, (_, c) => Math.max(...b.rows.map((r) => Math.min(40, (r[c] || "").length)), 6));
+        const sum = lens.reduce((a, x) => a + x, 0);
+        const widths = lens.map((l) => Math.round((FULL * l) / sum)); widths[ncol - 1] = FULL - widths.slice(0, -1).reduce((a, x) => a + x, 0);
+        const bd = { style: BorderStyle.SINGLE, size: 4, color: "999999" };
+        out.push(new Table({
+          width: { size: FULL, type: WidthType.DXA }, columnWidths: widths, layout: TableLayoutType.FIXED, visuallyRightToLeft: b.rtl,
+          rows: b.rows.map((r, ri) => { const strong = ri === 0 || /^total/i.test(r[0] || ""); return new TableRow({ cantSplit: true, tableHeader: ri === 0, children: Array.from({ length: ncol }, (_, c) => new TableCell({
+            width: { size: widths[c], type: WidthType.DXA }, borders: { top: bd, bottom: bd, left: bd, right: bd }, margins: { top: 60, bottom: 60, left: 100, right: 100 },
+            shading: strong ? { type: ShadingType.CLEAR, fill: "F3F3F3", color: "auto" } : undefined,
+            children: [para(r[c] || "", { bold: strong, rtl: b.rtl, size: 20, after: 0, align: numeric(c) && ri > 0 ? AlignmentType.RIGHT : (b.rtl ? AlignmentType.START : AlignmentType.LEFT) })],
+          })) }); }),
+        }));
+        out.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
+        break;
+      }
       case "form":
         forms += 1;
         if (forms === 1 && !b.notary) out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 360, after: 160 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } }, children: [run(b.rtl ? "التوقيعات" : "SIGNATURES", { bold: true, size: 22, rtl: b.rtl })] }));

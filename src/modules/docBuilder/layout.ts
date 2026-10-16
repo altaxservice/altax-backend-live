@@ -16,6 +16,7 @@ export type Block =
   | { t: "subheading"; text: string; rtl: boolean }
   | { t: "para"; text: string; rtl: boolean }
   | { t: "bullet"; text: string; rtl: boolean }
+  | { t: "table"; rows: string[][]; rtl: boolean }
   | { t: "form"; items: FormItem[]; notary: boolean; rtl: boolean }
   | { t: "break" };
 
@@ -77,6 +78,14 @@ export function parseBlocks(body: string): Block[] {
     const line = lines[i].replace(/\s+$/, "");
     if (!line.trim()) { flush(); blankRun += 1; continue; }
     if (line.trim() === "[page break]") { flush(); blocks.push({ t: "break" }); afterBreak = true; blankRun = 0; continue; }
+    // A table: consecutive lines like "| Year 1 | Oct 7, 2026 – Oct 6, 2027 | $4,300.00 |"; the first line is the header.
+    if (/^\|.+\|$/.test(line.trim())) {
+      flush();
+      const rows: string[][] = []; let k = i;
+      while (k < lines.length && /^\|.+\|$/.test(lines[k].trim())) { rows.push(lines[k].trim().slice(1, -1).split("|").map((c) => c.trim())); k++; }
+      blocks.push({ t: "table", rows, rtl: rows.some((r) => r.some((c) => ARABIC_RE.test(c))) });
+      i = k - 1; blankRun = 0; continue;
+    }
     const rtl = ARABIC_RE.test(line);
     if (afterBreak && !cur.length) { blocks.push({ t: "title", text: line, rtl }); afterBreak = false; blankRun = 0; continue; }
     if (first) { blocks.push({ t: "title", text: line, rtl }); first = false; blankRun = 0; continue; }

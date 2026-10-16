@@ -89,6 +89,32 @@ export function drawLegalBody(doc: PDFDocument, font: PDFFont, bold: PDFFont, bo
       lastTitle = b.text; ensure(60); for (const ln of wrap(b.text, bold, 15.5, TW)) { text(ln, ML + (TW - bold.widthOfTextAtSize(pdfSafeText(ln), 15.5)) / 2, y + 15, bold, 15.5); y += 21; }
       if (blocks[bi + 1] && blocks[bi + 1].t === "subtitle") { y += 6; titled = true; continue; } y += 4; line(ML + TW * 0.35, y, ML + TW * 0.65, 0.6, GRAY); y += 18; titled = true; continue;
     }
+    if (b.t === "table") {
+      // A grid: header row shaded and bold, number columns right-aligned, header repeated when the table runs onto a new page.
+      const rows = b.rows; const ncol = Math.max(...rows.map((r) => r.length)); const fs = 9.5, pad = 5, lh = 12.5;
+      const cell = (r: string[], c: number) => pdfSafeText(r[c] || "");
+      const nat = Array.from({ length: ncol }, (_, c) => Math.max(...rows.map((r, ri) => (ri === 0 ? bold : font).widthOfTextAtSize(cell(r, c), fs))) + pad * 2);
+      const totalNat = nat.reduce((a, x) => a + x, 0);
+      const widths = nat.map((w) => (w * TW) / totalNat);
+      const numeric = Array.from({ length: ncol }, (_, c) => rows.slice(1).every((r) => /^[\s$\d,.%()\-–—]*$/.test(r[c] || "")));
+      const rowH = (r: string[], ri: number) => Math.max(...Array.from({ length: ncol }, (_, c) => wrap(cell(r, c), ri === 0 ? bold : font, fs, widths[c] - pad * 2).length)) * lh + 8;
+      const drawRow = (r: string[], ri: number) => {
+        const h = rowH(r, ri); const isTotal = ri > 0 && /^total/i.test(r[0] || "");
+        if (ri === 0 || isTotal) page.drawRectangle({ x: ML, y: H - (y + h), width: TW, height: h, color: ri === 0 ? BOXFILL : rgb(0.95, 0.95, 0.95) });
+        let cx = ML;
+        for (let c = 0; c < ncol; c++) {
+          const f = ri === 0 || isTotal ? bold : font; const ls = wrap(cell(r, c), f, fs, widths[c] - pad * 2);
+          ls.forEach((ln, li) => { const wLn = f.widthOfTextAtSize(ln, fs); const tx = numeric[c] ? cx + widths[c] - pad - wLn : cx + pad; text(ln, tx, y + 4 + (li + 1) * lh - 3, f, fs); });
+          cx += widths[c];
+        }
+        y += h; line(ML, y, ML + TW, 0.4, BOXLINE);
+      };
+      // Keep the whole table on one page when it fits; otherwise break between rows and repeat the header.
+      const allH = rows.reduce((sum, r, ri) => sum + rowH(r, ri), 0);
+      ensure(allH + 20 <= H - TOP - BOTTOM ? allH + 20 : rowH(rows[0], 0) + (rows[1] ? rowH(rows[1], 1) : 0) + 14); y += 6; line(ML, y, ML + TW, 0.8);
+      rows.forEach((r, ri) => { if (ri > 0 && y + rowH(r, ri) > H - BOTTOM) { newPage(); line(ML, y, ML + TW, 0.8); drawRow(rows[0], 0); } drawRow(r, ri); });
+      y += 8; continue;
+    }
     if (b.t === "subheading") {
       // keep the heading with the paragraph under it and the start of the form after that
       const n1 = blocks[bi + 1], n2 = blocks[bi + 2];

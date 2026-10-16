@@ -29,6 +29,13 @@ function blocksHtml(blocks: Block[]): string {
       case "subheading": out.push(`<h3${dir(b.rtl)}>${esc(b.text)}</h3>`); break;
       case "bullet": out.push(`<p class="bullet"${dir(b.rtl)}>${richText(b.text)}</p>`); break;
       case "para": out.push(`<p${dir(b.rtl)}>${richText(b.text)}</p>`); break;
+      case "table": {
+        const numeric = (c: number) => b.rows.slice(1).every((r) => /^[\s$\d,.%()\-–—]*$/.test(r[c] || ""));
+        const ncol = Math.max(...b.rows.map((r) => r.length));
+        const head = `<tr>${Array.from({ length: ncol }, (_, c) => `<th${numeric(c) ? ' class="num"' : ""}>${esc(b.rows[0][c] || "")}</th>`).join("")}</tr>`;
+        const body = b.rows.slice(1).map((r) => `<tr${/^total/i.test(r[0] || "") ? ' class="total"' : ""}>${Array.from({ length: ncol }, (_, c) => `<td${numeric(c) ? ' class="num"' : ""}>${esc(r[c] || "")}</td>`).join("")}</tr>`).join("");
+        out.push(`<table class="grid"${dir(b.rtl)}><thead>${head}</thead><tbody>${body}</tbody></table>`); break;
+      }
       case "form": {
         forms += 1;
         if (b.notary) {
@@ -75,6 +82,11 @@ section.notary { margin: 22pt 0 10pt; border: 1px solid #888; background: #f7f7f
 .nfields { flex: 1; }
 .nfields .sigrow { margin-bottom: 2pt; }
 .seal { width: 1.15in; height: 1.15in; border: 1px dashed #999; display: flex; align-items: center; justify-content: center; font-size: 9pt; color: #999; flex: none; }
+table.grid { width: 100%; border-collapse: collapse; margin: 8pt 0 10pt; font-size: 10pt; break-inside: avoid; }
+table.grid th, table.grid td { border: 1px solid #999; padding: 4pt 6pt; text-align: start; }
+table.grid th { background: #f3f3f3; }
+table.grid .num { text-align: end; font-variant-numeric: tabular-nums; }
+table.grid tr.total td { font-weight: 700; background: #f3f3f3; }
 .pb { break-after: page; height: 0; }
 .hint { position: fixed; top: 8px; inset-inline-end: 8px; font: 12px Arial, sans-serif; background: #fff8dc; border: 1px solid #e0c97a; padding: 6px 10px; border-radius: 4px; }
 @media print { .page { padding: 0; max-width: none; } .hint { display: none; } }

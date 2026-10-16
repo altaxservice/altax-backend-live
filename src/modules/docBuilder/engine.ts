@@ -6,6 +6,10 @@
  * Everything here is pure (no database), so the live preview and the saved document are always rendered by the same code.
  */
 import { MORE_PARTIES, extraNames } from "./moreParties";
+import { leaseDerived, termEnd } from "./leaseMath";
+
+/** Lease documents whose term, rent increases and renewals are calculated. */
+export const LEASE_MATH_KEYS = new Set(["lease_commercial", "commercial_lease_short", "lease_residential", "commercial_sublease"]);
 import { suggestSigners } from "./signerSpec";
 export type QType = "text" | "textarea" | "date" | "money" | "number" | "select" | "yesno" | "list";
 export type PrefillKey = "clientName" | "clientAddress" | "clientEmail" | "clientPhone" | "firmName" | "firmAddress" | "today"
@@ -15,6 +19,8 @@ export interface Question {
   id: string; label: string; type: QType; required?: boolean; help?: string; placeholder?: string;
   options?: { value: string; label: string; labelAr?: string }[]; default?: string | boolean; prefill?: PrefillKey;
   showIf?: Cond; fields?: Question[]; addLabel?: string; minItems?: number;
+  /** Filled in from other answers as the user types (the wizard applies it; the user can still overwrite): an end date from a start date plus a length. */
+  calc?: { kind: "endDate"; start: string; years: string; months: string };
 }
 export interface Step { title: string; description?: string; questions: Question[] }
 export interface DocTemplate {
@@ -120,7 +126,8 @@ function evalNodes(nodes: Node[], scope: Scope): string {
       const [vid, unit] = node.id.split("|").map((x) => x.trim());
       if (unit) { const raw = String(scope.answers[vid] ?? "").trim(); const num = Number(raw); out += raw === "" ? "" : `${raw} ${Number.isFinite(num) && num === 1 ? unit : `${unit}s`}`; continue; }
       const q = scope.questions.find((x) => x.id === node.id);
-      const shown = q ? formatValue(q, scope.answers[node.id], scope.lang) : "";
+      // A value with no question (the worked-out lease texts: {{rentTable}}, {{rentIncreaseText}}, {{renewalText}}) prints as it is.
+      const shown = q ? formatValue(q, scope.answers[node.id], scope.lang) : (typeof scope.answers[node.id] === "string" ? (scope.answers[node.id] as string) : "");
       // In a draft/preview an unanswered required field shows as [Its label] instead of silently leaving a gap.
       out += shown || (scope.placeholders && q && q.required && q.type !== "yesno" && q.type !== "list" ? `[${q.label}]` : "");
     } else if (node.t === "if") {
@@ -217,7 +224,17 @@ function additionalSignatures(t: DocTemplate, answers: Answers, lang: "en" | "ar
 
 function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false, firmName = "", clientName = ""): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
-  const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang, placeholders });
+  // Leases: the rent increase wording, the year-by-year rent table and the renewal dates are worked out from the answers (leaseMath.ts).
+  let ans: Answers = answers;
+  if (LEASE_MATH_KEYS.has(t.key)) {
+    // An end date left blank is worked out from the start date and the length (the wizard fills it in as you type; this covers saved drafts and the API).
+    const withEnd: Answers = String(answers.endDate ?? "").trim() ? answers : { ...answers, endDate: termEnd(answers.startDate, answers.termYears, answers.termMonths) ?? "" };
+    const forMath = t.key === "commercial_sublease" && withEnd.rentBasis !== "amount" ? { ...withEnd, rent: "" } : withEnd;
+    // A month-to-month residential tenancy has no term to schedule.
+    const none = t.key === "lease_residential" && withEnd.termType !== "fixed";
+    ans = { ...withEnd, ...(none ? { rentIncreaseText: "", rentTable: "", renewalText: "" } : leaseDerived(forMath, lang)) };
+  }
+  const text = evalNodes(parseBody(src), { answers: ans, questions: allQuestions(t), lang, placeholders });
   // Section headings ("1. PROMISE TO PAY") are renumbered in order, so a section that is switched off never leaves a gap.
   const heading = lang === "ar" ? HEADING_AR : HEADING_EN;
   let sec = 0;
