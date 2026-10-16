@@ -127,7 +127,7 @@ export function leaseDerived(a: Answers, lang: "en" | "ar"): Record<string, stri
   if (free > 0) increase += ar ? ` ويُعفى المستأجر من الإيجار الأساسي عن ${free === 1 ? "الشهر الأول" : `الأشهر الـ ${free} الأولى`} من المدة.` : ` Base Rent is waived for the ${free === 1 ? "first month" : `first ${free} months`} of the term; all other charges remain due.`;
 
   let table = "";
-  if (plan && (new Set(plan.rows.map((r) => r.monthly)).size > 1 || free > 0)) {
+  if (plan && (plan.rows.length > 1 || free > 0)) {
     const head = ar ? AR_HEAD : EN_HEAD;
     const lines = [`| ${head.join(" | ")} |`];
     for (const r of plan.rows) {

@@ -66,9 +66,10 @@ test("renewal rent modes: flat, own percentage, own amount, written out", () => 
   assert.match(leaseDerived({ ...base, renewalRent: "terms", renewalRentTerms: "$2,400.00 per month" }, "en").renewalText, /Base Rent during a renewal term: \$2,400\.00 per month\./);
 });
 
-test("a flat rent gets a sentence, not a table of identical rows; the recording clause only applies to terms over seven years", () => {
+test("a flat rent still gets the year-by-year table (and a sentence); the recording clause only applies to terms over seven years", () => {
   const d = leaseDerived({ startDate: "2026-10-16", endDate: "2031-10-15", rent: 2000, increaseType: "none", renewal: true, renewalCount: 1, renewalYears: 3, renewalRent: "flat" }, "en");
-  assert.equal(d.rentTable, "");
+  assert.match(d.rentTable, /\| Year 5 \| Oct 16, 2030 – Oct 15, 2031 \| \$2,000\.00 \| \$24,000\.00 \|/);
+  assert.match(d.rentTable, /Renewal 1, year 3/);
   assert.match(d.rentIncreaseText, /stays the same throughout the initial term/);
   assert.equal(d.longTerm, "");
   assert.equal(leaseDerived({ startDate: "2026-10-16", endDate: "2034-10-15", rent: 1 }, "en").longTerm, "yes");
