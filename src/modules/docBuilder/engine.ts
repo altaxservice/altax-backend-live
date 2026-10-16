@@ -222,15 +222,39 @@ function additionalSignatures(t: DocTemplate, answers: Answers, lang: "en" | "ar
   return `[page break]\n${lang === "ar" ? "توقيعات إضافية" : "ADDITIONAL SIGNATURES"}\n\n${intro}\n\n${blocks.join("\n\n")}`;
 }
 
+/** Free-text answers that sit inside a sentence lose a trailing full stop or comma ("Grocery store." -> "Grocery store"), and a telephone number of ten digits is written (410) 555-0100. */
+const INLINE_TEXT_IDS = new Set(["use", "exclusiveFor", "parkingText", "size", "hours", "costNote", "utilitiesNote", "brokerName", "renewalRentTerms", "purpose", "propertyUse"]);
+function tidyAnswers(answers: Answers, lang: "en" | "ar"): Answers {
+  const out: Answers = { ...answers };
+  for (const id of INLINE_TEXT_IDS) {
+    const v = out[id];
+    if (typeof v === "string" && /[.,;:\s]$/.test(v) && !/\b(etc|inc|llc|ltd|co|corp)\.$/i.test(v.trim())) out[id] = v.replace(/[.,;:\s]+$/, "");
+  }
+  for (const id of Object.keys(out)) {
+    const v = out[id];
+    if (/phone$/i.test(id) && typeof v === "string") { const d = v.replace(/\D/g, ""); const t10 = d.length === 11 && d.startsWith("1") ? d.slice(1) : d; if (t10.length === 10 && /^[\d\s().+-]+$/.test(v)) out[id] = `(${t10.slice(0, 3)}) ${t10.slice(3, 6)}-${t10.slice(6)}`; }
+  }
+  // ", Baltimore" after a street address that already names the city or county would say it twice.
+  const county = String(out.county ?? "").trim();
+  const addr = `${out.premises ?? out.propertyAddress ?? ""}`.toLowerCase();
+  const core = county.toLowerCase().replace(/\b(city|county)\b/g, "").trim();
+  out.countyTail = county && !(core && addr.includes(core)) ? `${lang === "ar" ? "،" : ","} ${county}` : "";
+  const fix = Number(String(out.fixDays ?? "").replace(/[^\d.]/g, ""));
+  if (fix > 0) out.fixDaysEff = String(Math.max(fix, 30));
+  return out;
+}
+
 function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false, firmName = "", clientName = ""): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
   // Leases: the rent increase wording, the year-by-year rent table and the renewal dates are worked out from the answers (leaseMath.ts).
-  let ans: Answers = answers;
+  let ans: Answers = tidyAnswers(answers, lang);
   if (LEASE_MATH_KEYS.has(t.key)) {
     // An end date left blank is worked out from the start date and the length (the wizard fills it in as you type; this covers saved drafts and the API).
-    const withEnd: Answers = String(answers.endDate ?? "").trim() ? answers : { ...answers, endDate: termEnd(answers.startDate, answers.termYears, answers.termMonths) ?? "" };
+    const withEnd: Answers = String(ans.endDate ?? "").trim() ? ans : { ...ans, endDate: termEnd(ans.startDate, ans.termYears, ans.termMonths) ?? "" };
     const forMath = t.key === "commercial_sublease" && withEnd.rentBasis !== "amount" ? { ...withEnd, rent: "" } : withEnd;
     // A month-to-month residential tenancy has no term to schedule.
+    // "Takes the space early" only means something when it is earlier than the start date.
+    if (String(withEnd.possessionDate ?? "") && String(withEnd.startDate ?? "") && String(withEnd.possessionDate) >= String(withEnd.startDate)) withEnd.possessionDate = "";
     const none = t.key === "lease_residential" && withEnd.termType !== "fixed";
     ans = { ...withEnd, ...(none ? { rentIncreaseText: "", rentTable: "", renewalText: "" } : leaseDerived(forMath, lang)) };
   }

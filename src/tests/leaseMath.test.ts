@@ -55,3 +55,40 @@ test("the four lease templates print the end date, increase sentence and table (
   // a month-to-month residential tenancy has no schedule
   assert.ok(!/Lease year/.test(renderDocument(getDocTemplate("lease_residential")!, { ...a, termType: "monthly" }, "en")));
 });
+
+test("renewal rent modes: flat, own percentage, own amount, written out", () => {
+  const base = { startDate: "2026-10-16", endDate: "2031-10-15", rent: 2000, increaseType: "none", renewal: true, renewalCount: 1, renewalYears: 3 };
+  const ren = (extra: object) => rentPlan({ ...base, ...extra })!.rows.filter((r) => r.renewal).map((r) => r.monthly);
+  assert.deepEqual(ren({ renewalRent: "flat" }), [2000, 2000, 2000]);
+  assert.deepEqual(ren({ renewalRent: "percent", renewalIncreasePercent: 3 }), [2060, 2121.8, 2185.45]);
+  assert.deepEqual(ren({ renewalRent: "amount", renewalIncreaseAmount: 100 }), [2100, 2200, 2300]);
+  assert.deepEqual(ren({ renewalRent: "terms", renewalRentTerms: "$2,400 a month" }), []);
+  assert.match(leaseDerived({ ...base, renewalRent: "terms", renewalRentTerms: "$2,400.00 per month" }, "en").renewalText, /Base Rent during a renewal term: \$2,400\.00 per month\./);
+});
+
+test("a flat rent gets a sentence, not a table of identical rows; the recording clause only applies to terms over seven years", () => {
+  const d = leaseDerived({ startDate: "2026-10-16", endDate: "2031-10-15", rent: 2000, increaseType: "none", renewal: true, renewalCount: 1, renewalYears: 3, renewalRent: "flat" }, "en");
+  assert.equal(d.rentTable, "");
+  assert.match(d.rentIncreaseText, /stays the same throughout the initial term/);
+  assert.equal(d.longTerm, "");
+  assert.equal(leaseDerived({ startDate: "2026-10-16", endDate: "2034-10-15", rent: 1 }, "en").longTerm, "yes");
+  assert.equal(leaseDerived({ startDate: "2026-10-16", endDate: "2033-10-15", rent: 1 }, "en").longTerm, "");
+  assert.equal(leaseDerived({ startDate: "2026-10-16", endDate: "2031-10-15", rent: 1, renewal: true, renewalYears: 8 }, "en").longTerm, "yes");
+});
+
+test("commercial lease text: no doubled county, no stray full stop, phone formatted, sale-of-business terms sit inside the transfer section", () => {
+  require("../modules/docBuilder/templatesAr");
+  const a: any = { landlord: "L", landlordAddress: "1 A St", landlordPhone: "3369895235", tenant: "T", tenantAddress: "2 B St", premises: "923 N Eden St, Baltimore, MD 21205", county: "Baltimore", use: "Grocery store.", startDate: "2026-10-16", possessionDate: "2026-10-16", termYears: 5, rent: 2000, rentDay: 1, graceDays: 5, deposit: 2000, fixDays: 30, saleConsentDays: 15, saleReasons: true, saleQualifications: true, extraClauses: "X" };
+  for (const lang of ["en", "ar"] as const) {
+    const out = renderDocument(getDocTemplate("lease_commercial")!, a, lang);
+    assert.ok(!/MD 21205,? Baltimore|21205، Baltimore/.test(out));
+    assert.ok(out.includes("(336) 989-5235"));
+    assert.ok(!/Grocery store\.,/.test(out));
+    assert.ok(!/Tenant may take possession/.test(out));
+    assert.ok(!/longer of/.test(out));
+    assert.ok(out.includes("15"));
+  }
+  const en = renderDocument(getDocTemplate("lease_commercial")!, a, "en");
+  assert.match(en, /within 15 days, and if Landlord refuses it will state the specific reasons in writing/);
+  assert.match(en, /the additional term controls/);
+});

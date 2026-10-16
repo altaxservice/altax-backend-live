@@ -46,8 +46,8 @@ for (const t of DOC_TEMPLATES as any[]) {
   const qs = flatQs(allQuestions(t));
   const ids = new Set(qs.map((q) => q.id));
   const enVars = varsIn(t.body), arVars = t.bodyAr ? varsIn(t.bodyAr) : new Set<string>();
-  const DERIVED = new Set(["rentIncreaseText", "rentTable", "renewalText"]); // worked out by leaseMath.ts, not asked
-  const LEASE_INPUTS = new Set(["increaseType", "increasePercent", "increaseAmount", "freeMonths", "termYears", "termMonths", "renewalCount", "renewalYears", "renewalNoticeDays", "renewalRent"]);
+  const DERIVED = new Set(["rentIncreaseText", "rentTable", "renewalText", "longTerm", "countyTail", "fixDaysEff"]); // worked out by leaseMath.ts, not asked
+  const LEASE_INPUTS = new Set(["increaseType", "increasePercent", "increaseAmount", "freeMonths", "termYears", "termMonths", "renewalCount", "renewalYears", "renewalNoticeDays", "renewalRent", "renewalIncreasePercent", "renewalIncreaseAmount", "renewalRentTerms"]);
   for (const v of enVars) if (!ids.has(v) && !DERIVED.has(v) && !v.includes(".")) add(key, "HIGH", `EN body uses unknown variable {{${v}}}`);
   for (const v of arVars) if (!ids.has(v) && !DERIVED.has(v) && !v.includes(".")) add(key, "HIGH", `AR body uses unknown variable {{${v}}}`);
   if (!t.bodyAr) add(key, "HIGH", "no Arabic edition");
@@ -55,7 +55,7 @@ for (const t of DOC_TEMPLATES as any[]) {
     for (const v of enVars) if (!arVars.has(v)) add(key, "MED", `variable {{${v}}} used in English but not in Arabic`);
     for (const v of arVars) if (!enVars.has(v)) add(key, "MED", `variable {{${v}}} used in Arabic but not in English`);
   }
-  for (const q of qs) { if (q.id !== "notaryAck" && q.id !== "notaryCounty" && !(LEASE_INPUTS.has(q.id) && (enVars.has("rentIncreaseText") || enVars.has("renewalText"))) && !enVars.has(q.id) && !arVars.has(q.id)) add(key, q.required ? "HIGH" : "MED", `question "${q.label}" (${q.id}) is never used in the document text`); }
+  for (const q of qs) { if (!(q.id === "county" && (enVars.has("countyTail") || arVars.has("countyTail"))) && q.id !== "notaryAck" && q.id !== "notaryCounty" && !(LEASE_INPUTS.has(q.id) && (enVars.has("rentIncreaseText") || enVars.has("renewalText"))) && !enVars.has(q.id) && !arVars.has(q.id)) add(key, q.required ? "HIGH" : "MED", `question "${q.label}" (${q.id}) is never used in the document text`); }
   // select options: every option should have an Arabic label, and equality tests should use real option values
   for (const q of qs.filter((x) => x.type === "select")) {
     if (t.bodyAr) for (const o of (q.options || []) as any[]) if (!o.labelAr) add(key, "LOW", `select ${q.id}: option "${o.value}" has no Arabic label`);
