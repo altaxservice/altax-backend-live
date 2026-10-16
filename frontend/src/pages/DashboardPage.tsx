@@ -1122,6 +1122,15 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value">{value}</div><div className="cc-kpi-note">{note}</div></span>
     </button>
   );
+  // The tab strip sits below the Filing Tracker and Firm Pulse, usually off
+  // screen — switching the tab without scrolling to it looks like the click
+  // did nothing (and for the already-selected tab it genuinely did nothing).
+  const openTab = (key: typeof tab) => {
+    setTab(key);
+    // Instant, not smooth: the smooth animation gets cancelled by the tab
+    // re-render (observed), which left the page unmoved — reading as a dead card.
+    window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ block: "start" }), 30);
+  };
   const tabButton = (key: typeof tab, label: string, count: number, hot = false) => (
     <button type="button" role="tab" aria-selected={tab === key} className={`cc-tab${tab === key ? " on" : ""}`} onClick={() => setTab(key)}>
       {label}{count > 0 ? <span className={hot ? "hot" : ""}>{count}</span> : null}
@@ -1137,9 +1146,9 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         </div>
         <div className="cc-chips">
           {overdue.length > 0 && <button type="button" className="cc-chip red" onClick={() => navigate("/tasks")}>{overdue.length} overdue tasks</button>}
-          {missingFilings.length > 0 && <button type="button" className="cc-chip red" onClick={() => setTab("filings")}>{missingFilings.length} missed sales-tax filings</button>}
-          {overdueInvoices.length > 0 && <button type="button" className="cc-chip amber" onClick={() => setTab("money")}>{fmtMoney(overdueMoney)} overdue</button>}
-          {(reviews?.length || 0) > 0 && <button type="button" className="cc-chip amber" onClick={() => setTab("filings")}>{reviews!.length} filing reviews</button>}
+          {missingFilings.length > 0 && <button type="button" className="cc-chip red" onClick={() => openTab("filings")}>{missingFilings.length} missed sales-tax filings</button>}
+          {overdueInvoices.length > 0 && <button type="button" className="cc-chip amber" onClick={() => openTab("money")}>{fmtMoney(overdueMoney)} overdue</button>}
+          {(reviews?.length || 0) > 0 && <button type="button" className="cc-chip amber" onClick={() => openTab("filings")}>{reviews!.length} filing reviews</button>}
           {allClear && flags !== null && <span className="cc-chip green">All clear</span>}
           {user?.role === "admin" && <button className="action-button" type="button" onClick={() => navigate("/clients?new=1")}>Add Client</button>}
           <Link to="/suggestions" className="ghost-button">+ Suggest an Improvement</Link>
@@ -1148,13 +1157,13 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
       <div className="cc-kpis">
         {kpi(AlertTriangle, overdue.length ? "red" : "green", "Overdue tasks", String(overdue.length), `of ${openTasks.length} open`, () => navigate("/tasks"))}
-        {kpi(FileWarning, missingFilings.length ? "red" : "green", "Missed filings", String(missingFilings.length), "MD sales tax, unfiled", () => setTab("filings"))}
-        {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${overdueInvoices.length} invoice${overdueInvoices.length === 1 ? "" : "s"} · ${fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))} unpaid`, () => setTab("money"))}
-        {kpi(CalendarClock, dueToday.length ? "amber" : "teal", "Due today", String(dueToday.length), `${dueSoon.length} due this week`, () => setTab("work"))}
-        {kpi(ClipboardCheck, needsReview ? "blue" : "green", "Needs your review", String(needsReview), `${reviews?.length || 0} filings · ${receivedDocs.length} uploads · ${submissions?.counts.total || 0} client entries`, () => setTab(submissions?.counts.total ? "submissions" : "filings"))}
+        {kpi(FileWarning, missingFilings.length ? "red" : "green", "Missed filings", String(missingFilings.length), "MD sales tax, unfiled", () => openTab("filings"))}
+        {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${overdueInvoices.length} invoice${overdueInvoices.length === 1 ? "" : "s"} · ${fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))} unpaid`, () => openTab("money"))}
+        {kpi(CalendarClock, dueToday.length ? "amber" : "teal", "Due today", String(dueToday.length), `${dueSoon.length} due this week`, () => openTab("work"))}
+        {kpi(ClipboardCheck, needsReview ? "blue" : "green", "Needs your review", String(needsReview), `${reviews?.length || 0} filings · ${receivedDocs.length} uploads · ${submissions?.counts.total || 0} client entries`, () => openTab(submissions?.counts.total ? "submissions" : "filings"))}
       </div>
 
-      <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); }} />
+      <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ block: "start" }), 30); }} />
 
       <FilingTrackerStrip />
 
@@ -1411,6 +1420,11 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       <span><div className="cc-kpi-label">{label}</div><div className="cc-kpi-value">{value}</div><div className="cc-kpi-note">{note}</div></span>
     </button>
   );
+  // Same reason as the admin openTab above: the tab strip is below the fold.
+  const openTab = (key: typeof tab) => {
+    setTab(key);
+    window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ block: "start" }), 30);
+  };
   const tabButton = (key: typeof tab, label: string, count: number, hot = false) => (
     <button type="button" role="tab" aria-selected={tab === key} className={`cc-tab${tab === key ? " on" : ""}`} onClick={() => setTab(key)}>
       {label}{count > 0 ? <span className={hot ? "hot" : ""}>{count}</span> : null}
@@ -1427,7 +1441,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         <div className="cc-chips">
           {overdue.length > 0 && <button type="button" className="cc-chip red" onClick={() => navigate("/tasks")}>{overdue.length} overdue</button>}
           {dueToday.length > 0 && <button type="button" className="cc-chip amber" onClick={() => navigate("/tasks")}>{dueToday.length} due today</button>}
-          {receivedDocs.length > 0 && <button type="button" className="cc-chip amber" onClick={() => setTab("docs")}>{receivedDocs.length} uploads to review</button>}
+          {receivedDocs.length > 0 && <button type="button" className="cc-chip amber" onClick={() => openTab("docs")}>{receivedDocs.length} uploads to review</button>}
           {overdue.length === 0 && dueToday.length === 0 && <span className="cc-chip green">You're on track</span>}
           <Link to="/daily-log" className="ghost-button">Daily Log</Link>
           <Link to="/accounting" className="action-button">Client Workbooks</Link>
@@ -1437,12 +1451,12 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       <div className="cc-kpis">
         {kpi(AlertTriangle, overdue.length ? "red" : "green", "My overdue", String(overdue.length), `of ${openTasks.length} open tasks`, () => navigate("/tasks"))}
         {kpi(CalendarClock, dueToday.length ? "amber" : "teal", "Due today", String(dueToday.length), `${dueSoon.length} due this week`, () => navigate("/tasks"))}
-        {kpi(ClipboardCheck, waiting.length ? "blue" : "green", "Waiting on others", String(waiting.length), "client, docs or pending", () => setTab("waiting"))}
-        {kpi(FolderInput, receivedDocs.length ? "blue" : "green", "Uploads to review", String(receivedDocs.length), `${openDocs.length} open requests`, () => setTab("docs"))}
-        {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${clients.length} clients assigned to you`, () => setTab("money"))}
+        {kpi(ClipboardCheck, waiting.length ? "blue" : "green", "Waiting on others", String(waiting.length), "client, docs or pending", () => openTab("waiting"))}
+        {kpi(FolderInput, receivedDocs.length ? "blue" : "green", "Uploads to review", String(receivedDocs.length), `${openDocs.length} open requests`, () => openTab("docs"))}
+        {kpi(Wallet, overdueInvoices.length ? "amber" : "green", "Overdue money", fmtMoney(overdueMoney), `${clients.length} clients assigned to you`, () => openTab("money"))}
       </div>
 
-      <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); }} />
+      <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ block: "start" }), 30); }} />
 
       <FilingTrackerStrip />
 
