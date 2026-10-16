@@ -1,3 +1,4 @@
+import { MORE_PARTIES, moreListId } from "./moreParties";
 import { INSTRUMENT_KEYS, type DocTemplate, type Question } from "./engine";
 
 /**
@@ -4238,6 +4239,18 @@ const consent = DOC_TEMPLATES.find((t) => t.key === "authorization_release"); if
  * affidavit, and so on). When switched on, the engine adds one acknowledgment page per signer after the document (see engine.ts).
  */
 const HAS_OWN_NOTARY = /NOTARY|ACKNOWLEDGMENT BEFORE/i;
+/** "Other sellers who also sign (if any)" next to each party field where a side can be more than one person or company (moreParties.ts). */
+for (const t of DOC_TEMPLATES) {
+  for (const p of MORE_PARTIES[t.key] || []) {
+    for (const step of t.steps) {
+      const at = step.questions.findIndex((q) => q.id === p.nameId);
+      if (at < 0) continue;
+      step.questions.splice(at + 1, 0, list(moreListId(p.nameId), `Other ${p.plural || p.role.toLowerCase() + "s"} who also sign (if any)`, [text("name", "Full name or company", { required: true })], { addLabel: `Add another ${p.role.toLowerCase()}`, help: "Use this when there is more than one person or company on this side (for example co-owners, spouses or joint borrowers). Each one is named in the document, is bound by it together with the others and also alone, and gets a signature block on an Additional Signatures page." }));
+      break;
+    }
+  }
+}
+
 for (const t of DOC_TEMPLATES) {
   const qs: Question[] = [];
   if (!HAS_OWN_NOTARY.test(t.body)) qs.push(

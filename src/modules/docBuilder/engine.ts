@@ -5,6 +5,7 @@
  *   {{#list id}}…{{/list}}         repeat for each row of a "list" question; inside, {{n}} is the row number and {{field}} a row field
  * Everything here is pure (no database), so the live preview and the saved document are always rendered by the same code.
  */
+import { MORE_PARTIES, extraNames } from "./moreParties";
 import { suggestSigners } from "./signerSpec";
 export type QType = "text" | "textarea" | "date" | "money" | "number" | "select" | "yesno" | "list";
 export type PrefillKey = "clientName" | "clientAddress" | "clientEmail" | "clientPhone" | "firmName" | "firmAddress" | "today"
@@ -197,6 +198,23 @@ My commission expires: ______________`);
   return `[page break]\n${lang === "ar" ? "إقرار أمام كاتب العدل" : "NOTARY ACKNOWLEDGMENT"}\n\n${blocks.join("\n\n")}`;
 }
 
+/** The ADDITIONAL SIGNATURES page for documents where a side has more than one person or company (see moreParties.ts). */
+function additionalSignatures(t: DocTemplate, answers: Answers, lang: "en" | "ar"): string {
+  const blocks: string[] = [];
+  for (const p of MORE_PARTIES[t.key] || []) {
+    for (const name of extraNames(answers, p)) {
+      blocks.push(lang === "ar"
+        ? `${p.roleAr}: ${name}\nالتوقيع: ______________________________   التاريخ: ______________\nإذا كان شركة — بواسطة: ______________________________   الاسم: ______________________________   الصفة: ______________________________`
+        : `${p.role.toUpperCase()}: ${name}\nSignature: ______________________________   Date: ______________\nIf a company — By: ______________________________   Name: ______________________________   Title: ______________________________`);
+    }
+  }
+  if (!blocks.length) return "";
+  const intro = lang === "ar"
+    ? "هذه الصفحة جزء من المستند أعلاه. ويوقّع كل شخص أو شركة مذكور أدناه المستند كذلك، بالصفة المبيّنة، ويلتزم به بالتضامن مع الآخرين الذين بالصفة نفسها وبمفرده. ويُعد أي إشعار أو دفعة تُقدَّم إلى أيٍّ منهم أو منه إشعارًا أو دفعة إلى جميعهم."
+    : "This page is part of the document above. Each person or company named below also signs it, in the role shown, and is bound by it together with the others in that role and also alone. A notice or payment given to or by any one of them counts for all of them.";
+  return `[page break]\n${lang === "ar" ? "توقيعات إضافية" : "ADDITIONAL SIGNATURES"}\n\n${intro}\n\n${blocks.join("\n\n")}`;
+}
+
 function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placeholders = false, firmName = "", clientName = ""): string {
   const src = lang === "ar" ? t.bodyAr || t.body : t.body;
   const text = evalNodes(parseBody(src), { answers, questions: allQuestions(t), lang, placeholders });
@@ -204,7 +222,9 @@ function renderOne(t: DocTemplate, answers: Answers, lang: "en" | "ar", placehol
   const heading = lang === "ar" ? HEADING_AR : HEADING_EN;
   let sec = 0;
   const out = text.split("\n").map((l) => l.replace(/[ \t]+$/g, "")).map((l) => (heading.test(l) ? l.replace(/^\d+/, String(++sec)) : l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  const withNotary = answers.notaryAck === true ? `${out}\n\n${notaryPages(t, answers, lang, placeholders)}` : out;
+  const extras = additionalSignatures(t, answers, lang);
+  const withExtras = extras ? `${out}\n\n${extras}` : out;
+  const withNotary = answers.notaryAck === true ? `${withExtras}\n\n${notaryPages(t, answers, lang, placeholders)}` : withExtras;
   const withNotice = firmName && INSTRUMENT_KEYS.has(t.key) && answers.preparedNotice !== false ? `${withNotary}\n\n${preparedNotice(firmName, lang)}` : withNotary;
   return firmName && clientName && INSTRUMENT_KEYS.has(t.key) && answers.clientAck !== false ? `${withNotice}\n\n${clientAcknowledgment(t, firmName, clientName, lang)}` : withNotice;
 }

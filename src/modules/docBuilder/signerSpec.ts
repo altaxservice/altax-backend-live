@@ -1,4 +1,5 @@
 import type { Answers } from "./engine";
+import { MORE_PARTIES, extraNames } from "./moreParties";
 
 /** Who normally signs each built document, taken from the answers (a role name + which answer holds the person's name, or a list of people). */
 type Spec = { role: string; nameId?: string; listId?: string; listNameId?: string; onlyIf?: string };
@@ -75,5 +76,6 @@ export function suggestSigners(templateKey: string, answers: Answers): { role: s
       if (name) out.push({ role: s.role, name });
     }
   }
+  for (const p of MORE_PARTIES[templateKey] || []) for (const name of extraNames(answers, p)) out.push({ role: `${p.role} (additional)`, name });
   return out;
 }

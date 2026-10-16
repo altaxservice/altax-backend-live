@@ -108,3 +108,29 @@ test("leases with more than one landlord or tenant name everyone, make each resp
   const one = renderDocument(t, cleanAnswers(t, { landlord: "OWNER ONE", tenant: "TENANT ONE" }), "en", { firmName: "x" });
   assert.ok(!/each Landlord is responsible/.test(one));
 });
+
+test("every document where a side can be several people has an 'other parties' list that prints an Additional Signatures page and adds signers", async () => {
+  const { DOC_TEMPLATES } = await import("../modules/docBuilder/templates");
+  const { renderDocument, cleanAnswers, allQuestions } = await import("../modules/docBuilder/engine");
+  const { suggestSigners } = await import("../modules/docBuilder/signerSpec");
+  const { MORE_PARTIES, moreListId } = await import("../modules/docBuilder/moreParties");
+  await import("../modules/docBuilder/templatesAr");
+  assert.ok(Object.keys(MORE_PARTIES).length >= 30);
+  for (const [key, parts] of Object.entries(MORE_PARTIES)) {
+    const t: any = (DOC_TEMPLATES as any[]).find((x) => x.key === key);
+    assert.ok(t, `${key} template exists`);
+    const qs = allQuestions(t) as any[];
+    const raw: Record<string, any> = {};
+    for (const p of parts) {
+      assert.ok(qs.find((q) => q.id === moreListId(p.nameId) && q.type === "list"), `${key}: list question for ${p.nameId}`);
+      raw[p.nameId] = `MAIN ${p.nameId}`; raw[moreListId(p.nameId)] = [{ name: `EXTRA ${p.nameId}` }];
+    }
+    const a = cleanAnswers(t, raw);
+    for (const lang of ["en", "ar"] as const) {
+      const out = renderDocument(t, a, lang, { firmName: "x" });
+      assert.match(out, /ADDITIONAL SIGNATURES|توقيعات إضافية/);
+      assert.equal((out.match(/EXTRA /g) || []).length, parts.length, `${key} ${lang}`);
+    }
+    assert.equal(suggestSigners(key, a).filter((s: any) => /EXTRA/.test(s.name)).length, parts.length);
+  }
+});
