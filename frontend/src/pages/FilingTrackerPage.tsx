@@ -5,6 +5,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useToast } from "../components/Toast";
 import { RowNote, useRowNotes, type RowNotesApi } from "../components/RowNote";
+import { Pager } from "../components/Pager";
 
 export type TrackerKind = "sales" | "withholding" | "eftps" | "form941" | "ui";
 export type TrackerStatus = "not_filed" | "unpaid" | "scheduled" | "not_sent" | "done" | "no_data";
@@ -137,6 +138,8 @@ export function FilingTrackerPage() {
   const [search, setSearch] = useState("");
   const [sending, setSending] = useState<{ done: number; total: number } | null>(null);
   const notes = useRowNotes("filing");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
 
   function load(m: string | null = month, e: boolean = earlier) {
     setError(null);
@@ -161,6 +164,12 @@ export function FilingTrackerPage() {
     return data.rows.filter((r) => (!q || r.clientName.toLowerCase().includes(q) || r.clientId.toLowerCase().includes(q))
       && r.cells.some((c) => (kindFilter === "all" || c.kind === kindFilter) && matches(c, filter)));
   }, [data, search, filter, kindFilter]);
+
+  // Back to the first page whenever the list changes; ten clients to a page, like Clients and Tasks.
+  useEffect(() => { setPage(1); }, [search, filter, kindFilter, month, earlier]);
+  const totalPages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+  const curPage = Math.min(page, totalPages);
+  const pageRows = rows.slice((curPage - 1) * PER_PAGE, curPage * PER_PAGE);
 
   async function sendAllUnsent() {
     if (unsent.length === 0) return;
@@ -300,7 +309,7 @@ export function FilingTrackerPage() {
                 ) : (
                   <>
                   <div className="tracker-cards">
-                    {rows.map((r) => (
+                    {pageRows.map((r) => (
                       <div key={r.clientId} className="tracker-card">
                         <Link to={`/clients/${r.clientId}`} style={{ fontWeight: 700 }}>{r.clientName}</Link>
                         {!r.canNotify && <div className="muted" style={{ fontSize: 11.5 }}>No email/text consent on file</div>}
@@ -327,7 +336,7 @@ export function FilingTrackerPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((r) => (
+                        {pageRows.map((r) => (
                           <tr key={r.clientId}>
                             <td data-label="Client" style={{ verticalAlign: "top" }}>
                               <Link to={`/clients/${r.clientId}`} style={{ fontWeight: 700 }}>{r.clientName}</Link>
@@ -343,6 +352,7 @@ export function FilingTrackerPage() {
                       </tbody>
                     </table>
                   </div>
+                  <Pager page={curPage} totalPages={totalPages} onPage={setPage} total={rows.length} pageSize={PER_PAGE} />
                   </>
                 )}
               </div>
