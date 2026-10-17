@@ -1,4 +1,5 @@
 import { FilingTrackerStrip } from "../components/FilingTrackerStrip";
+import { RowNotesAttentionPanel } from "../components/RowNotesAttentionPanel";
 import { PickUpWhereYouLeftOff } from "../components/WorkTrail";
 import { FirmPulse } from "../components/FirmPulse";
 import { PortfolioPanel } from "../components/PortfolioPanel";
@@ -1165,6 +1166,8 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
       <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-admin")?.scrollIntoView({ block: "start" }), 30); }} />
 
+      <RowNotesAttentionPanel />
+
       <FilingTrackerStrip />
 
       {user?.role === "admin" && <FirmPulse />}
@@ -1457,6 +1460,8 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       </div>
 
       <SubmissionsBanner data={submissions} onOpen={() => { setTab("submissions"); window.setTimeout(() => document.getElementById("cc-tabs-staff")?.scrollIntoView({ block: "start" }), 30); }} />
+
+      <RowNotesAttentionPanel />
 
       <FilingTrackerStrip />
 

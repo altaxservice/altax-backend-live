@@ -1,3 +1,4 @@
+import { RowNote, useRowNotes } from "../components/RowNote";
 import { Pager } from "../components/Pager";
 import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -19,6 +20,7 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
  * list. A client is created only when an estimate is approved and converted.
  */
 export function EstimatesListPage() {
+  const rowNotes = useRowNotes("estimate");
   const navigate = useNavigate();
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +154,7 @@ export function EstimatesListPage() {
                 <th scope="col">Valid Until</th>
                 <th scope="col" style={{ textAlign: "right" }}>Total</th>
                 <th scope="col" style={{ textAlign: "right" }}>Balance</th>
-                <th scope="col">Last activity</th>
+                <th scope="col">Last activity</th><th scope="col" aria-label="Note" style={{ width: 34 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -179,10 +181,11 @@ export function EstimatesListPage() {
                   <td data-label="Total" style={{ textAlign: "right", fontWeight: 700 }}>{money(est.totals?.total)}</td>
                   <td data-label="Balance" style={{ textAlign: "right" }}>{money(est.totals?.balanceDue)}</td>
                   <td data-label="Last activity" className="muted"><LastActivityCell a={est.updated_at ? { at: est.updated_at, by: null, label: est.client_id ? "Converted to client" : `Status: ${est.status}` } : undefined} me="" /></td>
+                  <td className="rn-cell" data-label="Note" onClick={(e) => e.stopPropagation()}><RowNote notes={rowNotes} type="estimate" id={est.estimate_id} clientId={est.client_id || ""} label={`Estimate ${est.estimate_id}`} /></td>
                 </tr>
               ))}
               {!filtered.length && (
-                <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 24 }}>No estimates here yet.</td></tr>
+                <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 24 }}>No estimates here yet.</td></tr>
               )}
             </tbody>
           </table>

@@ -2082,3 +2082,29 @@ html:not([data-skin="classic"]) .pnote { border-radius: 4px; }
   .tracker-cards { display: block; }
   .tracker-table-wrap { display: none; }
 }
+
+/* Row Notes: the note icon at the end of a row and its pop-up */
+.rn-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); opacity: .38; cursor: pointer; vertical-align: middle; flex: none; transition: opacity .12s, background .12s; }
+tr:hover .rn-btn, .tracker-card:hover .rn-btn, .rn-btn:hover, .rn-btn:focus-visible, .rn-btn.has, .rn-btn.attn, .rn-btn.done { opacity: 1; }
+.rn-btn:hover { background: var(--surface); }
+.rn-btn.has { color: var(--amber); background: var(--amber-soft); }
+.rn-btn.attn { color: var(--red); background: var(--red-soft); }
+.rn-btn.done { color: var(--green); background: var(--green-soft); }
+.rn-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+@media (hover: none) { .rn-btn { opacity: .7; } }
+.rn-pop { position: fixed; z-index: 1300; width: 330px; max-width: calc(100vw - 16px); background: #fff; color: var(--ink); border: 1px solid var(--line); border-top: 3px solid var(--amber); border-radius: 10px; box-shadow: 0 14px 40px rgba(15, 23, 42, .24); padding: 12px 14px; font-size: 13px; line-height: 1.45; }
+.rn-pop.attn { border-top-color: var(--red); }
+.rn-pop.done { border-top-color: var(--green); }
+.rn-label { font-size: 11px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.rn-status { margin: 6px 0 4px; }
+.rn-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: var(--amber-soft); color: var(--amber); }
+.rn-tag.attn { background: var(--red-soft); color: var(--red); }
+.rn-tag.done { background: var(--green-soft); color: var(--green); }
+.rn-body { white-space: pre-wrap; word-break: break-word; font-size: 14px; }
+.rn-meta { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+.rn-hint { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+.rn-text { width: 100%; margin-top: 8px; resize: vertical; font: inherit; }
+.rn-check { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0; font-size: 12.5px; }
+.rn-check input { margin-top: 2px; }
+.rn-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.rn-actions .btn { padding: 5px 10px; font-size: 12.5px; }

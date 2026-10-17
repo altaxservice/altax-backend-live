@@ -14,7 +14,7 @@ import { Router, Response } from "express";
 import { query } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
-import { getUserAliases } from "../../common/assignment";
+import { staffClientIds } from "../../common/assignment";
 import { splitIntoMdFilingPeriodsForClient } from "../../common/mdFiling";
 import { splitIntoDcFilingPeriodsForClient } from "../../common/dcFiling";
 import { splitIntoWithholdingPeriods, withholdingDueDate, asWithholdingState, normalizeWithholdingFrequency, type WithholdingFrequency } from "../../common/withholdingFiling";
@@ -231,12 +231,7 @@ filingTrackerRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHa
   const prev = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1));
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : iso(prev).slice(0, 7);
   // Staff see only the clients they have work assigned on (the same rule canAccessClient applies one client at a time); admins see every client.
-  let allowed: Set<string> | null = null;
-  if (req.user!.role !== "admin") {
-    const aliases = Array.from(await getUserAliases(req.user!.email));
-    const rows = await query<{ client_id: string }>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL`, [aliases]);
-    allowed = new Set(rows.map((r) => r.client_id));
-  }
+  const allowed = await staffClientIds(req.user!);
   res.json(await buildFilingTracker(month, String(req.query.earlier || "") === "1", allowed));
 }));
 

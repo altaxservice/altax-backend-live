@@ -1,3 +1,4 @@
+import { RowNote, useRowNotes } from "../components/RowNote";
 import { Pager } from "../components/Pager";
 import { LastActivityCell, useTaskLastActivity, PageActivityBanner } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -54,6 +55,7 @@ interface TaskSummary {
 }
 
 export function TasksListPage() {
+  const rowNotes = useRowNotes("task");
   const navigate = useNavigate();
   const { user } = useAuth();
   const toast = useToast();
@@ -714,7 +716,7 @@ export function TasksListPage() {
                 <th scope="col">Status</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Last activity{sortArrow("updated_at")}</th>
                 {isArchivedView && <th scope="col">Archived</th>}
-                <th scope="col">Action</th>
+                <th scope="col">Action</th><th scope="col" aria-label="Note" style={{ width: 34 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -820,6 +822,7 @@ export function TasksListPage() {
                       </>
                     )}
                   </td>
+                  <td className="rn-cell" data-label="Note" onClick={(e) => e.stopPropagation()}><RowNote notes={rowNotes} type="task" id={t.task_id} clientId={t.client_id || ""} label={`Task: ${t.task_name}`} /></td>
                 </tr>
               ))}
             </tbody>

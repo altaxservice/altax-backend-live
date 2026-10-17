@@ -1,3 +1,4 @@
+import { RowNote, useRowNotes } from "../components/RowNote";
 import { Pager } from "../components/Pager";
 import { DateInput } from "../components/DateInput";
 import { LastActivityCell, PageActivityBanner } from "../components/WorkTrail";
@@ -42,6 +43,7 @@ interface TaxRow {
 }
 
 export function InvoicesListPage() {
+  const rowNotes = useRowNotes("invoice");
   const { user } = useAuth();
   const { clientId: activeBusinessId } = useSelectedBusiness();
   const { t, dir } = useLanguage();
@@ -489,7 +491,7 @@ export function InvoicesListPage() {
           <div className="table-scroll card-table">
           <table>
             <thead>
-              <tr><th scope="col">{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th scope="col">Client</th>}<th scope="col">{canManage ? "Date" : t("billing.client.colDate")}</th><th scope="col">{canManage ? "Due" : t("billing.client.colDue")}</th><th scope="col">{canManage ? "Description" : t("billing.client.colDescription")}</th><th scope="col">{canManage ? "Amount" : t("billing.client.colAmount")}</th><th scope="col">{canManage ? "Balance" : t("billing.client.colBalance")}</th><th scope="col">{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th scope="col">Last activity</th>}{canManage && <th scope="col">Action</th>}</tr>
+              <tr><th scope="col">{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th scope="col">Client</th>}<th scope="col">{canManage ? "Date" : t("billing.client.colDate")}</th><th scope="col">{canManage ? "Due" : t("billing.client.colDue")}</th><th scope="col">{canManage ? "Description" : t("billing.client.colDescription")}</th><th scope="col">{canManage ? "Amount" : t("billing.client.colAmount")}</th><th scope="col">{canManage ? "Balance" : t("billing.client.colBalance")}</th><th scope="col">{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th scope="col">Last activity</th>}{canManage && <th scope="col">Action</th>}{canManage && <th scope="col" aria-label="Note" style={{ width: 34 }}></th>}</tr>
             </thead>
             <tbody>
               {pageInvoices.map((inv) => (
@@ -534,6 +536,7 @@ export function InvoicesListPage() {
                       />
                     </td>
                   )}
+                  {canManage && <td className="rn-cell" data-label="Note" onClick={(e) => e.stopPropagation()}><RowNote notes={rowNotes} type="invoice" id={inv.invoice_id} clientId={inv.client_id} label={`Invoice ${inv.invoice_id}`} /></td>}
                 </tr>
               ))}
             </tbody>

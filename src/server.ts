@@ -49,6 +49,7 @@ import { annualReportFilingsRouter } from "./modules/annualReport/annualReportFi
 import { publicAnnualReportFilingsRouter } from "./modules/annualReport/publicAnnualReportFilings.routes";
 import { mdUiFilingsRouter } from "./modules/mdUiFilings/mdUiFilings.routes";
 import { filingTrackerRouter } from "./modules/filingTracker/filingTracker.routes";
+import { rowNotesRouter } from "./modules/rowNotes/rowNotes.routes";
 import { publicMdUiFilingsRouter } from "./modules/mdUiFilings/publicMdUiFilings.routes";
 import { obligationPeriodsRouter } from "./modules/obligationPeriods/obligationPeriods.routes";
 import { withholdingFilingsRouter } from "./modules/withholdingFilings/withholdingFilings.routes";
@@ -383,6 +384,7 @@ app.use("/annual-report-filings", annualReportFilingsRouter);
 app.use("/public/annual-report", publicAnnualReportFilingsRouter);
 app.use("/md-ui-filings", mdUiFilingsRouter);
 app.use("/filing-tracker", filingTrackerRouter);
+app.use("/row-notes", rowNotesRouter);
 app.use("/public/md-ui", publicMdUiFilingsRouter);
 app.use("/withholding-filings", withholdingFilingsRouter);
 app.use("/obligation-periods", obligationPeriodsRouter);

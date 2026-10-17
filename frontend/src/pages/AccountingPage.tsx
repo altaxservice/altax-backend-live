@@ -1,4 +1,5 @@
 import { DateInput } from "../components/DateInput";
+import { RowNote, useRowNotes } from "../components/RowNote";
 import { LastDoneHere, useWorkTrail } from "../components/WorkTrail";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -269,6 +270,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const rowNotes = useRowNotes("filing", clientId);
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [form, setForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
@@ -1094,6 +1096,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             </div>
           )}
         </td>
+        <td className="rn-cell"><RowNote notes={rowNotes} type="filing" id={`sales:${p.end}`} clientId={clientId} label={`${clientState === "DC" ? "DC" : "MD"} Sales Tax · ${fmtDate(p.start)} – ${fmtDate(p.end)}`} /></td>
       </tr>
     );
   }
@@ -1236,6 +1239,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             </div>
           )}
         </td>
+        <td className="rn-cell"><RowNote notes={rowNotes} type="filing" id={`sales:${p.end}`} clientId={clientId} label={`${clientState === "DC" ? "DC" : "MD"} Sales Tax · ${fmtDate(p.start)} – ${fmtDate(p.end)}`} /></td>
       </tr>
     );
   }
@@ -1532,6 +1536,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                             {renderMdFilingSortTh("Balance Due", "balanceDue", filingSort, setFilingSort)}
                             {showClientColumn && renderMdFilingSortTh("Client", "client", filingSort, setFilingSort)}
                             {renderMdFilingSortTh("Filed", "filed", filingSort, setFilingSort)}
+                            <th aria-label="Note" style={{ width: 34 }}></th>
                           </tr>
                         </thead>
                         <tbody>{sortMdFilingPeriods(mdFiling.periods, filingSort).map((p) => renderMdPeriodRow(p))}</tbody>
@@ -1596,6 +1601,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                           {renderMdFilingSortTh("Balance Due", "balanceDue", historySort, setHistorySort)}
                           {showClientColumn && renderMdFilingSortTh("Client", "client", historySort, setHistorySort)}
                           {renderMdFilingSortTh("Filed", "filed", historySort, setHistorySort)}
+                          <th aria-label="Note" style={{ width: 34 }}></th>
                         </tr>
                       </thead>
                       <tbody>{sortMdFilingPeriods(historyPeriods, historySort).map((p) => renderMdPeriodRow(p))}</tbody>
@@ -1721,6 +1727,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                             {renderMdFilingSortTh("Balance Due", "balanceDue", filingSort, setFilingSort)}
                             {showClientColumn && renderMdFilingSortTh("Client", "client", filingSort, setFilingSort)}
                             {renderMdFilingSortTh("Filed", "filed", filingSort, setFilingSort)}
+                            <th aria-label="Note" style={{ width: 34 }}></th>
                           </tr>
                         </thead>
                         <tbody>{sortMdFilingPeriods(dcFiling.periods, filingSort).map((p) => renderDcPeriodRow(p))}</tbody>
@@ -1778,6 +1785,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                           {renderMdFilingSortTh("Balance Due", "balanceDue", historySort, setHistorySort)}
                           {showClientColumn && renderMdFilingSortTh("Client", "client", historySort, setHistorySort)}
                           {renderMdFilingSortTh("Filed", "filed", historySort, setHistorySort)}
+                          <th aria-label="Note" style={{ width: 34 }}></th>
                         </tr>
                       </thead>
                       <tbody>{sortMdFilingPeriods(dcHistoryPeriods, historySort).map((p) => renderDcPeriodRow(p))}</tbody>

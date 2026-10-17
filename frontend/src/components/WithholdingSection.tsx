@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "./ConfirmProvider";
+import { RowNote, useRowNotes } from "./RowNote";
 
 interface PeriodRow {
   start: string; end: string; dueDate: string; targetFilingDate: string;
@@ -78,6 +79,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
   const [showHistory, setShowHistory] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [showClientColumn, setShowClientColumn] = useState(true);
+  const rowNotes = useRowNotes("filing", clientId);
 
   const [busyEnd, setBusyEnd] = useState<string | null>(null);
   const [pickingEnd, setPickingEnd] = useState<string | null>(null);
@@ -261,6 +263,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
             </div>
           )}
         </td>
+        <td className="rn-cell"><RowNote notes={rowNotes} type="filing" id={`withholding:${p.end}:${workState}`} clientId={clientId} label={`${workState} Withholding · ${fmtDate(p.start)} – ${fmtDate(p.end)}`} /></td>
       </tr>
     );
   }
@@ -286,6 +289,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
           <td>{money(cents(rows.map((p) => p.balanceDue)))}</td>
           {showClientColumn && <td></td>}
           <td></td>
+          <td></td>
         </tr>
       </tfoot>
     );
@@ -294,7 +298,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
   const head = (
     <tr>
       <th>Period</th><th>Due Date</th><th>Target Filing Date</th><th>Tax Withheld</th><th>Status</th><th>Penalty</th><th>Interest</th><th>Balance Due</th>
-      {showClientColumn && <th>Client</th>}<th>Filed</th>
+      {showClientColumn && <th>Client</th>}<th>Filed</th><th aria-label="Note" style={{ width: 34 }}></th>
     </tr>
   );
 
@@ -406,7 +410,7 @@ export function WithholdingSection({ clientId }: { clientId: string }) {
               <thead>{head}</thead>
               <tbody>
                 {breakdown.periods.map((p) => renderRow(p))}
-                {breakdown.periods.length === 0 && <tr><td colSpan={showClientColumn ? 10 : 9} className="muted" style={{ textAlign: "center", padding: 16 }}>No periods in this range.</td></tr>}
+                {breakdown.periods.length === 0 && <tr><td colSpan={showClientColumn ? 11 : 10} className="muted" style={{ textAlign: "center", padding: 16 }}>No periods in this range.</td></tr>}
               </tbody>
               {renderTotalRow(breakdown.periods)}
             </table>

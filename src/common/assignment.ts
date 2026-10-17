@@ -89,3 +89,14 @@ export async function resolveActiveClientId(
   if (!clientId) return null;
   return (await canAccessClient(user, clientId)) ? clientId : null;
 }
+
+/**
+ * The clients a staff login may see in a firm-wide list, as one set (admins: null, meaning every client). Same rule canAccessClient applies
+ * one client at a time: a staff member sees the clients they have at least one task assigned for.
+ */
+export async function staffClientIds(user: { role: string; email: string }): Promise<Set<string> | null> {
+  if (user.role === "admin") return null;
+  const aliases = Array.from(await getUserAliases(user.email));
+  const rows = await query<{ client_id: string }>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL`, [aliases]);
+  return new Set(rows.map((r) => r.client_id));
+}

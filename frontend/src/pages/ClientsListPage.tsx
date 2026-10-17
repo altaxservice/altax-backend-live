@@ -1,3 +1,4 @@
+import { RowNote, useRowNotes } from "../components/RowNote";
 import { Pager } from "../components/Pager";
 import { DateInput } from "../components/DateInput";
 import { LastActivityCell, useClientLastActivity, PageActivityBanner } from "../components/WorkTrail";
@@ -97,6 +98,7 @@ function complianceInfo(c: Client): { lead: string | null; detail: string } {
 }
 
 export function ClientsListPage() {
+  const rowNotes = useRowNotes("client");
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
@@ -1211,7 +1213,7 @@ export function ClientsListPage() {
                 <th scope="col">Compliance</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("status")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("status"); } }}>Status{sortArrow("status")}</th>
                 <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("updated_at")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("updated_at"); } }}>Last activity{sortArrow("updated_at")}</th>
-                <th scope="col">Actions</th>
+                <th scope="col">Actions</th><th scope="col" aria-label="Note" style={{ width: 34 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -1270,6 +1272,7 @@ export function ClientsListPage() {
                     <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu options={actionOptions(c)} onSelect={(action) => handleAction(c, action)} />
                     </td>
+                    <td className="rn-cell" data-label="Note" onClick={(e) => e.stopPropagation()}><RowNote notes={rowNotes} type="client" id={c.client_id} clientId={c.client_id} label={c.client_name} /></td>
                   </tr>
                 );
               })}

@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useToast } from "../components/Toast";
+import { RowNote, useRowNotes, type RowNotesApi } from "../components/RowNote";
 
 export type TrackerKind = "sales" | "withholding" | "eftps" | "form941" | "ui";
 export type TrackerStatus = "not_filed" | "unpaid" | "scheduled" | "not_sent" | "done" | "no_data";
@@ -72,17 +73,25 @@ function cellDetail(c: TrackerCell): string {
   return `${c.periodLabel} · filed and paid`;
 }
 
-function Cell({ clientId, cells }: { clientId: string; cells: TrackerCell[] }) {
+/** The same row id the client's own filing tables use, so a note written here shows there and the other way round. */
+export function filingNoteId(c: TrackerCell): string {
+  return c.kind === "withholding" ? `withholding:${c.periodEnd}:${c.state}` : `${c.kind}:${c.periodEnd}`;
+}
+
+function Cell({ clientId, cells, notes }: { clientId: string; cells: TrackerCell[]; notes: RowNotesApi }) {
   if (cells.length === 0) return <span className="muted">—</span>;
   return (
     <div style={{ display: "grid", gap: 6 }}>
       {cells.map((c) => (
-        <Link key={`${c.label}|${c.periodEnd}`} to={cellLink(clientId, c)} title={`${c.label} · ${c.periodLabel} — open the filing screen`} style={{ display: "grid", gap: 2, textDecoration: "none", color: "inherit" }}>
-          <span className={`status-pill ${STATUS_CLASS[c.status]}`} style={{ width: "fit-content" }}>
-            {c.status === "done" ? "✓ " : ""}{c.overdue ? "Overdue · " : ""}{STATUS_TEXT[c.status]}{cells.length > 1 || c.state !== "MD" && c.kind === "withholding" ? ` · ${c.state}` : ""}
-          </span>
-          <span className="muted" style={{ fontSize: 11.5 }}>{c.carried ? `Earlier · ` : ""}{cellDetail(c)}</span>
-        </Link>
+        <div key={`${c.label}|${c.periodEnd}`} style={{ display: "flex", gap: 4, alignItems: "flex-start", justifyContent: "space-between" }}>
+          <Link to={cellLink(clientId, c)} title={`${c.label} · ${c.periodLabel} — open the filing screen`} style={{ display: "grid", gap: 2, textDecoration: "none", color: "inherit" }}>
+            <span className={`status-pill ${STATUS_CLASS[c.status]}`} style={{ width: "fit-content" }}>
+              {c.status === "done" ? "✓ " : ""}{c.overdue ? "Overdue · " : ""}{STATUS_TEXT[c.status]}{cells.length > 1 || c.state !== "MD" && c.kind === "withholding" ? ` · ${c.state}` : ""}
+            </span>
+            <span className="muted" style={{ fontSize: 11.5 }}>{c.carried ? `Earlier · ` : ""}{cellDetail(c)}</span>
+          </Link>
+          <RowNote notes={notes} type="filing" id={filingNoteId(c)} clientId={clientId} label={`${c.label} · ${c.periodLabel}`} />
+        </div>
       ))}
     </div>
   );
@@ -127,6 +136,7 @@ export function FilingTrackerPage() {
   const [kindFilter, setKindFilter] = useState<TrackerKind | "all">("all");
   const [search, setSearch] = useState("");
   const [sending, setSending] = useState<{ done: number; total: number } | null>(null);
+  const notes = useRowNotes("filing");
 
   function load(m: string | null = month, e: boolean = earlier) {
     setError(null);
@@ -300,7 +310,7 @@ export function FilingTrackerPage() {
                             return cs.length === 0 ? null : (
                               <div key={k} style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: 8, alignItems: "start" }}>
                                 <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{KIND_LABEL[k]}</span>
-                                <Cell clientId={r.clientId} cells={cs} />
+                                <Cell clientId={r.clientId} cells={cs} notes={notes} />
                               </div>
                             );
                           })}
@@ -325,7 +335,7 @@ export function FilingTrackerPage() {
                             </td>
                             {KIND_ORDER.map((k) => (
                               <td key={k} data-label={KIND_LABEL[k]} style={{ verticalAlign: "top" }}>
-                                <Cell clientId={r.clientId} cells={r.cells.filter((c) => c.kind === k && (kindFilter === "all" || c.kind === kindFilter))} />
+                                <Cell clientId={r.clientId} cells={r.cells.filter((c) => c.kind === k && (kindFilter === "all" || c.kind === kindFilter))} notes={notes} />
                               </td>
                             ))}
                           </tr>
