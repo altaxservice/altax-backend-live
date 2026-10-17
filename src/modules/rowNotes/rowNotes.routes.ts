@@ -13,6 +13,27 @@ import { logAudit } from "../../common/audit";
  */
 export const rowNotesRouter = Router();
 
+/**
+ * The table (sql/205_row_notes.sql) is created on first use as well, so a database the migration was never run against still works.
+ * Safe to repeat: every statement is IF NOT EXISTS.
+ */
+let tableReady: Promise<void> | null = null;
+function ensureTable(): Promise<void> {
+  if (!tableReady) {
+    tableReady = (async () => {
+      await query(`CREATE TABLE IF NOT EXISTS altax.v3_row_notes (
+        note_id VARCHAR(64) PRIMARY KEY, entity_type VARCHAR(40) NOT NULL, client_id VARCHAR(64) NOT NULL DEFAULT '', entity_key VARCHAR(200) NOT NULL,
+        label VARCHAR(240), link VARCHAR(400), body TEXT NOT NULL, attention BOOLEAN NOT NULL DEFAULT false, resolved_at TIMESTAMPTZ, resolved_by VARCHAR(255),
+        created_by VARCHAR(255) NOT NULL, created_by_name VARCHAR(255), updated_by VARCHAR(255), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (entity_type, client_id, entity_key))`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_v3_row_notes_lookup ON altax.v3_row_notes (entity_type, client_id)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_v3_row_notes_open_attention ON altax.v3_row_notes (updated_at DESC) WHERE attention AND resolved_at IS NULL`);
+    })().catch((err) => { tableReady = null; throw err; });
+  }
+  return tableReady;
+}
+rowNotesRouter.use(asyncHandler(async (_req, _res, next) => { await ensureTable(); next(); }));
+
 const TYPE_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 function idSuffix(): string {
